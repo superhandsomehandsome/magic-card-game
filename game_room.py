@@ -398,6 +398,8 @@ class GameRoom:
             return False, 'Can only scavenge D/E/F'
 
         turn_of_card = self.discard_turns[card_idx]
+        if turn_of_card >= self.turn_number:
+            return False, 'Cannot scavenge cards from this turn'
         if turn_of_card < self.turn_number - SCAVENGE_TURN_WINDOW:
             return False, 'Card too old (>10 turns)'
 

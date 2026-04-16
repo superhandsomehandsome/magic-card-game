@@ -518,8 +518,38 @@ function tryScore() {
   const combos = state.playable_combos || [];
   let match = null;
   for (const c of combos) { if (arraysMatchUnordered(c.cards, cards)) { match = c; break; } }
+  if (!match) {
+    const detected = clientFindCombo(cards);
+    if (detected) { match = detected; }
+  }
   if (!match) { showToast('所选牌无法构成有效组合'); return; }
   sendAction('SPELL_SCORE', {cards, combo_key: match.key});
+}
+
+function clientFindCombo(cards) {
+  if (!cards.length || cards.includes('瞬')) return null;
+  const ct = {};
+  for (const c of cards) ct[c] = (ct[c]||0) + 1;
+  const keys = Object.keys(ct);
+  const n = cards.length;
+  const pad = state.my_pad;
+  const sl = (k) => { const i=pad[k]; return i.max_slots - i.scores.length - i.sealed; };
+
+  if (n===5 && keys.length===1 && sl('dragon_breath')>0)
+    return {key:'dragon_breath', cards};
+  const s1 = new Set(keys);
+  if (n===5 && s1.size===5 && ['A','B','C','D','E'].every(c=>s1.has(c)) && sl('arcane_sequence')>0)
+    return {key:'arcane_sequence', cards};
+  if (n===5 && s1.size===5 && ['B','C','D','E','F'].every(c=>s1.has(c)) && sl('elemental_surge')>0)
+    return {key:'elemental_surge', cards};
+  const vals = Object.values(ct).sort((a,b)=>b-a);
+  if (n===5 && vals[0]===3 && vals[1]===2 && sl('chaos_alchemy')>0)
+    return {key:'chaos_alchemy', cards};
+  if (n===3 && keys.length===1 && sl('triple_resonance')>0)
+    return {key:'triple_resonance', cards};
+  if (keys.length===1 && keys[0]==='F' && sl('ant_colony')>0)
+    return {key:'ant_colony', cards};
+  return null;
 }
 
 function arraysMatchUnordered(a, b) {

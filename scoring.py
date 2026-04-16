@@ -91,34 +91,25 @@ def detect_playable(hand, scorepad_slots_fn):
                         ['B','C','D','E','F'], _scaled(30)))
 
     if scorepad_slots_fn('chaos_alchemy') > 0:
-        best = None
         for c3, n3 in ct.items():
             if n3 >= 3:
                 for c2, n2 in ct.items():
                     if c2 != c3 and n2 >= 2:
                         cards = [c3]*3 + [c2]*2
                         sc = _scaled(20 + sum(_bv(c) for c in cards))
-                        if best is None or sc > best[3]:
-                            best = ('chaos_alchemy', '混沌炼金', cards, sc)
-        if best:
-            results.append(best)
+                        results.append(('chaos_alchemy', '混沌炼金', cards, sc))
 
     if scorepad_slots_fn('triple_resonance') > 0:
-        best = None
         for card, cnt in ct.items():
             if cnt >= 3:
                 cards = [card] * 3
                 sc = _scaled(10 + _bv(card) * 3)
-                if best is None or sc > best[3]:
-                    best = ('triple_resonance', '三重共鸣', cards, sc)
-        if best:
-            results.append(best)
+                results.append(('triple_resonance', '三重共鸣', cards, sc))
 
     if scorepad_slots_fn('ant_colony') > 0:
         f_cnt = ct.get('F', 0)
-        if f_cnt >= 1:
-            cards = ['F'] * f_cnt
-            results.append(('ant_colony', '以量取胜', cards, _scaled(f_cnt * 5)))
+        for n in range(1, f_cnt + 1):
+            results.append(('ant_colony', '以量取胜', ['F'] * n, _scaled(n * 5)))
 
     results.sort(key=lambda x: x[3], reverse=True)
     return results

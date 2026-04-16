@@ -66,7 +66,7 @@ def _on_turn_timeout(room_id):
         hand = room.players[defender]['hand']
         eligible = [c for c in hand if c != '瞬']
         if eligible:
-            card = max(eligible, key=lambda c: {'A':0,'B':1,'C':2,'D':3,'E':4,'F':5}.get(c, 5))
+            card = min(eligible, key=lambda c: {'A':0,'B':1,'C':2,'D':3,'E':4,'F':5}.get(c, 5))
             room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': card})
         elif '瞬' in hand:
             room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': '瞬'})
