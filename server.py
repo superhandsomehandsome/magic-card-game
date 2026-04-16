@@ -106,6 +106,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/ping')
+def ping():
+    return 'ok'
+
+
 @socketio.on('connect')
 def on_connect():
     emit('connected', {'msg': 'Connected to server'})

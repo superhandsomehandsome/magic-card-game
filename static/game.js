@@ -51,7 +51,8 @@ function initSocket() {
   socket.on('action_error', d => showToast(d.msg));
   socket.on('reconnect_fail', d => {
     clearSession();
-    showToast(d.msg);
+    showScreen('lobby');
+    showToast('上一个房间已失效，请重新创建');
   });
   socket.on('opponent_away', d => {
     showOverlay(`${d.name} 断线了`, `等待重连中... (${d.grace}秒后判定胜利)`);
@@ -719,6 +720,11 @@ function showToast(msg) {
   clearTimeout(el._timer);
   el._timer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
+
+/* ── Keep-alive ping ───────────────────────────────── */
+setInterval(() => {
+  fetch('/ping').catch(() => {});
+}, 4 * 60 * 1000);
 
 /* ── Init ──────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', initSocket);
