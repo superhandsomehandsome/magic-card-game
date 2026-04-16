@@ -195,7 +195,8 @@ class GameRoom:
     def _scavengeable_recent(self):
         result = []
         for i, card in enumerate(self.discard_pile):
-            if self.discard_turns[i] >= self.turn_number - SCAVENGE_TURN_WINDOW:
+            t = self.discard_turns[i]
+            if t < self.turn_number and t >= self.turn_number - SCAVENGE_TURN_WINDOW:
                 result.append((i, card))
         return result
 
