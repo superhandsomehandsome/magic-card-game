@@ -1,203 +1,404 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Noto+Serif+SC:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap');
 
-/* ── Reset & Global ──────────────────────── */
+/* ══════════════════════════════════════════
+   I. RESET & GLOBAL — Dark Academia Foundation
+   ══════════════════════════════════════════ */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:linear-gradient(180deg,#1a1410,#0d0a07);color:#d4c5a9;
-  font-family:'Noto Serif SC',Georgia,serif;min-height:100vh;overflow-x:hidden}
-h1,h2,h3{font-family:'Cinzel','Noto Serif SC',serif;color:#DAA520;
-  text-shadow:0 0 10px rgba(218,165,32,.3)}
-button{cursor:pointer;font-family:'Noto Serif SC',serif}
-input{font-family:'Noto Serif SC',serif}
+html{font-size:15px;overflow-x:hidden}
+body{
+  background:#1A1110;color:#E8DCC8;
+  font-family:'EB Garamond','Noto Serif SC',Georgia,serif;
+  min-height:100vh;overflow-x:hidden;
+  position:relative;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 55% 50% at 50% 45%,
+    transparent 0%,rgba(10,8,6,.4) 55%,rgba(10,8,6,.85) 100%);
+}
+body>*{position:relative;z-index:1}
+h1,h2,h3{font-family:'Cinzel','Noto Serif SC',serif;color:#D4AF37;
+  text-shadow:0 0 20px rgba(212,175,55,.2),0 2px 4px rgba(0,0,0,.6);letter-spacing:1px}
+button{cursor:pointer;font-family:'EB Garamond','Noto Serif SC',serif}
+input{font-family:'EB Garamond','Noto Serif SC',serif}
 
-/* ── Lobby ───────────────────────────────── */
+/* ══════════════════════════════════════════
+   II. BUTTONS — Forged Brass
+   ══════════════════════════════════════════ */
+.btn{
+  padding:10px 24px;border-radius:4px;
+  border:1px solid #6B5B3A;
+  background:linear-gradient(180deg,#2A1F14 0%,#1A1410 100%);
+  color:#D4AF37;font-size:1rem;font-family:'Cinzel','Noto Serif SC',serif;
+  letter-spacing:.5px;transition:all .3s ease-in-out;text-align:center;
+  text-shadow:0 1px 3px rgba(0,0,0,.6);position:relative;overflow:hidden;
+}
+.btn::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(212,175,55,.06),transparent);
+  opacity:0;transition:opacity .3s}
+.btn:hover{border-color:#D4AF37;box-shadow:0 0 20px rgba(212,175,55,.15),inset 0 1px 0 rgba(212,175,55,.1)}
+.btn:hover::after{opacity:1}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.3;cursor:default;box-shadow:none}
+.btn-sm{padding:6px 14px;font-size:.85rem}
+.btn-danger{border-color:#5A1A1A;background:linear-gradient(180deg,#3A0808,#1A0505)}
+.btn-danger:hover{border-color:#C0392B;box-shadow:0 0 20px rgba(192,57,43,.2)}
+.btn-success{border-color:#2E5A2E;background:linear-gradient(180deg,#0A2A0A,#051A05)}
+.btn-success:hover{border-color:#4CAF50;box-shadow:0 0 20px rgba(76,175,80,.2)}
+
+/* ══════════════════════════════════════════
+   III. LOBBY — Candlelit Entrance Hall
+   ══════════════════════════════════════════ */
 .lobby{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:100vh;gap:20px;padding:40px 20px}
-.lobby h1{font-size:42px;text-align:center}
-.lobby .subtitle{color:#8a7a5a;font-size:16px;margin-top:-12px;text-align:center}
-.lobby-box{background:rgba(26,20,16,.8);border:1px solid #3a2a1a;border-radius:12px;
-  padding:32px 40px;width:100%;max-width:420px;display:flex;flex-direction:column;gap:16px}
-.lobby-box label{color:#8a7a5a;font-size:13px}
-.lobby-box input{width:100%;padding:10px 14px;background:#1a1410;border:1px solid #3a2a1a;
-  border-radius:6px;color:#d4c5a9;font-size:15px;outline:none}
-.lobby-box input:focus{border-color:#DAA520}
-.lobby-box .or{text-align:center;color:#5a3a1a;font-size:13px}
-.btn{padding:10px 24px;border-radius:6px;border:1px solid #5a3a1a;
-  background:linear-gradient(135deg,#2C1810,#4a2c17);color:#DAA520;font-size:15px;
-  transition:all .3s;text-align:center}
-.btn:hover{border-color:#DAA520;box-shadow:0 0 15px rgba(218,165,32,.3)}
-.btn:disabled{opacity:.4;cursor:default;box-shadow:none}
-.btn-sm{padding:6px 14px;font-size:13px}
-.btn-danger{background:linear-gradient(135deg,#3a0a0a,#5a1a1a);border-color:#8B0000}
-.btn-danger:hover{border-color:#ef5350;box-shadow:0 0 15px rgba(239,83,80,.3)}
-.btn-success{background:linear-gradient(135deg,#0a2a0a,#1a4a1a);border-color:#2E7D32}
-.btn-success:hover{border-color:#4CAF50;box-shadow:0 0 15px rgba(76,175,80,.3)}
-.waiting{color:#8a7a5a;font-size:14px;text-align:center;padding:20px}
-.room-code{font-family:'Cinzel',monospace;font-size:36px;color:#DAA520;letter-spacing:8px;
-  text-align:center;text-shadow:0 0 12px rgba(218,165,32,.4)}
+  min-height:100vh;gap:24px;padding:40px 20px}
+.lobby h1{font-size:2.8rem;font-weight:900;text-align:center}
+.lobby .subtitle{color:#8B7D6B;font-size:1.1rem;margin-top:-10px;text-align:center;
+  font-style:italic;letter-spacing:2px}
+.lobby-box{
+  background:rgba(20,16,12,.85);
+  border:1px solid rgba(107,91,58,.4);border-radius:8px;
+  padding:32px 36px;width:100%;max-width:400px;
+  display:flex;flex-direction:column;gap:16px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
+}
+.lobby-box label{color:#8B7D6B;font-size:.85rem;font-family:'Cinzel',serif;letter-spacing:1px;text-transform:uppercase}
+.lobby-box input{width:100%;padding:10px 14px;background:rgba(26,17,16,.8);
+  border:1px solid #3A2A1A;border-radius:4px;color:#E8DCC8;font-size:1rem;outline:none;
+  transition:border-color .3s}
+.lobby-box input:focus{border-color:#D4AF37;box-shadow:0 0 12px rgba(212,175,55,.1)}
+.lobby-box .or{text-align:center;color:#4A3A2A;font-size:.85rem;letter-spacing:3px;
+  font-family:'Cinzel',serif}
+.waiting{color:#8B7D6B;font-size:.95rem;text-align:center;padding:20px;font-style:italic}
+.room-code{font-family:'Cinzel',monospace;font-size:2.4rem;font-weight:900;
+  color:#D4AF37;letter-spacing:10px;text-align:center;
+  text-shadow:0 0 30px rgba(212,175,55,.3)}
 
-/* ── Board Layout ────────────────────────── */
-.board{display:flex;flex-direction:column;height:100vh}
-.player-zone{padding:10px 16px;border-radius:0;position:relative;flex-shrink:0}
-.player-zone.opp{background:linear-gradient(180deg,rgba(13,10,7,.95),rgba(26,20,16,.6));
-  border-bottom:1px solid #3a2a1a}
-.player-zone.me{background:linear-gradient(0deg,rgba(13,10,7,.95),rgba(26,20,16,.6));
-  border-top:1px solid #3a2a1a}
-.arena{flex:1;padding:16px;display:flex;flex-direction:column;justify-content:center;
+/* ══════════════════════════════════════════
+   IV. BOARD LAYOUT — The Arcane Table
+   ══════════════════════════════════════════ */
+.board{display:flex;flex-direction:column;height:100vh;
+  background:radial-gradient(ellipse 70% 50% at 50% 50%,
+    rgba(30,22,16,.3) 0%,transparent 70%)}
+.player-zone{padding:10px 16px;flex-shrink:0;position:relative}
+.player-zone.opp{
+  background:linear-gradient(180deg,rgba(10,8,6,.95) 0%,rgba(20,16,12,.5) 100%);
+  border-bottom:1px solid rgba(107,91,58,.2);
+}
+.player-zone.me{
+  background:linear-gradient(0deg,rgba(10,8,6,.95) 0%,rgba(20,16,12,.5) 100%);
+  border-top:1px solid rgba(107,91,58,.2);
+}
+.arena{flex:1;padding:12px 16px;display:flex;flex-direction:column;justify-content:center;
   overflow-y:auto;min-height:0}
 
-/* ── Player Bar ──────────────────────────── */
-.pbar{display:flex;align-items:center;gap:16px;padding:6px 0}
-.pbar .avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;
-  justify-content:center;font-size:24px;border:2px solid #5a3a1a;flex-shrink:0}
-.pbar .avatar.active{border-color:#DAA520;box-shadow:0 0 12px rgba(218,165,32,.4)}
-.pbar .pname{font-family:'Cinzel','Noto Serif SC',serif;font-size:16px;font-weight:700;color:#DAA520}
-.pbar .pstat{font-size:13px;color:#8a7a5a}
-.pbar .pscore{font-family:'Cinzel',serif;font-size:22px;font-weight:900;color:#DAA520;
-  text-shadow:0 0 8px rgba(218,165,32,.3);margin-left:auto;white-space:nowrap}
+/* ══════════════════════════════════════════
+   V. PLAYER BAR — Grimoire Header
+   ══════════════════════════════════════════ */
+.pbar{display:flex;align-items:center;gap:14px;padding:4px 0}
+.pbar .avatar{
+  width:44px;height:44px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:22px;flex-shrink:0;
+  border:2px solid #3A2A1A;background:rgba(26,17,16,.6);
+  transition:all .5s ease;
+}
+.pbar .avatar.active{border-color:#D4AF37;
+  box-shadow:0 0 16px rgba(212,175,55,.3),inset 0 0 8px rgba(212,175,55,.1)}
+.pbar .pname{font-family:'Cinzel',serif;font-size:1rem;font-weight:700;color:#D4AF37;letter-spacing:.5px}
+.pbar .pstat{font-size:.8rem;color:#6B5B3A}
+.pbar .pscore{font-family:'Cinzel',serif;font-size:1.4rem;font-weight:900;color:#D4AF37;
+  text-shadow:0 0 12px rgba(212,175,55,.2);margin-left:auto;white-space:nowrap}
 
-/* ── Scorepad Inline Chips ───────────────── */
-.sp-inline{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
-.sp-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:4px;
-  font-size:11px;color:#d4c5a9;border:1px solid rgba(90,58,26,.4)}
-.sp-chip.t1{background:rgba(139,0,0,.15);border-color:rgba(139,0,0,.3)}
-.sp-chip.t2{background:rgba(26,35,126,.15);border-color:rgba(26,35,126,.3)}
-.sp-chip.t3{background:rgba(66,66,66,.15);border-color:rgba(66,66,66,.3)}
-.sp-chip .sp-val{color:#DAA520;font-weight:bold}
-.sp-chip .sp-lk{color:#ef5350;font-size:10px}
+/* ══════════════════════════════════════════
+   VI. SCOREPAD CHIPS — Arcane Sigils
+   ══════════════════════════════════════════ */
+.sp-inline{display:flex;flex-wrap:wrap;gap:3px;margin:3px 0}
+.sp-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:3px;
+  font-size:.7rem;color:#A09080;border:1px solid rgba(107,91,58,.25);
+  font-family:'Cinzel',serif;backdrop-filter:blur(2px)}
+.sp-chip.t1{background:rgba(74,14,23,.2);border-color:rgba(114,28,36,.3)}
+.sp-chip.t2{background:rgba(26,35,90,.15);border-color:rgba(40,50,120,.25)}
+.sp-chip.t3{background:rgba(44,47,51,.2);border-color:rgba(75,76,80,.25)}
+.sp-chip .sp-val{color:#D4AF37;font-weight:700}
+.sp-chip .sp-lk{color:#C0392B;font-size:.65rem}
 
-/* ── Cards ───────────────────────────────── */
-.cards-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:8px 0}
-.cd{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
-  width:68px;height:105px;border-radius:8px;border:2px solid;position:relative;flex-shrink:0;
-  font-family:'Cinzel','Noto Serif SC',serif;transition:all .2s;cursor:default;user-select:none}
-.cd:not(.cd-back):not(.cd-dim):hover{transform:translateY(-4px)}
-.cd .lt{font-size:24px;font-weight:900;line-height:1}
-.cd .st{font-size:9px;margin-top:2px;opacity:.8}
-.cd .vl{position:absolute;bottom:4px;font-size:9px;opacity:.7}
-.cd .sy{position:absolute;top:4px;right:6px;font-size:10px;opacity:.6}
-.cd-sm{width:52px;height:80px}.cd-sm .lt{font-size:18px}.cd-sm .st{font-size:7px}
-.cd-sm .vl{font-size:7px}.cd-sm .sy{font-size:8px}
-.cd-back{background:linear-gradient(135deg,#2C1810,#1a0f08)!important;
-  border-color:#5D4037!important;color:#5D4037!important;cursor:default}
-.cd-raised{transform:translateY(-12px)!important;
-  filter:drop-shadow(0 4px 12px rgba(218,165,32,.5))}
-.cd-dim{opacity:.35;pointer-events:none}
+/* ══════════════════════════════════════════
+   VII. CARDS — Tarot Artifacts (1:1.7 ratio)
+   ══════════════════════════════════════════ */
+.cards-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:6px 0}
+.cd{
+  display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+  width:62px;height:105px;border-radius:6px;border:1.5px solid;
+  position:relative;flex-shrink:0;
+  font-family:'Cinzel','Noto Serif SC',serif;
+  transition:all .3s ease-in-out;cursor:default;user-select:none;
+  box-shadow:0 2px 8px rgba(0,0,0,.4);
+}
+.cd .lt{font-size:1.5rem;font-weight:900;line-height:1;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.cd .st{font-size:.55rem;margin-top:2px;opacity:.7;letter-spacing:1px}
+.cd .vl{position:absolute;bottom:4px;font-size:.55rem;opacity:.6;font-family:'Cinzel',serif}
+.cd .sy{position:absolute;top:3px;right:5px;font-size:.6rem;opacity:.5}
+
+/* Card tiers */
+.cd.tier-A{background:linear-gradient(160deg,#4A0E17,#721C24,#4A0E17);border-color:#8B6914;
+  box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 20px rgba(139,105,20,.15)}
+.cd.tier-B{background:linear-gradient(160deg,#0D1B3E,#1A237E,#0D1B3E);border-color:#3A5ABA;
+  box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 12px rgba(58,90,186,.1)}
+.cd.tier-C{background:linear-gradient(160deg,#0D2818,#1B5E20,#0D2818);border-color:#2E7D32}
+.cd.tier-D{background:linear-gradient(160deg,#2C1A10,#4E342E,#2C1A10);border-color:#5D4037}
+.cd.tier-E{background:linear-gradient(160deg,#1E2328,#2C3E50,#1E2328);border-color:#455A64}
+.cd.tier-F{background:linear-gradient(160deg,#2C2F33,#4B4C50,#2C2F33);border-color:#616161}
+.cd.tier-inst{background:linear-gradient(160deg,#1A0033,#4A148C,#1A0033);border-color:#7B1FA2;
+  box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 15px rgba(75,0,130,.2)}
+
+/* A-card breathing glow */
+.cd.tier-A{animation:aGlow 3s ease-in-out infinite}
+@keyframes aGlow{
+  0%,100%{box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 15px rgba(139,105,20,.12)}
+  50%{box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 28px rgba(212,175,55,.25)}
+}
+
+/* Hover — gentle levitation */
+.cd:not(.cd-back):not(.cd-dim):hover{
+  transform:translateY(-5px);
+  box-shadow:0 8px 20px rgba(0,0,0,.5),0 0 20px rgba(212,175,55,.15);
+}
+
+/* Selected / raised */
+.cd-raised{transform:translateY(-14px)!important;
+  box-shadow:0 12px 28px rgba(0,0,0,.6),0 0 24px rgba(212,175,55,.3)!important;
+  border-color:#D4AF37!important}
+.cd-dim{opacity:.25;pointer-events:none;filter:grayscale(.5)}
 .cd.selectable{cursor:pointer}
-.cd.selectable:hover{transform:translateY(-6px);
-  box-shadow:0 4px 16px rgba(218,165,32,.3)}
+.cd.selectable:hover{transform:translateY(-7px);
+  box-shadow:0 8px 24px rgba(0,0,0,.5),0 0 20px rgba(212,175,55,.2)}
 
-/* ── Scorepad Grid ───────────────────────── */
-.sp-grid{width:100%;border-collapse:collapse;margin:8px 0;max-width:600px}
-.sp-grid th{text-align:left;padding:4px 8px;color:#8a7a5a;font-size:12px;
-  border-bottom:1px solid #3a2a1a;font-weight:normal}
-.sp-grid td{padding:5px 8px;border-bottom:1px solid rgba(58,42,26,.3);font-size:13px;color:#d4c5a9}
-.sp-grid tr.sp-avail{background:rgba(218,165,32,.06);cursor:pointer}
-.sp-grid tr.sp-avail:hover{background:rgba(218,165,32,.12)}
-.sp-grid tr.sp-avail td:first-child{color:#DAA520;font-weight:bold}
-.sp-grid .sp-score-preview{color:#DAA520;font-weight:bold}
-.sp-grid .sp-sealed-cell{color:#ef5350;text-decoration:line-through;opacity:.5}
-.sp-grid .sp-filled{color:#4CAF50}
+/* Small cards */
+.cd-sm{width:46px;height:78px}
+.cd-sm .lt{font-size:1.1rem}.cd-sm .st{font-size:.45rem}
+.cd-sm .vl{font-size:.45rem}.cd-sm .sy{font-size:.5rem}
 
-/* ── Phase Header ────────────────────────── */
-.phase-bar{text-align:center;padding:8px 16px;border-radius:8px;
-  background:rgba(218,165,32,.08);border:1px solid rgba(218,165,32,.2);margin:8px auto;
-  max-width:700px}
+/* Face-down — obsidian back */
+.cd-back{
+  background:linear-gradient(145deg,#1A0F08,#2C1810,#1A0F08)!important;
+  border-color:#3A2A1A!important;color:#3A2A1A!important;cursor:default;
+  box-shadow:0 2px 8px rgba(0,0,0,.4)!important;
+}
+.cd-back .lt{opacity:.4}
 
-/* ── Duel Area ───────────────────────────── */
-.duel-area{display:flex;justify-content:center;align-items:center;gap:36px;padding:20px}
-.duel-vs{font-size:32px;color:#8B0000;font-family:'Cinzel',serif;
-  text-shadow:0 0 20px rgba(139,0,0,.5)}
+/* ══════════════════════════════════════════
+   VIII. SCOREPAD GRID — The Grimoire Page
+   ══════════════════════════════════════════ */
+.sp-grid{width:100%;border-collapse:collapse;margin:8px auto;max-width:560px;
+  background:rgba(10,8,6,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  border:1px solid rgba(107,91,58,.2);border-radius:6px;overflow:hidden;
+  position:relative}
+.sp-grid::before,.sp-grid::after{
+  content:'◆';position:absolute;color:rgba(107,91,58,.3);font-size:.6rem;
+}
+.sp-grid::before{top:4px;left:6px}
+.sp-grid::after{bottom:4px;right:6px}
+.sp-grid th{text-align:left;padding:5px 10px;color:#6B5B3A;font-size:.75rem;
+  border-bottom:1px solid rgba(107,91,58,.2);font-family:'Cinzel',serif;
+  letter-spacing:1px;text-transform:uppercase}
+.sp-grid td{padding:6px 10px;border-bottom:1px solid rgba(107,91,58,.08);
+  font-size:.85rem;color:#A09080}
+.sp-grid tr.sp-avail{background:rgba(212,175,55,.04);cursor:pointer;
+  transition:background .3s}
+.sp-grid tr.sp-avail:hover{background:rgba(212,175,55,.1)}
+.sp-grid tr.sp-avail td:first-child{color:#D4AF37;font-weight:600}
+.sp-grid .sp-score-preview{color:#D4AF37;font-weight:700;font-family:'Cinzel',serif}
+.sp-grid .sp-sealed-cell{color:#C0392B;text-decoration:line-through;opacity:.4}
+.sp-grid .sp-filled{color:#4CAF50;font-family:'Cinzel',serif}
 
-/* ── Deck Info ───────────────────────────── */
-.deck-info{text-align:center;padding:8px;font-size:12px;color:#8a7a5a}
-.deck-info .deck-count{font-size:18px;font-weight:bold;color:#DAA520}
-
-/* ── Action Bar ──────────────────────────── */
+/* ══════════════════════════════════════════
+   IX. PHASE BAR & ACTION BAR
+   ══════════════════════════════════════════ */
+.phase-bar{text-align:center;padding:8px 16px;border-radius:4px;
+  background:rgba(212,175,55,.04);border:1px solid rgba(107,91,58,.2);
+  margin:6px auto;max-width:600px;font-family:'Cinzel',serif;
+  font-size:.9rem;color:#C5A059;letter-spacing:1px}
 .action-bar{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:8px 0}
 
-/* ── Log ─────────────────────────────────── */
-.game-log{max-height:120px;overflow-y:auto;padding:8px 12px;font-size:12px;
-  color:#8a7a5a;background:rgba(13,10,7,.6);border-radius:8px;margin:8px 0}
-.game-log .log-entry{padding:2px 0;border-bottom:1px solid rgba(58,42,26,.15)}
+/* ══════════════════════════════════════════
+   X. DUEL ARENA — Theatrical Reveal
+   ══════════════════════════════════════════ */
+.duel-stage{display:flex;justify-content:center;align-items:center;gap:0;
+  padding:24px 0;min-height:160px;position:relative}
+.duel-card-slot{width:80px;height:136px;display:flex;align-items:center;justify-content:center;
+  position:relative}
+.duel-vs{font-family:'Cinzel',serif;font-size:1.8rem;font-weight:900;
+  color:#C0392B;text-shadow:0 0 30px rgba(192,57,43,.4);
+  margin:0 20px;opacity:0;animation:vsAppear .5s .6s forwards}
+@keyframes vsAppear{to{opacity:1}}
+
+.duel-card-slot .cd{position:absolute;opacity:0}
+.duel-atk{animation:slideFromLeft .5s ease-out forwards}
+.duel-def{animation:slideFromRight .5s .1s ease-out forwards}
+@keyframes slideFromLeft{
+  from{transform:translateX(-120px) scale(.7);opacity:0}
+  to{transform:translateX(0) scale(1);opacity:1}
+}
+@keyframes slideFromRight{
+  from{transform:translateX(120px) scale(.7);opacity:0}
+  to{transform:translateX(0) scale(1);opacity:1}
+}
+
+.duel-winner-glow{animation:winPulse 1.5s ease-in-out infinite}
+@keyframes winPulse{
+  0%,100%{box-shadow:0 0 15px rgba(212,175,55,.3)}
+  50%{box-shadow:0 0 35px rgba(212,175,55,.6)}
+}
+.duel-loser-dim{opacity:.4;filter:grayscale(.6);transform:scale(.9)!important}
+.duel-tie-glow{animation:tiePulse 1.5s ease-in-out infinite}
+@keyframes tiePulse{
+  0%,100%{box-shadow:0 0 10px rgba(107,91,58,.2)}
+  50%{box-shadow:0 0 25px rgba(107,91,58,.4)}
+}
+
+.duel-result-text{text-align:center;font-family:'Cinzel',serif;font-size:1.1rem;
+  color:#D4AF37;margin-top:8px;opacity:0;animation:fadeUp .5s .8s forwards}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ══════════════════════════════════════════
+   XI. LOG — Whispered Chronicles
+   ══════════════════════════════════════════ */
+.game-log{max-height:100px;overflow-y:auto;padding:8px 12px;font-size:.8rem;
+  color:#6B5B3A;background:rgba(10,8,6,.4);border-radius:4px;margin:6px 0;
+  border:1px solid rgba(107,91,58,.1);font-style:italic}
+.game-log .log-entry{padding:2px 0;border-bottom:1px solid rgba(107,91,58,.06)}
 .game-log .log-entry:last-child{border-bottom:none}
 
-/* ── Collision ───────────────────────────── */
-.col-row{display:flex;gap:8px;justify-content:center;padding:8px 0;flex-wrap:wrap}
-.col-card{cursor:pointer}
-.col-scores{text-align:center;font-size:16px;color:#DAA520;padding:8px 0}
+/* ══════════════════════════════════════════
+   XII. COLLISION
+   ══════════════════════════════════════════ */
+.col-row{display:flex;gap:8px;justify-content:center;padding:6px 0;flex-wrap:wrap}
+.col-card{cursor:pointer;transition:transform .2s}
+.col-card:hover{transform:scale(1.05)}
+.col-scores{text-align:center;font-size:1rem;color:#D4AF37;padding:8px 0;
+  font-family:'Cinzel',serif;letter-spacing:1px}
 
-/* ── Toast / Error ───────────────────────── */
-.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;
-  background:rgba(139,0,0,.9);color:#FFD700;border:1px solid #8B0000;
-  font-size:14px;z-index:999;animation:fadeIn .3s;max-width:360px}
-@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+/* ══════════════════════════════════════════
+   XIII. TIMER
+   ══════════════════════════════════════════ */
+.timer-bar{display:inline;font-family:'Cinzel',serif;margin-left:8px}
+.timer-bar .timer-urgent{color:#C0392B;font-weight:700;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-/* ── Game Over ───────────────────────────── */
-.game-over{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:100vh;gap:20px;padding:40px}
-.game-over h1{font-size:48px}
-.final-scores{font-size:24px;color:#DAA520;text-align:center}
-
-/* ── Timer ───────────────────────────────── */
-.timer-bar{text-align:center;padding:4px 0;font-size:13px;color:#DAA520}
-.timer-bar .timer-urgent{color:#ef5350;font-weight:bold;animation:pulse 1s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
-/* ── Top Controls ────────────────────────── */
-.top-controls{position:fixed;top:8px;right:8px;z-index:100;display:flex;gap:6px}
-.top-controls .btn{padding:4px 10px;font-size:11px;opacity:.7}
+/* ══════════════════════════════════════════
+   XIV. TOP CONTROLS — Surrender/Leave
+   ══════════════════════════════════════════ */
+.top-controls{position:fixed;top:10px;right:10px;z-index:100;display:flex;gap:6px}
+.top-controls .btn{padding:5px 12px;font-size:.75rem;opacity:.6;
+  backdrop-filter:blur(4px);background:rgba(26,17,16,.8)}
 .top-controls .btn:hover{opacity:1}
 
-/* ── Overlay ─────────────────────────────── */
+/* ══════════════════════════════════════════
+   XV. OVERLAY — Modal Veil
+   ══════════════════════════════════════════ */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;
-  display:flex;align-items:center;justify-content:center}
-.overlay-box{background:rgba(26,20,16,.95);border:1px solid #3a2a1a;border-radius:12px;
-  padding:32px;text-align:center;max-width:360px;width:90%}
-.overlay-box h2{margin-bottom:12px}
-.overlay-box p{color:#8a7a5a;margin-bottom:20px}
+  display:flex;align-items:center;justify-content:center;
+  animation:overlayIn .3s ease}
+@keyframes overlayIn{from{opacity:0}to{opacity:1}}
+.overlay-box{
+  background:rgba(20,16,12,.95);border:1px solid rgba(107,91,58,.3);border-radius:8px;
+  padding:32px;text-align:center;max-width:360px;width:90%;
+  box-shadow:0 16px 48px rgba(0,0,0,.6);backdrop-filter:blur(8px);
+}
+.overlay-box h2{margin-bottom:12px;font-size:1.4rem}
+.overlay-box p{color:#6B5B3A;margin-bottom:20px;font-style:italic}
 
-/* ── Misc ────────────────────────────────── */
+/* ══════════════════════════════════════════
+   XVI. TOAST
+   ══════════════════════════════════════════ */
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:4px;
+  background:rgba(20,16,12,.95);color:#D4AF37;border:1px solid rgba(107,91,58,.3);
+  font-size:.9rem;z-index:999;animation:toastIn .4s ease;max-width:360px;
+  backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.5);
+  font-family:'Cinzel',serif}
+@keyframes toastIn{from{opacity:0;transform:translateY(-15px)}to{opacity:1;transform:translateY(0)}}
+
+/* ══════════════════════════════════════════
+   XVII. GAME OVER
+   ══════════════════════════════════════════ */
+.game-over{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;gap:24px;padding:40px}
+.game-over h1{font-size:3rem;animation:fadeUp .8s ease}
+.final-scores{font-size:1.5rem;color:#D4AF37;text-align:center;font-family:'Cinzel',serif;
+  animation:fadeUp .8s .2s ease both}
+
+/* ══════════════════════════════════════════
+   XVIII. CARD ANIMATIONS
+   ══════════════════════════════════════════ */
+@keyframes cardDraw{
+  from{opacity:0;transform:translateY(-30px) scale(.6) rotateY(90deg)}
+  to{opacity:1;transform:translateY(0) scale(1) rotateY(0)}
+}
+@keyframes cardDiscard{
+  to{opacity:0;transform:translateY(-20px) scale(.7);filter:grayscale(1)}
+}
+@keyframes cardPlay{
+  to{opacity:0;transform:translateY(-60px) scale(.5)}
+}
+.anim-draw{animation:cardDraw .4s ease-out both}
+.anim-discard{animation:cardDiscard .3s ease-in both}
+.anim-play{animation:cardPlay .3s ease-in both}
+
+/* Stagger children */
+.cards-row .cd:nth-child(1){animation-delay:0s}
+.cards-row .cd:nth-child(2){animation-delay:.05s}
+.cards-row .cd:nth-child(3){animation-delay:.1s}
+.cards-row .cd:nth-child(4){animation-delay:.15s}
+.cards-row .cd:nth-child(5){animation-delay:.2s}
+.cards-row .cd:nth-child(6){animation-delay:.25s}
+.cards-row .cd:nth-child(7){animation-delay:.3s}
+.cards-row .cd:nth-child(8){animation-delay:.35s}
+
+/* ══════════════════════════════════════════
+   XIX. UTILITIES
+   ══════════════════════════════════════════ */
 .text-center{text-align:center}
-.text-muted{color:#8a7a5a}
+.text-muted{color:#6B5B3A}
 .mt-2{margin-top:8px}
 .mt-4{margin-top:16px}
 .mb-2{margin-bottom:8px}
-.gap-2{gap:8px}
 .hidden{display:none!important}
 
-/* ── Mobile Responsive ───────────────────── */
+/* ══════════════════════════════════════════
+   XX. MOBILE RESPONSIVE
+   ══════════════════════════════════════════ */
 @media(max-width:768px){
+  html{font-size:13px}
   .board{height:auto;min-height:100vh}
-  .player-zone{padding:6px 10px}
+  .player-zone{padding:6px 8px}
   .pbar{gap:8px}
-  .pbar .avatar{width:36px;height:36px;font-size:18px}
-  .pbar .pname{font-size:13px}
-  .pbar .pstat{font-size:11px}
-  .pbar .pscore{font-size:17px}
-  .sp-inline{gap:2px}
-  .sp-chip{font-size:9px;padding:1px 5px}
-  .cards-row{gap:4px;padding:4px 0}
-  .cd{width:48px;height:74px;border-radius:6px}
-  .cd .lt{font-size:18px}
-  .cd .st{font-size:7px}
-  .cd .vl{font-size:7px;bottom:2px}
-  .cd .sy{font-size:8px;top:2px;right:4px}
-  .cd-sm{width:40px;height:62px}
-  .cd-sm .lt{font-size:14px}
-  .cd-raised{transform:translateY(-8px)!important}
-  .arena{padding:8px;min-height:180px}
-  .phase-bar{padding:6px 10px;font-size:12px;margin:4px auto}
-  .action-bar{gap:6px;padding:6px 0}
-  .btn{padding:8px 14px;font-size:13px}
-  .btn-sm{padding:5px 10px;font-size:11px}
-  .game-log{max-height:80px;padding:6px 8px;font-size:11px;margin:4px 0}
-  .sp-grid{font-size:11px}
-  .sp-grid th,.sp-grid td{padding:3px 5px}
-  .lobby h1{font-size:28px}
+  .pbar .avatar{width:32px;height:32px;font-size:16px}
+  .pbar .pname{font-size:.85rem}
+  .pbar .pscore{font-size:1.1rem}
+  .sp-chip{font-size:.6rem;padding:1px 4px}
+  .cards-row{gap:5px;padding:4px 0}
+  .cd{width:46px;height:78px}
+  .cd .lt{font-size:1.15rem}
+  .cd .st{font-size:.45rem}
+  .cd .vl{font-size:.45rem}
+  .cd-sm{width:38px;height:64px}
+  .cd-sm .lt{font-size:.9rem}
+  .cd-raised{transform:translateY(-10px)!important}
+  .arena{padding:6px 8px;min-height:150px}
+  .phase-bar{padding:5px 10px;font-size:.8rem;margin:4px auto}
+  .btn{padding:8px 14px;font-size:.85rem}
+  .btn-sm{padding:4px 10px;font-size:.75rem}
+  .game-log{max-height:70px;font-size:.75rem;margin:4px 0;padding:5px 8px}
+  .sp-grid th,.sp-grid td{padding:3px 6px;font-size:.75rem}
+  .duel-stage{min-height:120px;padding:12px 0}
+  .duel-card-slot{width:56px;height:95px}
+  .duel-vs{font-size:1.3rem;margin:0 12px}
+  .lobby h1{font-size:2rem}
   .lobby-box{padding:20px 16px}
-  .room-code{font-size:28px;letter-spacing:6px}
-  .game-over h1{font-size:32px}
-  .final-scores{font-size:18px}
-  .toast{top:auto;bottom:20px;right:10px;left:10px;max-width:none;font-size:13px}
-  .col-scores{font-size:13px}
+  .room-code{font-size:1.8rem;letter-spacing:6px}
+  .game-over h1{font-size:2.2rem}
+  .final-scores{font-size:1.2rem}
+  .toast{top:auto;bottom:16px;right:8px;left:8px;max-width:none;font-size:.85rem}
+  .top-controls{top:6px;right:6px}
+  .top-controls .btn{padding:3px 8px;font-size:.65rem}
 }

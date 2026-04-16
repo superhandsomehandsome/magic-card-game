@@ -1,14 +1,14 @@
+/* ══════════════════════════════════════════════════════
+   秘术对决：禁忌魔典 — Client
+   Dark Academia + Theatrical Animations
+   ══════════════════════════════════════════════════════ */
+
 /* ── Constants ─────────────────────────────────────── */
-const CARD_VIS = {
-  A: {bg:'linear-gradient(135deg,#8B0000,#A52A2A,#8B0000)',bd:'#DAA520',tx:'#FFD700',sym:'♠',sub:'圣物'},
-  B: {bg:'linear-gradient(135deg,#0D1B3E,#1a237e,#0D1B3E)',bd:'#5C7AEA',tx:'#90CAF9',sym:'♦',sub:'元素'},
-  C: {bg:'linear-gradient(135deg,#0D2818,#1b5e20,#0D2818)',bd:'#4CAF50',tx:'#A5D6A7',sym:'♣',sub:'中坚'},
-  D: {bg:'linear-gradient(135deg,#2C1A10,#4E342E,#2C1A10)',bd:'#8D6E63',tx:'#BCAAA4',sym:'◆',sub:'基础'},
-  E: {bg:'linear-gradient(135deg,#1B2631,#2C3E50,#1B2631)',bd:'#607D8B',tx:'#90A4AE',sym:'○',sub:'低阶'},
-  F: {bg:'linear-gradient(135deg,#1A1A1A,#333,#1A1A1A)',bd:'#616161',tx:'#9E9E9E',sym:'△',sub:'杂鱼'},
-  '瞬':{bg:'linear-gradient(135deg,#1A0033,#4a148c,#1A0033)',bd:'#AB47BC',tx:'#CE93D8',sym:'⚡',sub:'瞬'},
-};
-const CARD_BV = {A:6,B:5,C:4,D:3,E:2,F:1,'瞬':0};
+const TIER_CLASS = {A:'tier-A',B:'tier-B',C:'tier-C',D:'tier-D',E:'tier-E',F:'tier-F','瞬':'tier-inst'};
+const CARD_SYM  = {A:'♠',B:'♦',C:'♣',D:'◆',E:'○',F:'△','瞬':'⚡'};
+const CARD_SUB  = {A:'圣物',B:'元素',C:'中坚',D:'基础',E:'低阶',F:'杂鱼','瞬':'瞬'};
+const CARD_BV   = {A:6,B:5,C:4,D:3,E:2,F:1,'瞬':0};
+
 const SCOREPAD_CFG = [
   {key:'dragon_breath',name:'龙之吐息 (五条)',max:1,tier:1},
   {key:'arcane_sequence',name:'奥术序列 (大顺)',max:1,tier:1},
@@ -24,8 +24,11 @@ let socket = null;
 let roomId = null;
 let myIdx = -1;
 let state = null;
+let prevState = null;
 let selectedCards = [];
 let timerInterval = null;
+let duelAnimDone = false;
+let prevHandStr = '';
 
 /* ── Socket Setup ──────────────────────────────────── */
 function initSocket() {
@@ -72,13 +75,24 @@ function showWaiting() {
 
 /* ── State Handler ─────────────────────────────────── */
 function onState(s) {
+  prevState = state;
   state = s;
   selectedCards = [];
+
+  const isDuelRevealPhase = (s.phase === 'DUEL_REWARD' || s.phase === 'AMBUSH_SCAVENGE') && s.atk_card && s.def_card;
+  const prevWasDuel = prevState && (prevState.phase === 'DUEL_REWARD' || prevState.phase === 'AMBUSH_SCAVENGE');
+  duelAnimDone = prevWasDuel && isDuelRevealPhase;
+
   hideOverlay();
   if (s.phase === 'GAME_OVER') { renderGameOver(); return; }
   showScreen('gameBoard');
+
+  const newHandStr = (s.my_hand || []).join(',');
+  const handChanged = newHandStr !== prevHandStr;
+  prevHandStr = newHandStr;
+
   renderOppZone();
-  renderMyZone();
+  renderMyZone(handChanged && (!prevState || prevState.phase === 'DRAW'));
   renderArena();
   startTimer();
 }
@@ -87,15 +101,18 @@ function onState(s) {
 function cardHTML(card, opts={}) {
   if (opts.faceDown) {
     const cls = 'cd cd-back' + (opts.small ? ' cd-sm' : '');
-    return `<div class="${cls}"><span class="lt">🔮</span></div>`;
+    return `<div class="${cls}"><span class="lt">☽</span></div>`;
   }
-  const v = CARD_VIS[card] || CARD_VIS.F;
-  let cls = 'cd' + (opts.small ? ' cd-sm' : '') + (opts.raised ? ' cd-raised' : '') +
-    (opts.dim ? ' cd-dim' : '') + (opts.selectable ? ' selectable' : '');
-  const bv = CARD_BV[card] ?? 0;
-  return `<div class="${cls}" ${opts.onclick||''} style="background:${v.bg};border-color:${v.bd};color:${v.tx}">` +
-    `<span class="sy">${v.sym}</span><span class="lt">${card}</span>` +
-    `<span class="st">${v.sub}</span><span class="vl">${bv}分</span></div>`;
+  const tier = TIER_CLASS[card] || 'tier-F';
+  const sym  = CARD_SYM[card] || '△';
+  const sub  = CARD_SUB[card] || '?';
+  const bv   = CARD_BV[card] ?? 0;
+  let cls = `cd ${tier}` + (opts.small ? ' cd-sm' : '') + (opts.raised ? ' cd-raised' : '') +
+    (opts.dim ? ' cd-dim' : '') + (opts.selectable ? ' selectable' : '') +
+    (opts.extraClass ? ` ${opts.extraClass}` : '');
+  return `<div class="${cls}" ${opts.onclick||''}>` +
+    `<span class="sy">${sym}</span><span class="lt">${card}</span>` +
+    `<span class="st">${sub}</span><span class="vl">${bv}</span></div>`;
 }
 
 /* ── Scorepad Chips ────────────────────────────────── */
@@ -106,7 +123,7 @@ function padChipsHTML(pad) {
     const tc = TIER_CLS[cfg.tier] || 't3';
     let slots = '';
     for (const s of info.scores) slots += `<span class="sp-val">${s}</span> `;
-    for (let i=0; i<info.sealed; i++) slots += '<span class="sp-lk">🔒</span> ';
+    for (let i=0; i<info.sealed; i++) slots += '<span class="sp-lk">✦</span> ';
     const rem = info.max_slots - info.scores.length - info.sealed;
     for (let i=0; i<rem; i++) slots += '☐ ';
     const short = cfg.name.split('(')[0].trim();
@@ -116,15 +133,16 @@ function padChipsHTML(pad) {
 }
 
 /* ── Player Bar ────────────────────────────────────── */
-function playerBarHTML(name, score, winScore, handCount, pad, isActive, breaker, scavLeft) {
+function playerBarHTML(name, score, winScore, handCount, pad, isActive, breaker, scavLeft, deckCount, discardCount) {
   const icon = name.includes('炼金') ? '🧙' : '🔮';
   const actCls = isActive ? ' active' : '';
-  let stat = `手牌 ${handCount} 张`;
-  if (breaker) stat += ` | 破法×${breaker}`;
-  stat += ` | 拾荒${scavLeft}`;
+  let stat = `手牌 ${handCount}`;
+  if (breaker) stat += ` · 破法×${breaker}`;
+  stat += ` · 拾荒${scavLeft}`;
+  if (deckCount !== undefined) stat += ` · 牌库${deckCount} · 弃牌${discardCount}`;
   return `<div class="pbar">` +
     `<div class="avatar${actCls}">${icon}</div>` +
-    `<div><div class="pname">${name}${isActive ? ' 👈' : ''}</div>` +
+    `<div><div class="pname">${name}${isActive ? ' ◄' : ''}</div>` +
     `<div class="pstat">${stat}</div>${padChipsHTML(pad)}</div>` +
     `<div class="pscore">${score} / ${winScore}</div></div>`;
 }
@@ -141,16 +159,16 @@ function renderOppZone() {
   el.innerHTML = h;
 }
 
-function renderMyZone() {
+function renderMyZone(animateDraw) {
   const s = state;
   const el = document.getElementById('myZone');
   let h = playerBarHTML(s.my_name, s.my_score, s.win_score, s.my_hand.length,
-    s.my_pad, s.is_my_turn, s.my_breaker, s.my_scavenge_left);
-  h += renderMyHand();
+    s.my_pad, s.is_my_turn, s.my_breaker, s.my_scavenge_left, s.deck_count, s.discard_count);
+  h += renderMyHand(animateDraw);
   el.innerHTML = h;
 }
 
-function renderMyHand() {
+function renderMyHand(animateDraw) {
   const s = state;
   const selectable = needsCardSelection();
   let h = '<div class="cards-row">';
@@ -158,8 +176,9 @@ function renderMyHand() {
     const c = s.my_hand[i];
     const raised = selectedCards.includes(i);
     const canSelect = selectable && canSelectCard(c, i);
+    const anim = animateDraw ? 'anim-draw' : '';
     h += cardHTML(c, {
-      raised, selectable: canSelect,
+      raised, selectable: canSelect, extraClass: anim,
       onclick: canSelect ? `onclick="toggleCard(${i})"` : ''
     });
   }
@@ -193,7 +212,7 @@ function toggleCard(idx) {
     if (selectedCards.includes(idx)) selectedCards = selectedCards.filter(i => i !== idx);
     else selectedCards.push(idx);
   }
-  renderMyZone();
+  renderMyZone(false);
   renderArena();
 }
 
@@ -227,19 +246,13 @@ function confirmSurrender() {
     `<div class="action-bar"><button class="btn btn-danger" onclick="doSurrender()">确定投降</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doSurrender() {
-  hideOverlay();
-  socket.emit('surrender', {room_id: roomId});
-}
+function doSurrender() { hideOverlay(); socket.emit('surrender', {room_id: roomId}); }
 function confirmLeave() {
   showOverlay('退出房间？', '退出后对手将直接获胜',
     `<div class="action-bar"><button class="btn btn-danger" onclick="doLeave()">确定退出</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doLeave() {
-  hideOverlay();
-  socket.emit('leave_game', {room_id: roomId});
-}
+function doLeave() { hideOverlay(); socket.emit('leave_game', {room_id: roomId}); }
 
 /* ── Overlay ───────────────────────────────────────── */
 function showOverlay(title, msg, buttonsHTML) {
@@ -253,13 +266,16 @@ function hideOverlay() {
   if (el) el.remove();
 }
 
-/* ── Arena Render (phase-dependent) ────────────────── */
+/* ═══════════════════════════════════════════════════
+   ARENA RENDER — Phase-dependent
+   ═══════════════════════════════════════════════════ */
 function renderArena() {
   const s = state;
   const el = document.getElementById('arenaZone');
   let h = renderTopControls();
 
-  h += `<div class="phase-bar">${phaseLabel(s.phase)} — 回合 ${s.turn_number} <span id="timerDisplay"></span></div>`;
+  h += `<div class="phase-bar">${phaseLabel(s.phase)} — 回合 ${s.turn_number}` +
+       ` <span class="timer-bar" id="timerDisplay"></span></div>`;
   h += renderLog();
 
   switch (s.phase) {
@@ -267,8 +283,8 @@ function renderArena() {
     case 'AMBUSH_DECIDE': h += renderAmbushDecide(); break;
     case 'AMBUSH_ATK_SELECT': h += renderAmbushAtkSelect(); break;
     case 'AMBUSH_DEF_SELECT': h += renderAmbushDefSelect(); break;
-    case 'DUEL_REWARD': h += renderDuelReward(); break;
-    case 'AMBUSH_SCAVENGE': h += renderScavenge(); break;
+    case 'DUEL_REWARD': h += renderDuelStage() + renderDuelReward(); break;
+    case 'AMBUSH_SCAVENGE': h += renderDuelStage() + renderScavenge(); break;
     case 'SPELL': h += renderSpell(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
@@ -295,17 +311,73 @@ function renderLog() {
   return h + '</div>';
 }
 
+/* ═══════════════════════════════════════════════════
+   DUEL STAGE — Theatrical card reveal animation
+   ═══════════════════════════════════════════════════ */
+function renderDuelStage() {
+  const s = state;
+  if (!s.atk_card || s.atk_card === '?') return '';
+
+  const atkCard = s.atk_card;
+  const defCard = s.def_card;
+  const result  = s.ambush_result;
+
+  const atkWin = result === 1;
+  const defWin = result === -1;
+  const tie    = result === 0;
+
+  const atkGlow = atkWin ? 'duel-winner-glow' : defWin ? 'duel-loser-dim' : 'duel-tie-glow';
+  const defGlow = defWin ? 'duel-winner-glow' : atkWin ? 'duel-loser-dim' : 'duel-tie-glow';
+
+  const atkAnim = duelAnimDone ? '' : 'duel-atk';
+  const defAnim = duelAnimDone ? '' : (defCard ? 'duel-def' : '');
+
+  let resultSymbol, resultText;
+  if (atkWin) {
+    resultSymbol = '>';
+    resultText = '攻击方胜';
+  } else if (defWin) {
+    resultSymbol = '<';
+    resultText = '防守方胜';
+  } else {
+    resultSymbol = '=';
+    resultText = '平局';
+  }
+
+  let h = '<div class="duel-stage">';
+  h += `<div class="duel-card-slot">${cardHTML(atkCard, {extraClass: `${atkAnim} ${atkGlow}`})}</div>`;
+  if (!duelAnimDone) {
+    h += `<div class="duel-vs">${resultSymbol}</div>`;
+  } else {
+    h += `<div class="duel-vs" style="opacity:1;animation:none">${resultSymbol}</div>`;
+  }
+  if (defCard) {
+    h += `<div class="duel-card-slot">${cardHTML(defCard, {extraClass: `${defAnim} ${defGlow}`})}</div>`;
+  } else {
+    h += `<div class="duel-card-slot"><div class="cd cd-back" style="opacity:1"><span class="lt">✕</span></div></div>`;
+  }
+  h += '</div>';
+
+  if (!duelAnimDone) {
+    h += `<div class="duel-result-text">${resultText}</div>`;
+  } else {
+    h += `<div class="duel-result-text" style="opacity:1;animation:none">${resultText}</div>`;
+  }
+
+  return h;
+}
+
 /* ── Phase: Draw ───────────────────────────────────── */
 function renderDraw() {
-  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在抽牌...</div>';
-  return `<div class="text-center"><p>点击抽牌</p>
+  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在汲取魔力...</div>';
+  return `<div class="text-center">
     <div class="action-bar"><button class="btn" onclick="sendAction('DRAW')">汲取魔力</button></div></div>`;
 }
 
 /* ── Phase: Ambush Decide ──────────────────────────── */
 function renderAmbushDecide() {
-  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在决定是否突袭...</div>';
-  return `<div class="text-center"><p>是否发起突袭拼点？</p>
+  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在抉择...</div>';
+  return `<div class="text-center">
     <div class="action-bar">
       <button class="btn btn-danger" onclick="sendAction('AMBUSH_DECIDE',{choice:'attack'})">发起突袭</button>
       <button class="btn" onclick="sendAction('AMBUSH_DECIDE',{choice:'skip'})">跳过</button>
@@ -314,11 +386,11 @@ function renderAmbushDecide() {
 
 /* ── Phase: Ambush Atk Select ──────────────────────── */
 function renderAmbushAtkSelect() {
-  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在选择攻击牌...</div>';
-  let h = '<div class="text-center"><p>选择一张牌发起拼点（点击下方手牌）</p><div class="action-bar">';
+  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在暗扣...</div>';
+  let h = '<div class="text-center"><p class="text-muted">选择一张牌发起拼点</p><div class="action-bar">';
   if (selectedCards.length === 1) {
     const card = state.my_hand[selectedCards[0]];
-    h += `<button class="btn btn-danger" onclick="sendAction('AMBUSH_ATK_SELECT',{card:'${card}'})">确认出牌 [${card}]</button>`;
+    h += `<button class="btn btn-danger" onclick="sendAction('AMBUSH_ATK_SELECT',{card:'${card}'})">确认出牌</button>`;
   }
   h += `<button class="btn" onclick="sendAction('AMBUSH_CANCEL')">放弃突袭</button>`;
   return h + '</div></div>';
@@ -328,10 +400,10 @@ function renderAmbushAtkSelect() {
 function renderAmbushDefSelect() {
   const isDefender = !state.is_my_turn;
   if (!isDefender) return '<div class="text-center text-muted">等待对手防守...</div>';
-  let h = `<div class="text-center"><p>对手发起突袭！选择一张牌防守（可使用瞬强制平局）</p><div class="action-bar">`;
+  let h = `<div class="text-center"><p class="text-muted">对手发起突袭！选择防守牌 (可用瞬强制平局)</p><div class="action-bar">`;
   if (selectedCards.length === 1) {
     const card = state.my_hand[selectedCards[0]];
-    h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEF_SELECT',{card:'${card}'})">应战 [${card}]</button>`;
+    h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEF_SELECT',{card:'${card}'})">应战</button>`;
   }
   return h + '</div></div>';
 }
@@ -341,7 +413,7 @@ function renderDuelReward() {
   const s = state;
   if (s.duel_winner_idx !== s.my_idx) return '<div class="text-center text-muted">对手正在选择奖励...</div>';
 
-  let h = '<div class="text-center"><p>拼点胜利！从弃牌堆选取一张牌作为奖励</p>';
+  let h = '<div class="text-center"><p>从弃牌堆选取一张作为奖励</p>';
   if (s.discard_pile && s.discard_pile.length) {
     h += '<div class="cards-row">';
     for (let i=0; i<s.discard_pile.length; i++) {
@@ -360,7 +432,7 @@ function renderScavenge() {
   const s = state;
   if (!s.scavenge_options) return '<div class="text-center text-muted">等待对手拾荒...</div>';
 
-  let h = '<div class="text-center"><p>败者拾荒：选择一张 D/E/F 牌</p>';
+  let h = '<div class="text-center"><p>败者拾荒 — 选择一张 D/E/F 牌</p>';
   if (s.scavenge_options.length) {
     h += '<div class="cards-row">';
     for (const [idx, card] of s.scavenge_options) {
@@ -381,38 +453,30 @@ function renderSpell() {
   let h = '<div>';
 
   if (s.tier1_bonus) {
-    h += '<div class="phase-bar" style="border-color:#8B0000;background:rgba(139,0,0,.1)">禁忌连击！可再计分一次</div>';
+    h += '<div class="phase-bar" style="border-color:#8B0000;background:rgba(139,0,0,.08)">禁忌连击 — 可再计分一次</div>';
   }
 
-  // Free actions
   h += '<div class="action-bar">';
-  if (s.my_breaker > 0) h += `<button class="btn btn-sm" onclick="showBreakerMenu()">使用破法者 (${s.my_breaker})</button>`;
+  if (s.my_breaker > 0) h += `<button class="btn btn-sm" onclick="showBreakerMenu()">破法者 (${s.my_breaker})</button>`;
   if (s.instant_count < s.instant_limit && s.my_hand.includes('瞬'))
     h += `<button class="btn btn-sm" onclick="enterInstantMode()">使用瞬</button>`;
   h += '</div>';
 
-  // Echo indicator
-  if (s.echo_ready) h += '<div class="text-center" style="color:#CE93D8;font-size:13px">回响激活 +10 分</div>';
-  if (s.my_curse) h += '<div class="text-center" style="color:#ef5350;font-size:13px">诅咒生效 -10 分</div>';
+  if (s.echo_ready) h += '<div class="text-center" style="color:#9B59B6;font-size:.85rem">回响激活 +10</div>';
+  if (s.my_curse) h += '<div class="text-center" style="color:#C0392B;font-size:.85rem">诅咒生效 −10</div>';
 
-  // Instant mode
   if (state._instantMode) {
-    h += `<div class="text-center mt-2"><p>选择要弃掉的牌（至少 1 张非瞬牌），瞬将自动使用</p>
+    h += `<div class="text-center mt-2"><p class="text-muted">选择弃牌 (至少 1 张非瞬)，瞬将自动使用</p>
       <div class="action-bar">`;
-    if (selectedCards.length > 0) {
-      const cards = selectedCards.map(i => state.my_hand[i]).filter(c => c !== '瞬');
-      if (cards.length > 0) {
-        h += `<button class="btn btn-success" onclick="confirmInstant()">确认刷新 (弃${cards.length}张)</button>`;
-      }
-    }
+    const cards = selectedCards.map(i => state.my_hand[i]).filter(c => c !== '瞬');
+    if (cards.length > 0)
+      h += `<button class="btn btn-success" onclick="confirmInstant()">确认刷新 (弃${cards.length}张)</button>`;
     h += `<button class="btn" onclick="cancelInstantMode()">取消</button></div></div>`;
     return h + '</div>';
   }
 
-  // Scorepad grid with playable combos
   h += renderScorepadGrid();
 
-  // Terminal actions
   h += '<div class="action-bar mt-2">';
   if (selectedCards.length > 0) {
     const cards = selectedCards.map(i => s.my_hand[i]);
@@ -442,12 +506,12 @@ function renderScorepadGrid() {
 
     let statusParts = [];
     for (const sc of info.scores) statusParts.push(`<span class="sp-filled">${sc}</span>`);
-    for (let i=0; i<info.sealed; i++) statusParts.push('<span class="sp-sealed-cell">🔒</span>');
+    for (let i=0; i<info.sealed; i++) statusParts.push('<span class="sp-sealed-cell">✦</span>');
     for (let i=0; i<slotsLeft; i++) statusParts.push('☐');
     h += `<td>${statusParts.join(' ')}</td>`;
 
     if (combo && slotsLeft > 0) {
-      h += `<td class="sp-score-preview">${combo.score}分 [${combo.cards.join(',')}]</td>`;
+      h += `<td class="sp-score-preview">${combo.score} [${combo.cards.join(',')}]</td>`;
     } else {
       h += '<td>—</td>';
     }
@@ -457,16 +521,12 @@ function renderScorepadGrid() {
 }
 
 function enterInstantMode() {
-  state._instantMode = true;
-  selectedCards = [];
-  renderMyZone();
-  renderArena();
+  state._instantMode = true; selectedCards = [];
+  renderMyZone(false); renderArena();
 }
 function cancelInstantMode() {
-  state._instantMode = false;
-  selectedCards = [];
-  renderMyZone();
-  renderArena();
+  state._instantMode = false; selectedCards = [];
+  renderMyZone(false); renderArena();
 }
 function confirmInstant() {
   const cards = selectedCards.map(i => state.my_hand[i]).filter(c => c !== '瞬');
@@ -478,9 +538,7 @@ function tryScore() {
   const cards = selectedCards.map(i => state.my_hand[i]);
   const combos = state.playable_combos || [];
   let match = null;
-  for (const c of combos) {
-    if (arraysMatchUnordered(c.cards, cards)) { match = c; break; }
-  }
+  for (const c of combos) { if (arraysMatchUnordered(c.cards, cards)) { match = c; break; } }
   if (!match) { showToast('所选牌无法构成有效组合'); return; }
   sendAction('SPELL_SCORE', {cards, combo_key: match.key});
 }
@@ -493,7 +551,7 @@ function arraysMatchUnordered(a, b) {
 
 function showBreakerMenu() {
   const s = state;
-  let opts = '<div class="text-center"><p>选择破法者效果：</p><div class="action-bar">';
+  let opts = '<div class="text-center"><p class="text-muted">选择破法者效果</p><div class="action-bar">';
   for (const cfg of SCOREPAD_CFG) {
     const info = s.opp_pad[cfg.key];
     const slotsLeft = info.max_slots - info.scores.length - info.sealed;
@@ -507,7 +565,7 @@ function showBreakerMenu() {
 
 function showSacrificeMenu() {
   const s = state;
-  let opts = '<div class="text-center mt-2"><p>选择要献祭的计分格（将永久归零）：</p><div class="action-bar">';
+  let opts = '<div class="text-center mt-2"><p class="text-muted">选择献祭的计分格 (永久归零)</p><div class="action-bar">';
   for (const cfg of SCOREPAD_CFG) {
     const info = s.my_pad[cfg.key];
     const slotsLeft = info.max_slots - info.scores.length - info.sealed;
@@ -527,7 +585,7 @@ function confirmSacrifice(slotKey) {
 function renderEndDiscard() {
   if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在弃牌...</div>';
   const overflow = state.overflow || 0;
-  let h = `<div class="text-center"><p>手牌超出上限！请弃掉 ${overflow} 张牌</p>`;
+  let h = `<div class="text-center"><p>手牌超限 — 弃掉 ${overflow} 张</p>`;
   h += '<div class="action-bar">';
   if (selectedCards.length === overflow) {
     const cards = selectedCards.map(i => state.my_hand[i]);
@@ -539,8 +597,8 @@ function renderEndDiscard() {
 /* ── Phase: Collision Pre-Discard ──────────────────── */
 function renderColPreDiscard() {
   const s = state;
-  if (s.col_pre_done) return '<div class="text-center text-muted">等待对手完成弃牌...</div>';
-  let h = `<div class="text-center"><p>对撞前弃牌：可选择弃掉 0~2 张牌（弃掉的不参与对撞）</p>`;
+  if (s.col_pre_done) return '<div class="text-center text-muted">等待对手弃牌...</div>';
+  let h = `<div class="text-center"><p>对撞前 — 可弃 0~2 张 (不参与对撞)</p>`;
   h += '<div class="action-bar">';
   const cards = selectedCards.map(i => s.my_hand[i]);
   if (selectedCards.length <= 2) {
@@ -555,9 +613,8 @@ function renderColFlip() {
   const s = state;
   let h = '';
 
-  h += `<div class="col-scores">底池: ${s.col_pot} 分 | 我方: ${s.col_scores[s.my_idx]} 分 | 对手: ${s.col_scores[1-s.my_idx]} 分</div>`;
+  h += `<div class="col-scores">底池 ${s.col_pot} · 我方 ${s.col_scores[s.my_idx]} · 对手 ${s.col_scores[1-s.my_idx]}</div>`;
 
-  const oppCards = [];
   const oppCount = s.col_opp_card_count;
   const oppRevealed = s.col_opp_revealed || {};
   const oppFlipped = new Set(s.col_opp_flipped || []);
@@ -589,7 +646,7 @@ function renderColFlip() {
   h += '</div>';
 
   if (isMyFlip) {
-    h += '<div class="text-center mt-2" style="color:#DAA520">轮到你翻牌！点击暗牌翻开</div>';
+    h += '<div class="text-center mt-2" style="color:#D4AF37">轮到你翻牌</div>';
   } else {
     h += '<div class="text-center mt-2 text-muted">等待对手翻牌...</div>';
   }
@@ -602,11 +659,10 @@ function renderGameOver() {
   const s = state;
   const el = document.getElementById('gameOver');
   const isWinner = s.winner === s.my_idx;
-  const winnerName = s.winner >= 0 ? (s.winner === s.my_idx ? s.my_name : s.opp_name) : '无人';
-  let h = `<h1>${isWinner ? '胜利！' : (s.winner < 0 ? '平局！' : '败北...')}</h1>`;
-  h += `<div class="final-scores">${s.my_name}: ${s.final_scores[s.my_idx]} 分 vs ${s.opp_name}: ${s.final_scores[1-s.my_idx]} 分</div>`;
+  let h = `<h1>${isWinner ? '胜利' : (s.winner < 0 ? '平局' : '败北')}</h1>`;
+  h += `<div class="final-scores">${s.my_name} ${s.final_scores[s.my_idx]} — ${s.opp_name} ${s.final_scores[1-s.my_idx]}</div>`;
   if (s.col_scores && (s.col_scores[0] || s.col_scores[1])) {
-    h += `<div class="text-muted mt-2">对撞得分: ${s.col_scores[0]} vs ${s.col_scores[1]}</div>`;
+    h += `<div class="text-muted mt-2">对撞 ${s.col_scores[0]} vs ${s.col_scores[1]}</div>`;
   }
   h += `<div class="mt-4"><button class="btn" onclick="location.reload()">返回大厅</button></div>`;
   el.innerHTML = h;
