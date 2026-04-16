@@ -70,9 +70,6 @@ def _on_turn_timeout(room_id):
             room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': card})
         elif '瞬' in hand:
             room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': '瞬'})
-    elif phase == 'DUEL_REWARD':
-        winner = room.duel_winner_idx
-        room.handle_action(_sid_for(room, winner), 'DUEL_REWARD', {'card_idx': 'skip'})
     elif phase == 'AMBUSH_SCAVENGE':
         loser = 1 - room.duel_winner_idx if room.duel_winner_idx >= 0 else (1 - cp)
         room.handle_action(_sid_for(room, loser), 'SCAVENGE', {'choice': 'skip'})

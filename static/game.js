@@ -79,8 +79,8 @@ function onState(s) {
   state = s;
   selectedCards = [];
 
-  const isDuelRevealPhase = (s.phase === 'DUEL_REWARD' || s.phase === 'AMBUSH_SCAVENGE') && s.atk_card && s.def_card;
-  const prevWasDuel = prevState && (prevState.phase === 'DUEL_REWARD' || prevState.phase === 'AMBUSH_SCAVENGE');
+  const isDuelRevealPhase = s.phase === 'AMBUSH_SCAVENGE' && s.atk_card && s.def_card;
+  const prevWasDuel = prevState && prevState.phase === 'AMBUSH_SCAVENGE';
   duelAnimDone = prevWasDuel && isDuelRevealPhase;
 
   hideOverlay();
@@ -189,7 +189,7 @@ function renderMyHand(animateDraw) {
 function needsCardSelection() {
   const p = state.phase;
   if (!state.is_my_turn && p !== 'AMBUSH_DEF_SELECT' && p !== 'COLLISION_PRE_DISCARD' &&
-      p !== 'COLLISION_FLIP' && p !== 'DUEL_REWARD' && p !== 'AMBUSH_SCAVENGE') return false;
+      p !== 'COLLISION_FLIP' && p !== 'AMBUSH_SCAVENGE') return false;
   return ['AMBUSH_ATK_SELECT','AMBUSH_DEF_SELECT','SPELL','END_DISCARD','COLLISION_PRE_DISCARD'].includes(p);
 }
 
@@ -283,7 +283,6 @@ function renderArena() {
     case 'AMBUSH_DECIDE': h += renderAmbushDecide(); break;
     case 'AMBUSH_ATK_SELECT': h += renderAmbushAtkSelect(); break;
     case 'AMBUSH_DEF_SELECT': h += renderAmbushDefSelect(); break;
-    case 'DUEL_REWARD': h += renderDuelStage() + renderDuelReward(); break;
     case 'AMBUSH_SCAVENGE': h += renderDuelStage() + renderScavenge(); break;
     case 'SPELL': h += renderSpell(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
@@ -297,7 +296,7 @@ function renderArena() {
 function phaseLabel(p) {
   const m = {
     DRAW:'壹 · 汲取', AMBUSH_DECIDE:'贰 · 突袭', AMBUSH_ATK_SELECT:'贰 · 暗扣出牌',
-    AMBUSH_DEF_SELECT:'贰 · 防守应战', DUEL_REWARD:'贰 · 胜者拾取',
+    AMBUSH_DEF_SELECT:'贰 · 防守应战',
     AMBUSH_SCAVENGE:'贰 · 败者拾荒', SPELL:'叁 · 咏唱', END_DISCARD:'肆 · 弃牌',
     COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌', COLLISION_FLIP:'终局 · 对撞翻牌',
   };
@@ -350,6 +349,18 @@ function renderDuelStage() {
   h += '</div>';
   h += `<div class="duel-result-text ${txtAnim}">${txt}</div>`;
 
+  if (s.duel_winner_drew) {
+    const drewCard = (typeof s.duel_winner_drew === 'string') ? s.duel_winner_drew : '?';
+    const isMe = s.duel_winner_idx === s.my_idx;
+    if (isMe && drewCard !== '?') {
+      h += `<div class="text-center mt-2" style="color:#D4AF37">胜者抽牌 → ${cardHTML(drewCard, {small:true, extraClass:'anim-draw'})}</div>`;
+    } else if (isMe) {
+      h += `<div class="text-center mt-2" style="color:#D4AF37">你从牌库抽取了一张牌</div>`;
+    } else {
+      h += `<div class="text-center mt-2 text-muted">对手从牌库抽取了一张牌</div>`;
+    }
+  }
+
   return h;
 }
 
@@ -393,28 +404,6 @@ function renderAmbushDefSelect() {
     h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEF_SELECT',{card:'${card}'})">应战 [${card}]</button>`;
   }
   return h + '</div></div>';
-}
-
-/* ── Phase: Duel Reward ────────────────────────────── */
-function renderDuelReward() {
-  const s = state;
-  const winnerIsMe = s.duel_winner_idx === s.my_idx;
-  const winnerName = winnerIsMe ? s.my_name : s.opp_name;
-
-  if (!winnerIsMe) return `<div class="text-center text-muted">${winnerName} 拼点胜利，正在从弃牌堆选取奖励...</div>`;
-
-  let h = '<div class="text-center"><p>拼点胜利！从弃牌堆任选一张作为奖励</p>';
-  if (s.discard_pile && s.discard_pile.length) {
-    h += '<div class="cards-row">';
-    for (let i=0; i<s.discard_pile.length; i++) {
-      const c = s.discard_pile[i];
-      h += `<div onclick="sendAction('DUEL_REWARD',{card_idx:${i}})" style="cursor:pointer">` +
-        cardHTML(c, {selectable:true, small:true}) + '</div>';
-    }
-    h += '</div>';
-  }
-  h += `<div class="action-bar"><button class="btn" onclick="sendAction('DUEL_REWARD',{card_idx:'skip'})">跳过</button></div>`;
-  return h + '</div>';
 }
 
 /* ── Phase: Scavenge ───────────────────────────────── */

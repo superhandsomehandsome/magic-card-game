@@ -68,6 +68,7 @@ class GameRoom:
         self.reveal_done = False
         self.duel_pending_discard = []
         self.duel_winner_idx = -1
+        self.duel_winner_drew = None
         self.echo_ready = False
         self.instant_count = 0
         self.tier1_bonus = False
@@ -141,6 +142,7 @@ class GameRoom:
         self.reveal_done = False
         self.duel_pending_discard = []
         self.duel_winner_idx = -1
+        self.duel_winner_drew = None
         self.echo_ready = False
         self.instant_count = 0
         self.tier1_bonus = False
@@ -213,7 +215,6 @@ class GameRoom:
             'AMBUSH_ATK_SELECT': self._h_ambush_atk_select,
             'AMBUSH_DEF_SELECT': self._h_ambush_def_select,
             'AMBUSH_CANCEL': self._h_ambush_cancel,
-            'DUEL_REWARD': self._h_duel_reward,
             'SCAVENGE': self._h_scavenge,
             'SPELL_SCORE': self._h_spell_score,
             'SPELL_INSTANT': self._h_spell_instant,
@@ -302,7 +303,7 @@ class GameRoom:
             self.duel_winner_idx = self.current_player
             self.duel_pending_discard = [self.atk_card]
             self._log('ambush_reveal', f'防守方无牌可出，攻击方自动胜利')
-            self.phase = 'DUEL_REWARD'
+            self._duel_winner_auto_draw()
             return True, None
 
         if card not in opp['hand']:
@@ -338,47 +339,40 @@ class GameRoom:
             self._log('ambush_reveal', f'{self.atk_card} vs {card} — 平局！')
 
         if result != 0:
-            self.phase = 'DUEL_REWARD'
+            self._duel_winner_auto_draw()
         else:
             self._flush_duel_pending()
-            self.phase = 'AMBUSH_SCAVENGE'
+            self._after_duel_to_scavenge_or_spell()
         return True, None
 
-    def _h_duel_reward(self, pidx, data):
-        """Winner picks one card from discard pile."""
-        if self.phase != 'DUEL_REWARD':
-            return False, 'Wrong phase'
-        if pidx != self.duel_winner_idx:
-            return False, 'Not the duel winner'
-
+    def _duel_winner_auto_draw(self):
+        """Winner automatically draws 1 card from deck."""
         self._flush_duel_pending()
-
-        card_idx = data.get('card_idx')
-        if card_idx == 'skip' or not self.discard_pile:
-            self._log('duel_reward', '胜者放弃拾取')
+        winner = self.players[self.duel_winner_idx]
+        drawn = draw_cards(self.deck, 1)
+        self.duel_winner_drew = drawn[0] if drawn else None
+        if self.duel_winner_drew:
+            winner['hand'].append(self.duel_winner_drew)
+            winner['hand'] = sort_hand(winner['hand'])
+            self._log('duel_reward', f'胜者从牌库抽取 {self.duel_winner_drew}')
         else:
-            if not isinstance(card_idx, int) or card_idx < 0 or card_idx >= len(self.discard_pile):
-                return False, 'Invalid discard index'
-            picked = self.discard_pile.pop(card_idx)
-            self.discard_turns.pop(card_idx)
-            self.players[pidx]['hand'].append(picked)
-            self.players[pidx]['hand'] = sort_hand(self.players[pidx]['hand'])
-            self._log('duel_reward', f'胜者从弃牌堆选取 {picked}')
-
+            self._log('duel_reward', '牌库已空，无法抽牌')
         if self._check_race_win():
-            return True, None
+            return
+        self._after_duel_to_scavenge_or_spell()
 
-        loser_idx = 1 - self.duel_winner_idx
-        loser = self.players[loser_idx]
-        if loser['scavenge_remaining'] > 0:
-            recent = self._scavengeable_recent()
-            scav = [(i, c) for i, c in recent if c in ('D', 'E', 'F')]
-            if scav:
-                self.phase = 'AMBUSH_SCAVENGE'
-                return True, None
-
+    def _after_duel_to_scavenge_or_spell(self):
+        """After duel reward, check if loser can scavenge, otherwise go to SPELL."""
+        if self.duel_winner_idx >= 0:
+            loser_idx = 1 - self.duel_winner_idx
+            loser = self.players[loser_idx]
+            if loser['scavenge_remaining'] > 0:
+                recent = self._scavengeable_recent()
+                scav = [(i, c) for i, c in recent if c in ('D', 'E', 'F')]
+                if scav:
+                    self.phase = 'AMBUSH_SCAVENGE'
+                    return
         self.phase = 'SPELL'
-        return True, None
 
     def _h_scavenge(self, pidx, data):
         if self.phase != 'AMBUSH_SCAVENGE':
@@ -778,14 +772,13 @@ class GameRoom:
         if self.phase == 'DRAW' and pidx == self.current_player:
             view['drawn_cards'] = self.drawn_cards if self.draw_done else []
 
-        if self.phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_DEF_SELECT', 'DUEL_REWARD', 'AMBUSH_SCAVENGE'):
-            view['atk_card'] = self.atk_card if self.reveal_done or self.phase in ('DUEL_REWARD', 'AMBUSH_SCAVENGE') else ('?' if pidx != self.current_player else self.atk_card)
+        if self.phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_DEF_SELECT', 'AMBUSH_SCAVENGE'):
+            view['atk_card'] = self.atk_card if self.reveal_done or self.phase == 'AMBUSH_SCAVENGE' else ('?' if pidx != self.current_player else self.atk_card)
             view['def_card'] = self.def_card
             view['ambush_result'] = self.ambush_result
             view['duel_winner_idx'] = self.duel_winner_idx
-
-        if self.phase == 'DUEL_REWARD' and pidx == self.duel_winner_idx:
-            view['discard_pile'] = list(self.discard_pile)
+            if self.duel_winner_drew:
+                view['duel_winner_drew'] = self.duel_winner_drew if pidx == self.duel_winner_idx else True
 
         if self.phase == 'AMBUSH_SCAVENGE':
             loser_idx = 1 - self.duel_winner_idx if self.duel_winner_idx >= 0 else -1
