@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>秘术对决：禁忌魔典</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Lobby -->
+<div id="lobby" class="lobby">
+  <h1>秘术对决</h1>
+  <p class="subtitle">禁忌魔典</p>
+  <div class="lobby-box">
+    <label>你的名字</label>
+    <input id="playerName" placeholder="输入昵称..." maxlength="12">
+    <button class="btn" id="btnCreate" onclick="createRoom()">创建房间</button>
+    <div class="or">── 或 ──</div>
+    <label>输入房间号</label>
+    <input id="roomInput" placeholder="6 位房间号" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;text-align:center">
+    <button class="btn" id="btnJoin" onclick="joinRoom()">加入房间</button>
+  </div>
+</div>
+
+<!-- Waiting -->
+<div id="waitingScreen" class="lobby hidden">
+  <h1>秘术对决</h1>
+  <p class="subtitle">禁忌魔典</p>
+  <div class="lobby-box" style="text-align:center">
+    <p class="text-muted">房间号</p>
+    <div class="room-code" id="displayRoomCode"></div>
+    <p class="text-muted">将此房间号发给你的对手...</p>
+    <p class="waiting">等待对手加入...</p>
+  </div>
+</div>
+
+<!-- Game Board -->
+<div id="gameBoard" class="board hidden">
+  <!-- Opponent zone (top) -->
+  <div class="player-zone opp" id="oppZone"></div>
+
+  <!-- Center arena -->
+  <div class="arena" id="arenaZone"></div>
+
+  <!-- My zone (bottom) -->
+  <div class="player-zone me" id="myZone"></div>
+</div>
+
+<!-- Game Over -->
+<div id="gameOver" class="game-over hidden"></div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/static/game.js"></script>
+</body>
+</html>
