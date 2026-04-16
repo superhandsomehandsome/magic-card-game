@@ -83,6 +83,7 @@ class GameRoom:
         self.winner = -1
         self.turn_log = []
         self.game_log = []
+        self.turn_deadline = 0
 
     @staticmethod
     def _make_player(name):

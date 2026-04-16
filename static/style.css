@@ -138,6 +138,24 @@ input{font-family:'Noto Serif SC',serif}
 .game-over h1{font-size:48px}
 .final-scores{font-size:24px;color:#DAA520;text-align:center}
 
+/* ── Timer ───────────────────────────────── */
+.timer-bar{text-align:center;padding:4px 0;font-size:13px;color:#DAA520}
+.timer-bar .timer-urgent{color:#ef5350;font-weight:bold;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Top Controls ────────────────────────── */
+.top-controls{position:fixed;top:8px;right:8px;z-index:100;display:flex;gap:6px}
+.top-controls .btn{padding:4px 10px;font-size:11px;opacity:.7}
+.top-controls .btn:hover{opacity:1}
+
+/* ── Overlay ─────────────────────────────── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;
+  display:flex;align-items:center;justify-content:center}
+.overlay-box{background:rgba(26,20,16,.95);border:1px solid #3a2a1a;border-radius:12px;
+  padding:32px;text-align:center;max-width:360px;width:90%}
+.overlay-box h2{margin-bottom:12px}
+.overlay-box p{color:#8a7a5a;margin-bottom:20px}
+
 /* ── Misc ────────────────────────────────── */
 .text-center{text-align:center}
 .text-muted{color:#8a7a5a}
@@ -146,3 +164,40 @@ input{font-family:'Noto Serif SC',serif}
 .mb-2{margin-bottom:8px}
 .gap-2{gap:8px}
 .hidden{display:none!important}
+
+/* ── Mobile Responsive ───────────────────── */
+@media(max-width:768px){
+  .board{height:auto;min-height:100vh}
+  .player-zone{padding:6px 10px}
+  .pbar{gap:8px}
+  .pbar .avatar{width:36px;height:36px;font-size:18px}
+  .pbar .pname{font-size:13px}
+  .pbar .pstat{font-size:11px}
+  .pbar .pscore{font-size:17px}
+  .sp-inline{gap:2px}
+  .sp-chip{font-size:9px;padding:1px 5px}
+  .cards-row{gap:4px;padding:4px 0}
+  .cd{width:48px;height:74px;border-radius:6px}
+  .cd .lt{font-size:18px}
+  .cd .st{font-size:7px}
+  .cd .vl{font-size:7px;bottom:2px}
+  .cd .sy{font-size:8px;top:2px;right:4px}
+  .cd-sm{width:40px;height:62px}
+  .cd-sm .lt{font-size:14px}
+  .cd-raised{transform:translateY(-8px)!important}
+  .arena{padding:8px;min-height:180px}
+  .phase-bar{padding:6px 10px;font-size:12px;margin:4px auto}
+  .action-bar{gap:6px;padding:6px 0}
+  .btn{padding:8px 14px;font-size:13px}
+  .btn-sm{padding:5px 10px;font-size:11px}
+  .game-log{max-height:80px;padding:6px 8px;font-size:11px;margin:4px 0}
+  .sp-grid{font-size:11px}
+  .sp-grid th,.sp-grid td{padding:3px 5px}
+  .lobby h1{font-size:28px}
+  .lobby-box{padding:20px 16px}
+  .room-code{font-size:28px;letter-spacing:6px}
+  .game-over h1{font-size:32px}
+  .final-scores{font-size:18px}
+  .toast{top:auto;bottom:20px;right:10px;left:10px;max-width:none;font-size:13px}
+  .col-scores{font-size:13px}
+}

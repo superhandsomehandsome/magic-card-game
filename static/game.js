@@ -25,6 +25,7 @@ let roomId = null;
 let myIdx = -1;
 let state = null;
 let selectedCards = [];
+let timerInterval = null;
 
 /* ── Socket Setup ──────────────────────────────────── */
 function initSocket() {
@@ -35,7 +36,14 @@ function initSocket() {
   socket.on('state', onState);
   socket.on('error', d => showToast(d.msg));
   socket.on('action_error', d => showToast(d.msg));
-  socket.on('player_left', () => showToast('对手已断开连接'));
+  socket.on('opponent_away', d => {
+    showOverlay(`${d.name} 断线了`, `等待重连中... (${d.grace}秒后判定胜利)`);
+  });
+  socket.on('opponent_back', d => {
+    hideOverlay();
+    showToast(`${d.name} 已重连`);
+  });
+  socket.on('left_room', () => { roomId = null; myIdx = -1; location.reload(); });
 }
 
 function createRoom() {
@@ -66,11 +74,13 @@ function showWaiting() {
 function onState(s) {
   state = s;
   selectedCards = [];
+  hideOverlay();
   if (s.phase === 'GAME_OVER') { renderGameOver(); return; }
   showScreen('gameBoard');
   renderOppZone();
   renderMyZone();
   renderArena();
+  startTimer();
 }
 
 /* ── Card HTML ─────────────────────────────────────── */
@@ -187,13 +197,69 @@ function toggleCard(idx) {
   renderArena();
 }
 
+/* ── Timer ─────────────────────────────────────────── */
+function startTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(updateTimerDisplay, 500);
+}
+function getTimeLeft() {
+  if (!state || !state.turn_deadline) return -1;
+  return Math.max(0, Math.ceil(state.turn_deadline - Date.now()/1000));
+}
+function updateTimerDisplay() {
+  const el = document.getElementById('timerDisplay');
+  if (!el) return;
+  const left = getTimeLeft();
+  if (left < 0) { el.textContent = ''; return; }
+  const cls = left <= 10 ? 'timer-urgent' : '';
+  el.innerHTML = `<span class="${cls}">${left}s</span>`;
+}
+
+/* ── Top Controls ──────────────────────────────────── */
+function renderTopControls() {
+  return `<div class="top-controls">
+    <button class="btn btn-sm" onclick="confirmLeave()">退出</button>
+    <button class="btn btn-sm btn-danger" onclick="confirmSurrender()">投降</button>
+  </div>`;
+}
+function confirmSurrender() {
+  showOverlay('确定投降？', '投降后对手将直接获胜',
+    `<div class="action-bar"><button class="btn btn-danger" onclick="doSurrender()">确定投降</button>` +
+    `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
+}
+function doSurrender() {
+  hideOverlay();
+  socket.emit('surrender', {room_id: roomId});
+}
+function confirmLeave() {
+  showOverlay('退出房间？', '退出后对手将直接获胜',
+    `<div class="action-bar"><button class="btn btn-danger" onclick="doLeave()">确定退出</button>` +
+    `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
+}
+function doLeave() {
+  hideOverlay();
+  socket.emit('leave_game', {room_id: roomId});
+}
+
+/* ── Overlay ───────────────────────────────────────── */
+function showOverlay(title, msg, buttonsHTML) {
+  let el = document.getElementById('overlay');
+  if (!el) { el = document.createElement('div'); el.id = 'overlay'; document.body.appendChild(el); }
+  el.className = 'overlay';
+  el.innerHTML = `<div class="overlay-box"><h2>${title}</h2><p>${msg}</p>${buttonsHTML||''}</div>`;
+}
+function hideOverlay() {
+  const el = document.getElementById('overlay');
+  if (el) el.remove();
+}
+
 /* ── Arena Render (phase-dependent) ────────────────── */
 function renderArena() {
   const s = state;
   const el = document.getElementById('arenaZone');
-  let h = '';
+  let h = renderTopControls();
 
-  h += `<div class="phase-bar">${phaseLabel(s.phase)} — 回合 ${s.turn_number}</div>`;
+  h += `<div class="phase-bar">${phaseLabel(s.phase)} — 回合 ${s.turn_number} <span id="timerDisplay"></span></div>`;
   h += renderLog();
 
   switch (s.phase) {
