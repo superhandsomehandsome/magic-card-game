@@ -10,6 +10,7 @@ socketio = SocketIO(app, cors_allowed_origins='*')
 
 TURN_TIME_LIMIT = 60
 DISCONNECT_GRACE = 30
+LOBBY_GRACE = 300
 
 rooms = {}
 turn_timers = {}
@@ -120,7 +121,11 @@ def on_disconnect():
             pname = room.players[pidx]['name']
             room.leave(sid)
             if not room.sids:
-                _cleanup_room(rid)
+                grace = LOBBY_GRACE if room.phase == 'LOBBY' else DISCONNECT_GRACE
+                t = threading.Timer(grace, _on_empty_room_timeout, args=[rid])
+                t.daemon = True
+                t.start()
+                dc_timers[rid] = t
             elif room.phase not in ('LOBBY', 'GAME_OVER'):
                 socketio.emit('opponent_away', {
                     'player': pidx, 'name': pname,
@@ -131,6 +136,14 @@ def on_disconnect():
                 t.start()
                 dc_timers[rid] = t
             break
+
+
+def _on_empty_room_timeout(room_id):
+    room = rooms.get(room_id)
+    if not room:
+        return
+    if not room.sids:
+        _cleanup_room(room_id)
 
 
 def _on_dc_timeout(room_id, dc_pidx):
@@ -234,22 +247,28 @@ def on_leave_game(data):
 def on_reconnect_room(data):
     from flask import request
     sid = request.sid
-    rid = data.get('room_id')
+    rid = data.get('room_id', '').upper().strip()
     pidx = data.get('player_idx')
     if rid not in rooms:
-        emit('error', {'msg': '房间已不存在'})
+        emit('reconnect_fail', {'msg': '房间已不存在'})
         return
     room = rooms[rid]
     if pidx not in (0, 1):
-        emit('error', {'msg': '无效玩家'})
+        emit('reconnect_fail', {'msg': '无效玩家'})
+        return
+    if pidx in room.sids.values():
+        emit('reconnect_fail', {'msg': '该位置已有玩家'})
         return
     room.sids[sid] = pidx
     join_room(rid)
     if rid in dc_timers:
         dc_timers[rid].cancel()
         del dc_timers[rid]
-    socketio.emit('opponent_back', {'player': pidx, 'name': room.players[pidx]['name']}, to=rid)
-    _broadcast(rid)
+    if room.phase == 'LOBBY':
+        emit('room_created', {'room_id': rid, 'player_idx': pidx})
+    else:
+        socketio.emit('opponent_back', {'player': pidx, 'name': room.players[pidx]['name']}, to=rid)
+        _broadcast(rid)
 
 
 @socketio.on('action')

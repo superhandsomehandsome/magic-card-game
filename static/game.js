@@ -33,12 +33,26 @@ let prevHandStr = '';
 /* ── Socket Setup ──────────────────────────────────── */
 function initSocket() {
   socket = io();
-  socket.on('connected', () => console.log('Connected'));
-  socket.on('room_created', d => { roomId = d.room_id; myIdx = d.player_idx; showWaiting(); });
-  socket.on('room_joined', d => { roomId = d.room_id; myIdx = d.player_idx; });
+  socket.on('connected', () => {
+    console.log('Connected');
+    tryAutoReconnect();
+  });
+  socket.on('room_created', d => {
+    roomId = d.room_id; myIdx = d.player_idx;
+    saveSession();
+    showWaiting();
+  });
+  socket.on('room_joined', d => {
+    roomId = d.room_id; myIdx = d.player_idx;
+    saveSession();
+  });
   socket.on('state', onState);
   socket.on('error', d => showToast(d.msg));
   socket.on('action_error', d => showToast(d.msg));
+  socket.on('reconnect_fail', d => {
+    clearSession();
+    showToast(d.msg);
+  });
   socket.on('opponent_away', d => {
     showOverlay(`${d.name} 断线了`, `等待重连中... (${d.grace}秒后判定胜利)`);
   });
@@ -46,7 +60,26 @@ function initSocket() {
     hideOverlay();
     showToast(`${d.name} 已重连`);
   });
-  socket.on('left_room', () => { roomId = null; myIdx = -1; location.reload(); });
+  socket.on('left_room', () => { clearSession(); location.reload(); });
+}
+
+function saveSession() {
+  if (roomId !== null && myIdx >= 0) {
+    localStorage.setItem('mg_room', JSON.stringify({roomId, myIdx, ts: Date.now()}));
+  }
+}
+function clearSession() {
+  roomId = null; myIdx = -1;
+  localStorage.removeItem('mg_room');
+}
+function tryAutoReconnect() {
+  const raw = localStorage.getItem('mg_room');
+  if (!raw) return;
+  try {
+    const s = JSON.parse(raw);
+    if (Date.now() - s.ts > 600000) { clearSession(); return; }
+    socket.emit('reconnect_room', {room_id: s.roomId, player_idx: s.myIdx});
+  } catch(e) { clearSession(); }
 }
 
 function createRoom() {
@@ -246,13 +279,13 @@ function confirmSurrender() {
     `<div class="action-bar"><button class="btn btn-danger" onclick="doSurrender()">确定投降</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doSurrender() { hideOverlay(); socket.emit('surrender', {room_id: roomId}); }
+function doSurrender() { hideOverlay(); clearSession(); socket.emit('surrender', {room_id: roomId}); }
 function confirmLeave() {
   showOverlay('退出房间？', '退出后对手将直接获胜',
     `<div class="action-bar"><button class="btn btn-danger" onclick="doLeave()">确定退出</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doLeave() { hideOverlay(); socket.emit('leave_game', {room_id: roomId}); }
+function doLeave() { hideOverlay(); clearSession(); socket.emit('leave_game', {room_id: roomId}); }
 
 /* ── Overlay ───────────────────────────────────────── */
 function showOverlay(title, msg, buttonsHTML) {
@@ -664,6 +697,7 @@ function renderColFlip() {
 
 /* ── Game Over ─────────────────────────────────────── */
 function renderGameOver() {
+  clearSession();
   showScreen('gameOver');
   const s = state;
   const el = document.getElementById('gameOver');
