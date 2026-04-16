@@ -324,45 +324,31 @@ function renderDuelStage() {
 
   const atkWin = result === 1;
   const defWin = result === -1;
-  const tie    = result === 0;
 
   const atkGlow = atkWin ? 'duel-winner-glow' : defWin ? 'duel-loser-dim' : 'duel-tie-glow';
   const defGlow = defWin ? 'duel-winner-glow' : atkWin ? 'duel-loser-dim' : 'duel-tie-glow';
 
-  const atkAnim = duelAnimDone ? '' : 'duel-atk';
-  const defAnim = duelAnimDone ? '' : (defCard ? 'duel-def' : '');
+  const playAnim = !duelAnimDone;
+  const atkAnim = playAnim ? 'duel-atk' : '';
+  const defAnim = playAnim && defCard ? 'duel-def' : '';
+  const vsAnim  = playAnim ? 'anim' : '';
+  const txtAnim = playAnim ? 'anim' : '';
 
-  let resultSymbol, resultText;
-  if (atkWin) {
-    resultSymbol = '>';
-    resultText = '攻击方胜';
-  } else if (defWin) {
-    resultSymbol = '<';
-    resultText = '防守方胜';
-  } else {
-    resultSymbol = '=';
-    resultText = '平局';
-  }
+  let sym, txt;
+  if (atkWin)      { sym = '>'; txt = `${atkCard} 胜 ${defCard||'无牌'} — 攻击方胜`; }
+  else if (defWin) { sym = '<'; txt = `${atkCard} 负 ${defCard} — 防守方胜`; }
+  else             { sym = '='; txt = `${atkCard} 平 ${defCard||'?'} — 平局`; }
 
   let h = '<div class="duel-stage">';
-  h += `<div class="duel-card-slot">${cardHTML(atkCard, {extraClass: `${atkAnim} ${atkGlow}`})}</div>`;
-  if (!duelAnimDone) {
-    h += `<div class="duel-vs">${resultSymbol}</div>`;
-  } else {
-    h += `<div class="duel-vs" style="opacity:1;animation:none">${resultSymbol}</div>`;
-  }
+  h += `<div class="duel-card-slot">${cardHTML(atkCard, {extraClass: `${atkAnim} ${atkGlow}`.trim()})}</div>`;
+  h += `<div class="duel-vs ${vsAnim}">${sym}</div>`;
   if (defCard) {
-    h += `<div class="duel-card-slot">${cardHTML(defCard, {extraClass: `${defAnim} ${defGlow}`})}</div>`;
+    h += `<div class="duel-card-slot">${cardHTML(defCard, {extraClass: `${defAnim} ${defGlow}`.trim()})}</div>`;
   } else {
-    h += `<div class="duel-card-slot"><div class="cd cd-back" style="opacity:1"><span class="lt">✕</span></div></div>`;
+    h += `<div class="duel-card-slot"><div class="cd cd-back"><span class="lt">✕</span></div></div>`;
   }
   h += '</div>';
-
-  if (!duelAnimDone) {
-    h += `<div class="duel-result-text">${resultText}</div>`;
-  } else {
-    h += `<div class="duel-result-text" style="opacity:1;animation:none">${resultText}</div>`;
-  }
+  h += `<div class="duel-result-text ${txtAnim}">${txt}</div>`;
 
   return h;
 }
@@ -400,10 +386,11 @@ function renderAmbushAtkSelect() {
 function renderAmbushDefSelect() {
   const isDefender = !state.is_my_turn;
   if (!isDefender) return '<div class="text-center text-muted">等待对手防守...</div>';
-  let h = `<div class="text-center"><p class="text-muted">对手发起突袭！选择防守牌 (可用瞬强制平局)</p><div class="action-bar">`;
+  let h = '<div class="defend-alert">对手发起突袭！请选择一张牌防守<div class="defend-timer-bar"></div></div>';
+  h += '<div class="text-center"><p class="text-muted">点击下方手牌选择防守 · 可出「瞬」强制平局</p><div class="action-bar">';
   if (selectedCards.length === 1) {
     const card = state.my_hand[selectedCards[0]];
-    h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEF_SELECT',{card:'${card}'})">应战</button>`;
+    h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEF_SELECT',{card:'${card}'})">应战 [${card}]</button>`;
   }
   return h + '</div></div>';
 }
@@ -411,9 +398,12 @@ function renderAmbushDefSelect() {
 /* ── Phase: Duel Reward ────────────────────────────── */
 function renderDuelReward() {
   const s = state;
-  if (s.duel_winner_idx !== s.my_idx) return '<div class="text-center text-muted">对手正在选择奖励...</div>';
+  const winnerIsMe = s.duel_winner_idx === s.my_idx;
+  const winnerName = winnerIsMe ? s.my_name : s.opp_name;
 
-  let h = '<div class="text-center"><p>从弃牌堆选取一张作为奖励</p>';
+  if (!winnerIsMe) return `<div class="text-center text-muted">${winnerName} 拼点胜利，正在从弃牌堆选取奖励...</div>`;
+
+  let h = '<div class="text-center"><p>拼点胜利！从弃牌堆任选一张作为奖励</p>';
   if (s.discard_pile && s.discard_pile.length) {
     h += '<div class="cards-row">';
     for (let i=0; i<s.discard_pile.length; i++) {
@@ -430,9 +420,9 @@ function renderDuelReward() {
 /* ── Phase: Scavenge ───────────────────────────────── */
 function renderScavenge() {
   const s = state;
-  if (!s.scavenge_options) return '<div class="text-center text-muted">等待对手拾荒...</div>';
+  if (!s.scavenge_options) return '<div class="text-center text-muted">对手（败者）正在拾荒...</div>';
 
-  let h = '<div class="text-center"><p>败者拾荒 — 选择一张 D/E/F 牌</p>';
+  let h = '<div class="text-center"><p>拼点落败 — 可从弃牌堆拾取一张 D/E/F 牌 (剩余拾荒次数: ' + s.my_scavenge_left + ')</p>';
   if (s.scavenge_options.length) {
     h += '<div class="cards-row">';
     for (const [idx, card] of s.scavenge_options) {
