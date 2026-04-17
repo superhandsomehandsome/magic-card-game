@@ -574,21 +574,21 @@ def _decide_col_bet(ai, opp, room):
 # ── Delay config (seconds) ──────────────────────────────
 
 DELAY = {
-    'DRAW': (0.5, 1.0),
-    'AMBUSH_DECIDE': (1.0, 1.5),
-    'AMBUSH_ATK_SELECT': (1.0, 1.5),
-    'AMBUSH_DEF_SELECT': (1.0, 2.0),
-    'AMBUSH_CANCEL': (0.5, 0.8),
-    'SCAVENGE': (1.0, 1.5),
-    'SPELL_SCORE': (1.5, 2.5),
-    'SPELL_INSTANT': (1.5, 2.0),
-    'SPELL_SACRIFICE': (1.5, 2.0),
-    'SPELL_BREAKER': (1.0, 1.5),
-    'SPELL_SKIP': (0.8, 1.2),
-    'END_DISCARD': (0.8, 1.2),
-    'COLLISION_PRE_DISCARD': (1.0, 1.5),
-    'COLLISION_BET': (1.5, 2.5),
-    'COLLISION_FLIP': (0.6, 1.0),
+    'DRAW': (0.15, 0.3),
+    'AMBUSH_DECIDE': (0.3, 0.5),
+    'AMBUSH_ATK_SELECT': (0.3, 0.5),
+    'AMBUSH_DEF_SELECT': (0.3, 0.5),
+    'AMBUSH_CANCEL': (0.15, 0.25),
+    'SCAVENGE': (0.3, 0.5),
+    'SPELL_SCORE': (0.4, 0.7),
+    'SPELL_INSTANT': (0.3, 0.5),
+    'SPELL_SACRIFICE': (0.3, 0.5),
+    'SPELL_BREAKER': (0.3, 0.5),
+    'SPELL_SKIP': (0.15, 0.3),
+    'END_DISCARD': (0.2, 0.35),
+    'COLLISION_PRE_DISCARD': (0.3, 0.5),
+    'COLLISION_BET': (0.4, 0.7),
+    'COLLISION_FLIP': (0.15, 0.3),
 }
 
 

@@ -126,6 +126,7 @@ function onState(s) {
   hideOverlay();
   if (s.phase === 'GAME_OVER') { renderGameOver(); return; }
   showScreen('gameBoard');
+  tryAutoPlayBGM();
   const board = document.getElementById('gameBoard');
   if (s.is_ai_game) board.classList.add('vs-zero');
   else board.classList.remove('vs-zero');
@@ -824,6 +825,17 @@ setInterval(() => {
 
 /* ── BGM ───────────────────────────────────────────── */
 let bgmPlaying = false;
+function tryAutoPlayBGM() {
+  if (bgmPlaying) return;
+  const audio = document.getElementById('bgm');
+  if (!audio) return;
+  audio.volume = 0.3;
+  audio.play().then(() => {
+    bgmPlaying = true;
+    const btn = document.getElementById('bgmControl');
+    if (btn) btn.textContent = '🔊';
+  }).catch(() => {});
+}
 function toggleBGM() {
   const audio = document.getElementById('bgm');
   const btn = document.getElementById('bgmControl');
@@ -840,4 +852,7 @@ function toggleBGM() {
 }
 
 /* ── Init ──────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', initSocket);
+document.addEventListener('DOMContentLoaded', () => {
+  initSocket();
+  document.addEventListener('click', tryAutoPlayBGM, {once: true});
+});
