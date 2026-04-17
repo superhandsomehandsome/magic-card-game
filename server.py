@@ -44,7 +44,10 @@ def _broadcast(room_id):
         view['turn_deadline'] = room.turn_deadline
         socketio.emit('state', view, to=sid)
     if room.is_ai_game and room.phase not in ('LOBBY', 'GAME_OVER'):
-        _schedule_ai(room_id)
+        try:
+            _schedule_ai(room_id)
+        except Exception as e:
+            print(f'[AI] schedule error: {e}', flush=True)
 
 
 def _reset_turn_timer(room_id):
@@ -125,7 +128,7 @@ def _sid_for(room, pidx):
     return None
 
 
-ai_timers = {}
+ai_gen = {}
 
 
 def _schedule_ai(room_id):
@@ -143,28 +146,36 @@ def _schedule_ai(room_id):
     action, data = decision
     delay = ai_player.get_delay(action)
 
-    if room_id in ai_timers:
-        ai_timers[room_id].cancel()
+    gen = ai_gen.get(room_id, 0) + 1
+    ai_gen[room_id] = gen
 
     def _do_ai_action():
-        lock = _get_lock(room_id)
-        with lock:
-            r = rooms.get(room_id)
-            if not r or r.phase in ('LOBBY', 'GAME_OVER'):
+        try:
+            socketio.sleep(delay)
+            if ai_gen.get(room_id) != gen:
                 return
-            fresh = ai_player.decide(r)
-            if fresh is None:
-                return
-            act, dat = fresh
-            ai_sid = r.ai_sid
-            ok, err = r.handle_action(ai_sid, act, dat)
-            if ok:
+            lock = _get_lock(room_id)
+            with lock:
+                if ai_gen.get(room_id) != gen:
+                    return
+                r = rooms.get(room_id)
+                if not r or r.phase in ('LOBBY', 'GAME_OVER'):
+                    return
+                fresh = ai_player.decide(r)
+                if fresh is None:
+                    return
+                act, dat = fresh
+                ok, err = r.handle_action(r.ai_sid, act, dat)
+                if not ok:
+                    print(f'[AI] Action {act} failed: {err}', flush=True)
+                    return
                 _broadcast(room_id)
+        except Exception as e:
+            import traceback
+            print(f'[AI] Error: {e}', flush=True)
+            traceback.print_exc()
 
-    t = threading.Timer(delay, _do_ai_action)
-    t.daemon = True
-    t.start()
-    ai_timers[room_id] = t
+    socketio.start_background_task(_do_ai_action)
 
 
 @app.route('/')
@@ -241,9 +252,7 @@ def _cleanup_room(rid):
     if rid in dc_timers:
         dc_timers[rid].cancel()
         del dc_timers[rid]
-    if rid in ai_timers:
-        ai_timers[rid].cancel()
-        del ai_timers[rid]
+    ai_gen.pop(rid, None)
     if rid in rooms:
         del rooms[rid]
 
