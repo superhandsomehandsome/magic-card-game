@@ -16,10 +16,13 @@
     <label>你的名字</label>
     <input id="playerName" placeholder="输入昵称..." maxlength="12">
     <button class="btn" id="btnCreate" onclick="createRoom()">创建房间</button>
+    <button class="btn btn-ai" id="btnAI" onclick="createAIRoom()">人机对战 — 挑战魔典守卫</button>
     <div class="or">── 或 ──</div>
     <label>输入房间号</label>
     <input id="roomInput" placeholder="6 位房间号" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;text-align:center">
     <button class="btn" id="btnJoin" onclick="joinRoom()">加入房间</button>
+    <div class="or">── ──</div>
+    <a href="/rules" target="_blank" class="btn btn-sm" style="display:inline-block;text-decoration:none;text-align:center;color:#D4AF37">查看规则</a>
   </div>
 </div>
 
@@ -52,6 +55,12 @@
 
 <!-- Toast -->
 <div id="toast" class="toast hidden"></div>
+
+<!-- BGM -->
+<audio id="bgm" loop preload="auto" volume="0.3">
+  <source src="/static/bgm.mp3" type="audio/mpeg">
+</audio>
+<div id="bgmControl" class="bgm-control" onclick="toggleBGM()">🔇</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <script src="/static/game.js"></script>

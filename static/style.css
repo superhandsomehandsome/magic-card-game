@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Noto+Serif+SC:wght@200;400;700&display=swap');
 
 /* ══════════════════════════════════════════
    I. RESET & GLOBAL — Dark Academia Foundation
@@ -45,6 +45,13 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
 .btn-danger:hover{border-color:#C0392B;box-shadow:0 0 20px rgba(192,57,43,.2)}
 .btn-success{border-color:#2E5A2E;background:linear-gradient(180deg,#0A2A0A,#051A05)}
 .btn-success:hover{border-color:#4CAF50;box-shadow:0 0 20px rgba(76,175,80,.2)}
+.btn-ai{
+  border-color:#5A3A8A;
+  background:linear-gradient(180deg,#2A1540 0%,#1A0A30 100%);
+  color:#C4A0FF;width:100%;margin-top:8px;
+  font-size:.95rem;letter-spacing:1px;
+}
+.btn-ai:hover{border-color:#9B59B6;box-shadow:0 0 20px rgba(155,89,182,.25);color:#E0C0FF}
 
 /* ══════════════════════════════════════════
    III. LOBBY — Candlelit Entrance Hall
@@ -381,8 +388,100 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
 .mb-2{margin-bottom:8px}
 .hidden{display:none!important}
 
+/* Deck low warning */
+.deck-warning{
+  background:rgba(139,0,0,.15);border:1px solid #8B0000;
+  color:#FF6B6B;text-align:center;padding:6px 12px;
+  margin:4px auto;border-radius:6px;font-size:.85rem;
+  animation:pulse-warn 1.5s infinite;max-width:400px;
+}
+@keyframes pulse-warn{
+  0%,100%{opacity:1}50%{opacity:.6}
+}
+
+/* BGM control */
+.bgm-control{
+  position:fixed;bottom:16px;left:16px;z-index:9999;
+  width:36px;height:36px;border-radius:50%;
+  background:rgba(30,20,10,.8);border:1px solid #4A3728;
+  color:#D4AF37;font-size:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;
+}
+.bgm-control:hover{background:rgba(60,40,20,.9);transform:scale(1.1)}
+
 /* ══════════════════════════════════════════
-   XX. MOBILE RESPONSIVE
+   XX. ZERO — Absolute Zero Vision
+   ══════════════════════════════════════════ */
+
+/* Opponent zone override when facing 零 */
+.board.vs-zero .player-zone.opp{
+  background:#000000;
+  border-bottom:1px solid rgba(255,255,255,.06);
+  padding:24px 16px 20px;
+}
+
+/* The totem ring */
+.zero-totem{
+  width:48px;height:48px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.8);
+  box-shadow:0 0 15px rgba(255,255,255,.2);
+  animation:zeroSpin 24s linear infinite;
+  flex-shrink:0;
+  position:relative;
+}
+.zero-totem::after{
+  content:'';position:absolute;inset:6px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.15);
+}
+@keyframes zeroSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* Zero player bar */
+.board.vs-zero .pbar-zero{display:flex;align-items:center;gap:18px;padding:4px 0}
+.board.vs-zero .pbar-zero .pname{
+  font-family:'Noto Serif SC','Source Han Serif SC',serif;
+  font-weight:200;font-size:1.3rem;color:#F5F5F5;
+  letter-spacing:8px;text-shadow:none;
+}
+.board.vs-zero .pbar-zero .pstat{
+  font-size:.75rem;color:rgba(255,255,255,.25);
+  font-family:'Noto Serif SC',serif;letter-spacing:1px;
+}
+.board.vs-zero .pbar-zero .pscore{
+  font-family:'Noto Serif SC',serif;font-size:1.4rem;font-weight:200;
+  color:#F5F5F5;text-shadow:none;
+  margin-left:auto;white-space:nowrap;letter-spacing:2px;
+}
+
+/* Zero scorepad chips — transparent with white hairlines */
+.board.vs-zero .sp-zero .sp-chip{
+  background:transparent;border:1px solid rgba(255,255,255,.2);
+  color:rgba(255,255,255,.35);font-family:'Noto Serif SC',serif;
+}
+.board.vs-zero .sp-zero .sp-chip .sp-val{
+  color:#F5F5F5;font-weight:400;
+}
+.board.vs-zero .sp-zero .sp-chip .sp-lk{
+  color:rgba(255,80,80,.5);
+}
+
+/* Zero card backs — pure black with origin dot */
+.board.vs-zero .cd-zero-back{
+  background:#000000 !important;
+  border:1px solid rgba(255,255,255,.12) !important;
+  box-shadow:none !important;
+  position:relative;
+}
+.board.vs-zero .cd-zero-back .lt{display:none}
+.board.vs-zero .cd-zero-back::after{
+  content:'';position:absolute;
+  width:4px;height:4px;border-radius:50%;
+  background:#FFFFFF;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+
+/* ══════════════════════════════════════════
+   XXI. MOBILE RESPONSIVE
    ══════════════════════════════════════════ */
 @media(max-width:768px){
   html{font-size:13px}
@@ -418,4 +517,8 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   .toast{top:auto;bottom:16px;right:8px;left:8px;max-width:none;font-size:.85rem}
   .top-controls{top:6px;right:6px}
   .top-controls .btn{padding:3px 8px;font-size:.65rem}
+  .board.vs-zero .player-zone.opp{padding:14px 8px 12px}
+  .zero-totem{width:32px;height:32px}
+  .board.vs-zero .pbar-zero .pname{font-size:1rem;letter-spacing:5px}
+  .board.vs-zero .pbar-zero .pscore{font-size:1.1rem}
 }

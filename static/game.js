@@ -29,6 +29,7 @@ let selectedCards = [];
 let timerInterval = null;
 let duelAnimDone = false;
 let prevHandStr = '';
+let isAIRoom = false;
 
 /* ── Socket Setup ──────────────────────────────────── */
 function initSocket() {
@@ -40,7 +41,7 @@ function initSocket() {
   socket.on('room_created', d => {
     roomId = d.room_id; myIdx = d.player_idx;
     saveSession();
-    showWaiting();
+    if (!isAIRoom) showWaiting();
   });
   socket.on('room_joined', d => {
     roomId = d.room_id; myIdx = d.player_idx;
@@ -87,6 +88,11 @@ function createRoom() {
   const name = document.getElementById('playerName').value.trim() || '炼金术士';
   socket.emit('create_room', {name});
 }
+function createAIRoom() {
+  const name = document.getElementById('playerName').value.trim() || '炼金术士';
+  isAIRoom = true;
+  socket.emit('create_ai_room', {name});
+}
 function joinRoom() {
   const name = document.getElementById('playerName').value.trim() || '占星师';
   const rid = document.getElementById('roomInput').value.trim().toUpperCase();
@@ -120,6 +126,9 @@ function onState(s) {
   hideOverlay();
   if (s.phase === 'GAME_OVER') { renderGameOver(); return; }
   showScreen('gameBoard');
+  const board = document.getElementById('gameBoard');
+  if (s.is_ai_game) board.classList.add('vs-zero');
+  else board.classList.remove('vs-zero');
 
   const newHandStr = (s.my_hand || []).join(',');
   const handChanged = newHandStr !== prevHandStr;
@@ -185,12 +194,49 @@ function playerBarHTML(name, score, winScore, handCount, pad, isActive, breaker,
 function renderOppZone() {
   const s = state;
   const el = document.getElementById('oppZone');
+  if (s.is_ai_game) {
+    el.innerHTML = renderZeroZone(s);
+    return;
+  }
   let h = playerBarHTML(s.opp_name, s.opp_score, s.win_score, s.opp_hand_count,
     s.opp_pad, !s.is_my_turn, 0, s.opp_scavenge_left);
   h += '<div class="cards-row">';
   for (let i=0; i<s.opp_hand_count; i++) h += cardHTML('?', {faceDown:true, small:true});
   h += '</div>';
   el.innerHTML = h;
+}
+
+function renderZeroZone(s) {
+  const actCls = !s.is_my_turn ? ' active' : '';
+  let stat = `${s.opp_hand_count}`;
+  let h = `<div class="pbar-zero">`;
+  h += `<div class="zero-totem${actCls}"></div>`;
+  h += `<div><div class="pname">零</div>`;
+  h += `<div class="pstat">手牌 ${stat} · 拾荒${s.opp_scavenge_left}</div>`;
+  h += zeroPadHTML(s.opp_pad);
+  h += `</div>`;
+  h += `<div class="pscore">${s.opp_score} / ${s.win_score}</div></div>`;
+  h += '<div class="cards-row">';
+  for (let i = 0; i < s.opp_hand_count; i++) {
+    h += `<div class="cd cd-sm cd-zero-back"><span class="lt"></span></div>`;
+  }
+  h += '</div>';
+  return h;
+}
+
+function zeroPadHTML(pad) {
+  let h = '<div class="sp-inline sp-zero">';
+  for (const cfg of SCOREPAD_CFG) {
+    const info = pad[cfg.key];
+    let slots = '';
+    for (const s of info.scores) slots += `<span class="sp-val">${s}</span> `;
+    for (let i = 0; i < info.sealed; i++) slots += '<span class="sp-lk">✦</span> ';
+    const rem = info.max_slots - info.scores.length - info.sealed;
+    for (let i = 0; i < rem; i++) slots += '☐ ';
+    const short = cfg.name.split('(')[0].trim();
+    h += `<span class="sp-chip">${short} ${slots}</span>`;
+  }
+  return h + '</div>';
 }
 
 function renderMyZone(animateDraw) {
@@ -280,13 +326,13 @@ function confirmSurrender() {
     `<div class="action-bar"><button class="btn btn-danger" onclick="doSurrender()">确定投降</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doSurrender() { hideOverlay(); clearSession(); socket.emit('surrender', {room_id: roomId}); }
+function doSurrender() { hideOverlay(); const rid = roomId; clearSession(); socket.emit('surrender', {room_id: rid}); }
 function confirmLeave() {
   showOverlay('退出房间？', '退出后对手将直接获胜',
     `<div class="action-bar"><button class="btn btn-danger" onclick="doLeave()">确定退出</button>` +
     `<button class="btn" onclick="hideOverlay()">取消</button></div>`);
 }
-function doLeave() { hideOverlay(); clearSession(); socket.emit('leave_game', {room_id: roomId}); }
+function doLeave() { hideOverlay(); const rid = roomId; clearSession(); socket.emit('leave_game', {room_id: rid}); }
 
 /* ── Overlay ───────────────────────────────────────── */
 function showOverlay(title, msg, buttonsHTML) {
@@ -310,6 +356,9 @@ function renderArena() {
 
   h += `<div class="phase-bar">${phaseLabel(s.phase)} — 回合 ${s.turn_number}` +
        ` <span class="timer-bar" id="timerDisplay"></span></div>`;
+  if (s.deck_low) {
+    h += `<div class="deck-warning">⚠ 牌库仅剩 ${s.deck_count} 张 — 终局将至！</div>`;
+  }
   h += renderLog();
 
   switch (s.phase) {
@@ -321,6 +370,7 @@ function renderArena() {
     case 'SPELL': h += renderSpell(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
+    case 'COLLISION_BET': h += renderColBet(); break;
     case 'COLLISION_FLIP': h += renderColFlip(); break;
     default: h += `<div class="text-center text-muted">等待中...</div>`;
   }
@@ -332,7 +382,7 @@ function phaseLabel(p) {
     DRAW:'壹 · 汲取', AMBUSH_DECIDE:'贰 · 突袭', AMBUSH_ATK_SELECT:'贰 · 暗扣出牌',
     AMBUSH_DEF_SELECT:'贰 · 防守应战',
     AMBUSH_SCAVENGE:'贰 · 败者拾荒', SPELL:'叁 · 咏唱', END_DISCARD:'肆 · 弃牌',
-    COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌', COLLISION_FLIP:'终局 · 对撞翻牌',
+    COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌', COLLISION_BET:'终局 · 对撞赌注', COLLISION_FLIP:'终局 · 对撞翻牌',
   };
   return m[p] || p;
 }
@@ -631,24 +681,69 @@ function renderEndDiscard() {
   let h = `<div class="text-center"><p>手牌超限 — 弃掉 ${overflow} 张</p>`;
   h += '<div class="action-bar">';
   if (selectedCards.length === overflow) {
-    const cards = selectedCards.map(i => state.my_hand[i]);
-    h += `<button class="btn btn-danger" onclick="sendAction('END_DISCARD',{cards:${JSON.stringify(cards)}})">确认弃牌</button>`;
+    h += `<button class="btn btn-danger" onclick="doEndDiscard()">确认弃牌</button>`;
   }
   return h + '</div></div>';
+}
+function doEndDiscard() {
+  const cards = selectedCards.map(i => state.my_hand[i]);
+  sendAction('END_DISCARD', {cards});
 }
 
 /* ── Phase: Collision Pre-Discard ──────────────────── */
 function renderColPreDiscard() {
   const s = state;
   if (s.col_pre_done) return '<div class="text-center text-muted">等待对手弃牌...</div>';
-  let h = `<div class="text-center"><p>对撞前 — 可弃 0~2 张 (不参与对撞)</p>`;
+  const mustDiscard = s.col_must_discard || 0;
+  let msg = mustDiscard > 0
+    ? `对撞前 — 你需要弃掉 ${mustDiscard} 张牌以与对手手牌数一致`
+    : '对撞前 — 可弃 0~2 张 (不参与对撞)';
+  let h = `<div class="text-center"><p>${msg}</p>`;
   h += '<div class="action-bar">';
-  const cards = selectedCards.map(i => s.my_hand[i]);
-  if (selectedCards.length <= 2) {
-    h += `<button class="btn btn-success" onclick="sendAction('COLLISION_PRE_DISCARD',{cards:${JSON.stringify(cards)}})">` +
-      `确认 (弃${cards.length}张)</button>`;
+  const canConfirm = mustDiscard > 0 ? selectedCards.length === mustDiscard : selectedCards.length <= 2;
+  if (canConfirm) {
+    h += `<button class="btn btn-success" onclick="doColPreDiscard()">确认 (弃${selectedCards.length}张)</button>`;
   }
   return h + '</div></div>';
+}
+function doColPreDiscard() {
+  const cards = selectedCards.map(i => state.my_hand[i]);
+  sendAction('COLLISION_PRE_DISCARD', {cards});
+}
+
+/* ── Phase: Collision Bet ──────────────────────────── */
+function renderColBet() {
+  const s = state;
+  const isCaller = (s.my_idx === s.col_bet_caller);
+  const phase = s.col_bet_phase;
+
+  if (phase === 'CALLER') {
+    if (!isCaller) return '<div class="text-center text-muted">对手正在决定赌注...</div>';
+    let h = '<div class="text-center">';
+    h += '<p style="color:#D4AF37;font-size:1.1rem">对撞赌注</p>';
+    h += '<p class="text-muted">选择押注额 — 对手可以选择跟注或退缩</p>';
+    h += '<p class="text-muted" style="font-size:.8rem">跟注：双方各扣对应分数加入底池 · 退缩：你白得 5 分</p>';
+    h += '<div class="action-bar">';
+    h += '<button class="btn" onclick="sendAction(\'COLLISION_BET\',{amount:0})">不押注</button>';
+    h += '<button class="btn btn-success" onclick="sendAction(\'COLLISION_BET\',{amount:10})">押 10 分</button>';
+    h += '<button class="btn btn-danger" onclick="sendAction(\'COLLISION_BET\',{amount:20})">押 20 分</button>';
+    h += '</div></div>';
+    return h;
+  }
+
+  if (phase === 'RESPONDER') {
+    if (isCaller) return `<div class="text-center text-muted">你押了 ${s.col_bet_amount} 分，等待对手回应...</div>`;
+    let h = '<div class="text-center">';
+    h += `<p style="color:#FF6B6B;font-size:1.1rem">对手押注 ${s.col_bet_amount} 分！</p>`;
+    h += '<p class="text-muted">跟注：你也投入同样分数，底池翻倍 · 退缩：对手白得 5 分</p>';
+    h += '<div class="action-bar">';
+    h += `<button class="btn btn-success" onclick="sendAction('COLLISION_BET',{choice:'follow'})">跟注 (−${s.col_bet_amount} 分)</button>`;
+    h += `<button class="btn" onclick="sendAction('COLLISION_BET',{choice:'fold'})">退缩 (对手 +5 分)</button>`;
+    h += '</div></div>';
+    return h;
+  }
+
+  return '<div class="text-center text-muted">处理中...</div>';
 }
 
 /* ── Phase: Collision Flip ─────────────────────────── */
@@ -671,14 +766,15 @@ function renderColFlip() {
   }
   h += '</div>';
 
-  const myCards = s.col_my_cards || [];
+  const myCount = s.col_my_card_count || (s.col_my_cards || []).length;
+  const myRevealed = s.col_my_revealed || {};
   const myFlipped = new Set(s.col_my_flipped || []);
   const waitFor = s.col_waiting_for;
   const isMyFlip = (waitFor === s.my_idx);
   h += '<div class="text-center text-muted mb-2 mt-2">我方暗阵</div><div class="col-row">';
-  for (let i=0; i<myCards.length; i++) {
+  for (let i=0; i<myCount; i++) {
     if (myFlipped.has(i)) {
-      h += cardHTML(myCards[i], {small:true});
+      h += cardHTML(myRevealed[i] || '?', {small:true});
     } else if (isMyFlip) {
       h += `<div onclick="sendAction('COLLISION_FLIP',{})" class="col-card">` +
         cardHTML('?', {faceDown:true, small:true}) + '</div>';
@@ -725,6 +821,23 @@ function showToast(msg) {
 setInterval(() => {
   fetch('/ping').catch(() => {});
 }, 4 * 60 * 1000);
+
+/* ── BGM ───────────────────────────────────────────── */
+let bgmPlaying = false;
+function toggleBGM() {
+  const audio = document.getElementById('bgm');
+  const btn = document.getElementById('bgmControl');
+  if (!audio) return;
+  if (bgmPlaying) {
+    audio.pause();
+    btn.textContent = '🔇';
+  } else {
+    audio.volume = 0.3;
+    audio.play().catch(() => {});
+    btn.textContent = '🔊';
+  }
+  bgmPlaying = !bgmPlaying;
+}
 
 /* ── Init ──────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', initSocket);

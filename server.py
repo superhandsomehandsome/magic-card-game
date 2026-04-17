@@ -1,20 +1,28 @@
 """Flask + Flask-SocketIO server for online 2-player game."""
 import os, random, string, time, threading
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from game_room import GameRoom
+import ai_player
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mysecret'
-socketio = SocketIO(app, cors_allowed_origins='*')
+socketio = SocketIO(app, cors_allowed_origins='*', ping_timeout=30, ping_interval=15)
 
 TURN_TIME_LIMIT = 60
 DISCONNECT_GRACE = 30
 LOBBY_GRACE = 300
 
 rooms = {}
+room_locks = {}
 turn_timers = {}
 dc_timers = {}
+
+
+def _get_lock(room_id):
+    if room_id not in room_locks:
+        room_locks[room_id] = threading.Lock()
+    return room_locks[room_id]
 
 
 def _gen_room_id():
@@ -29,10 +37,14 @@ def _broadcast(room_id):
     if not room:
         return
     _reset_turn_timer(room_id)
-    for sid, pidx in room.sids.items():
+    for sid, pidx in list(room.sids.items()):
+        if sid == room.ai_sid:
+            continue
         view = room.get_view(pidx)
         view['turn_deadline'] = room.turn_deadline
         socketio.emit('state', view, to=sid)
+    if room.is_ai_game and room.phase not in ('LOBBY', 'GAME_OVER'):
+        _schedule_ai(room_id)
 
 
 def _reset_turn_timer(room_id):
@@ -41,6 +53,8 @@ def _reset_turn_timer(room_id):
         room and setattr(room, 'turn_deadline', 0)
         return
     room.turn_deadline = time.time() + TURN_TIME_LIMIT
+    if room.is_ai_game:
+        return
     if room_id in turn_timers:
         turn_timers[room_id].cancel()
     t = threading.Timer(TURN_TIME_LIMIT, _on_turn_timeout, args=[room_id])
@@ -50,48 +64,58 @@ def _reset_turn_timer(room_id):
 
 
 def _on_turn_timeout(room_id):
-    room = rooms.get(room_id)
-    if not room or room.phase in ('LOBBY', 'GAME_OVER'):
-        return
-    phase = room.phase
-    cp = room.current_player
-    if phase == 'DRAW':
-        room.handle_action(_sid_for(room, cp), 'DRAW', {})
-    elif phase == 'AMBUSH_DECIDE':
-        room.handle_action(_sid_for(room, cp), 'AMBUSH_DECIDE', {'choice': 'skip'})
-    elif phase == 'AMBUSH_ATK_SELECT':
-        room.handle_action(_sid_for(room, cp), 'AMBUSH_CANCEL', {})
-    elif phase == 'AMBUSH_DEF_SELECT':
-        defender = 1 - cp
-        sid_d = _sid_for(room, defender)
-        hand = room.players[defender]['hand']
-        eligible = [c for c in hand if c != '瞬']
-        if eligible:
-            card = min(eligible, key=lambda c: {'A':0,'B':1,'C':2,'D':3,'E':4,'F':5}.get(c, 5))
-            room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': card})
-        elif '瞬' in hand:
-            room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': '瞬'})
-    elif phase == 'AMBUSH_SCAVENGE':
-        loser = 1 - room.duel_winner_idx if room.duel_winner_idx >= 0 else (1 - cp)
-        room.handle_action(_sid_for(room, loser), 'SCAVENGE', {'choice': 'skip'})
-    elif phase == 'SPELL':
-        room.handle_action(_sid_for(room, cp), 'SPELL_SKIP', {})
-    elif phase == 'END_DISCARD':
-        p = room.players[cp]
-        from game_logic import hand_overflow, CARD_CONFIG
-        overflow = hand_overflow(p['hand'])
-        if overflow > 0:
-            worst = sorted(p['hand'], key=lambda c: CARD_CONFIG[c]['rank'], reverse=True)
-            room.handle_action(_sid_for(room, cp), 'END_DISCARD', {'cards': worst[:overflow]})
-    elif phase == 'COLLISION_PRE_DISCARD':
-        for i in range(2):
-            if not room.col_pre_discard_done[i]:
-                room.handle_action(_sid_for(room, i), 'COLLISION_PRE_DISCARD', {'cards': []})
-    elif phase == 'COLLISION_FLIP':
-        wf = room._col_waiting_for()
-        if wf >= 0:
-            room.handle_action(_sid_for(room, wf), 'COLLISION_FLIP', {})
-    _broadcast(room_id)
+    lock = _get_lock(room_id)
+    with lock:
+        room = rooms.get(room_id)
+        if not room or room.phase in ('LOBBY', 'GAME_OVER'):
+            return
+        phase = room.phase
+        cp = room.current_player
+        if phase == 'DRAW':
+            room.handle_action(_sid_for(room, cp), 'DRAW', {})
+        elif phase == 'AMBUSH_DECIDE':
+            room.handle_action(_sid_for(room, cp), 'AMBUSH_DECIDE', {'choice': 'skip'})
+        elif phase == 'AMBUSH_ATK_SELECT':
+            room.handle_action(_sid_for(room, cp), 'AMBUSH_CANCEL', {})
+        elif phase == 'AMBUSH_DEF_SELECT':
+            defender = 1 - cp
+            sid_d = _sid_for(room, defender)
+            hand = room.players[defender]['hand']
+            eligible = [c for c in hand if c != '瞬']
+            if eligible:
+                card = min(eligible, key=lambda c: {'A':0,'B':1,'C':2,'D':3,'E':4,'F':5}.get(c, 5))
+                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': card})
+            elif '瞬' in hand:
+                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': '瞬'})
+            else:
+                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': None})
+        elif phase == 'AMBUSH_SCAVENGE':
+            loser = 1 - room.duel_winner_idx if room.duel_winner_idx >= 0 else (1 - cp)
+            room.handle_action(_sid_for(room, loser), 'SCAVENGE', {'choice': 'skip'})
+        elif phase == 'SPELL':
+            room.handle_action(_sid_for(room, cp), 'SPELL_SKIP', {})
+        elif phase == 'END_DISCARD':
+            p = room.players[cp]
+            from game_logic import hand_overflow, CARD_CONFIG
+            overflow = hand_overflow(p['hand'])
+            if overflow > 0:
+                worst = sorted(p['hand'], key=lambda c: CARD_CONFIG[c]['rank'], reverse=True)
+                room.handle_action(_sid_for(room, cp), 'END_DISCARD', {'cards': worst[:overflow]})
+        elif phase == 'COLLISION_PRE_DISCARD':
+            for i in range(2):
+                if not room.col_pre_discard_done[i]:
+                    room.handle_action(_sid_for(room, i), 'COLLISION_PRE_DISCARD', {'cards': []})
+        elif phase == 'COLLISION_BET':
+            if room.col_bet_phase == 'CALLER':
+                room.handle_action(_sid_for(room, room.col_bet_caller), 'COLLISION_BET', {'amount': 0})
+            elif room.col_bet_phase == 'RESPONDER':
+                responder = 1 - room.col_bet_caller
+                room.handle_action(_sid_for(room, responder), 'COLLISION_BET', {'choice': 'fold'})
+        elif phase == 'COLLISION_FLIP':
+            wf = room._col_waiting_for()
+            if wf >= 0:
+                room.handle_action(_sid_for(room, wf), 'COLLISION_FLIP', {})
+        _broadcast(room_id)
 
 
 def _sid_for(room, pidx):
@@ -101,9 +125,56 @@ def _sid_for(room, pidx):
     return None
 
 
+ai_timers = {}
+
+
+def _schedule_ai(room_id):
+    """If it's the AI's turn, schedule an AI action after a short delay."""
+    room = rooms.get(room_id)
+    if not room or not room.is_ai_game:
+        return
+    if room.phase in ('LOBBY', 'GAME_OVER'):
+        return
+
+    decision = ai_player.decide(room)
+    if decision is None:
+        return
+
+    action, data = decision
+    delay = ai_player.get_delay(action)
+
+    if room_id in ai_timers:
+        ai_timers[room_id].cancel()
+
+    def _do_ai_action():
+        lock = _get_lock(room_id)
+        with lock:
+            r = rooms.get(room_id)
+            if not r or r.phase in ('LOBBY', 'GAME_OVER'):
+                return
+            fresh = ai_player.decide(r)
+            if fresh is None:
+                return
+            act, dat = fresh
+            ai_sid = r.ai_sid
+            ok, err = r.handle_action(ai_sid, act, dat)
+            if ok:
+                _broadcast(room_id)
+
+    t = threading.Timer(delay, _do_ai_action)
+    t.daemon = True
+    t.start()
+    ai_timers[room_id] = t
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/rules')
+def rules_page():
+    return render_template('rules.html')
 
 
 @app.route('/ping')
@@ -125,13 +196,14 @@ def on_disconnect():
             pidx = room.sids[sid]
             pname = room.players[pidx]['name']
             room.leave(sid)
-            if not room.sids:
+            real_sids = {s for s in room.sids if s != room.ai_sid}
+            if not real_sids:
                 grace = LOBBY_GRACE if room.phase == 'LOBBY' else DISCONNECT_GRACE
                 t = threading.Timer(grace, _on_empty_room_timeout, args=[rid])
                 t.daemon = True
                 t.start()
                 dc_timers[rid] = t
-            elif room.phase not in ('LOBBY', 'GAME_OVER'):
+            elif not room.is_ai_game and room.phase not in ('LOBBY', 'GAME_OVER'):
                 socketio.emit('opponent_away', {
                     'player': pidx, 'name': pname,
                     'grace': DISCONNECT_GRACE
@@ -169,6 +241,9 @@ def _cleanup_room(rid):
     if rid in dc_timers:
         dc_timers[rid].cancel()
         del dc_timers[rid]
+    if rid in ai_timers:
+        ai_timers[rid].cancel()
+        del ai_timers[rid]
     if rid in rooms:
         del rooms[rid]
 
@@ -184,6 +259,28 @@ def on_create_room(data):
     ok, idx = room.join(sid, name)
     join_room(rid)
     emit('room_created', {'room_id': rid, 'player_idx': idx})
+
+
+@socketio.on('create_ai_room')
+def on_create_ai_room(data):
+    from flask import request
+    sid = request.sid
+    rid = _gen_room_id()
+    room = GameRoom(rid)
+    rooms[rid] = room
+    room.is_ai_game = True
+
+    name = data.get('name', '炼金术士')
+    ok, idx = room.join(sid, name)
+    join_room(rid)
+
+    ai_sid = f'AI_BOT_{rid}'
+    room.ai_sid = ai_sid
+    room.join(ai_sid, '零')
+
+    emit('room_created', {'room_id': rid, 'player_idx': idx})
+    if room.phase != 'LOBBY':
+        _broadcast(rid)
 
 
 @socketio.on('join_room')
@@ -288,13 +385,15 @@ def on_action(data):
         emit('error', {'msg': '房间不存在'})
         return
 
-    room = rooms[rid]
-    ok, err = room.handle_action(sid, action, payload)
-    if not ok:
-        emit('action_error', {'msg': err, 'action': action})
-        return
+    lock = _get_lock(rid)
+    with lock:
+        room = rooms[rid]
+        ok, err = room.handle_action(sid, action, payload)
+        if not ok:
+            emit('action_error', {'msg': err, 'action': action})
+            return
 
-    _broadcast(rid)
+        _broadcast(rid)
 
 
 if __name__ == '__main__':

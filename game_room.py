@@ -2,14 +2,15 @@
 import random
 from game_state import (
     CARD_CONFIG, SCOREPAD_CONFIG, HAND_LIMIT, WIN_SCORE,
-    SCORE_MULT, INITIAL_HAND_P0, INITIAL_HAND_P1,
+    SCORE_MULT, INITIAL_HAND_P0, INITIAL_HAND_P1, FIRST_PLAYER_BONUS,
     SCAVENGE_LIMIT, SEAL_LIMIT, INSTANT_PER_TURN, SACRIFICE_DRAW,
 )
 from game_logic import create_deck, sort_hand, bv, draw_cards, compare_duel, hand_overflow
 from scoring import find_combos, apply_modifiers, detect_playable
 from collision import init as col_init, next_round as col_next, final_winner, compare as col_compare
 
-SCAVENGE_TURN_WINDOW = 10
+SCAVENGE_TURN_WINDOW = 6
+DECK_LOW_THRESHOLD = 10
 TIER1_KEYS = frozenset(c['key'] for c in SCOREPAD_CONFIG if c['tier'] == 1)
 
 
@@ -52,6 +53,8 @@ class GameRoom:
         self.sids = {}
         self.player_names = ['', '']
         self.phase = 'LOBBY'
+        self.is_ai_game = False
+        self.ai_sid = None
         self.current_player = 0
         self.turn_number = 1
         self.deck = []
@@ -81,6 +84,11 @@ class GameRoom:
         self.col_flipper = 0
         self.col_round_pair = [None, None]
         self.col_pre_discard_done = [False, False]
+        self.col_bet_caller = 0
+        self.col_bet_amount = 0
+        self.col_bet_phase = 'CALLER'
+        self.col_bet_response = None
+        self.col_bonus_pot = 0
         self.winner = -1
         self.turn_log = []
         self.game_log = []
@@ -125,11 +133,12 @@ class GameRoom:
         p1_hand = draw_cards(self.deck, INITIAL_HAND_P1)
         self.players[0]['hand'] = sort_hand(p0_hand)
         self.players[1]['hand'] = sort_hand(p1_hand)
+        self.players[0]['score'] = FIRST_PLAYER_BONUS
         self.current_player = 0
         self.turn_number = 1
         self.phase = 'DRAW'
         self._reset_turn()
-        self._log('game_start', '对决开始！')
+        self._log('game_start', '对决开始！先手获得 %d 点先攻补偿。' % FIRST_PLAYER_BONUS)
 
     def _reset_turn(self):
         self.drawn_cards = []
@@ -224,6 +233,7 @@ class GameRoom:
             'SPELL_SKIP': self._h_spell_skip,
             'END_DISCARD': self._h_end_discard,
             'COLLISION_PRE_DISCARD': self._h_col_pre_discard,
+            'COLLISION_BET': self._h_col_bet,
             'COLLISION_FLIP': self._h_col_flip,
         }.get(action)
 
@@ -243,6 +253,9 @@ class GameRoom:
         self.drawn_cards = drawn
         self.draw_done = True
         self._log('draw', f'抽取 {len(drawn)} 张牌')
+        deck_left = len(self.deck)
+        if 0 < deck_left <= DECK_LOW_THRESHOLD:
+            self._log('deck_warning', f'⚠ 牌库仅剩 {deck_left} 张！终局将至！')
         self.phase = 'AMBUSH_DECIDE'
         return True, None
 
@@ -270,7 +283,18 @@ class GameRoom:
             return False, 'Invalid card'
         self._cur()['hand'].remove(card)
         self.atk_card = card
-        self._log('ambush_atk', f'暗扣 {card}')
+        self._log('ambush_atk', '进攻方暗扣了一张牌')
+
+        opp = self._opp()
+        if not opp['hand']:
+            self.def_card = None
+            self.ambush_result = 1
+            self.duel_winner_idx = self.current_player
+            self.duel_pending_discard = [self.atk_card]
+            self._log('ambush_reveal', f'防守方无手牌，攻击方 {self.atk_card} 自动胜利')
+            self._duel_winner_auto_draw()
+            return True, None
+
         self.phase = 'AMBUSH_DEF_SELECT'
         return True, None
 
@@ -285,6 +309,15 @@ class GameRoom:
             return False, 'Not defender / wrong phase'
         card = data.get('card')
         opp = self._opp()
+
+        if not opp['hand'] or card is None:
+            self.def_card = None
+            self.ambush_result = 1
+            self.duel_winner_idx = self.current_player
+            self.duel_pending_discard = [self.atk_card]
+            self._log('ambush_reveal', f'防守方无牌可出，攻击方 {self.atk_card} 自动胜利')
+            self._duel_winner_auto_draw()
+            return True, None
 
         if card == '瞬' and '瞬' in opp['hand']:
             opp['hand'].remove('瞬')
@@ -321,18 +354,24 @@ class GameRoom:
         if result == 1:
             self.duel_winner_idx = self.current_player
             if self.atk_card == 'A':
-                self._cur()['score'] += 10
-                self._log('holy', '圣物威压 +10 分')
+                self._cur()['score'] += 15
+                self._log('holy', '圣物威压 +15 分')
+            if self.atk_card == 'F' and card == 'A':
+                self._cur()['breaker_marks'] += 1
+                self._log('godslayer', '弑神成功！攻击方获得破法者标记')
             self._log('ambush_reveal',
                        f'{self.atk_card} vs {card} — 攻击方胜！')
         elif result == -1:
             self.duel_winner_idx = 1 - self.current_player
             if card == 'A':
-                opp['score'] += 10
-                self._log('holy', '圣物威压 +10 分')
+                opp['score'] += 15
+                self._log('holy', '圣物威压 +15 分')
             if self.ambush_godslayer:
                 opp['breaker_marks'] += 1
-                self._log('godslayer', '弑神成功！获得破法者标记')
+                self._log('godslayer', '弑神成功！防守方获得破法者标记')
+            if self.atk_card == 'A':
+                self._cur()['score'] += 5
+                self._log('holy_consolation', '圣物陨落 — 攻击方获得 +5 安慰分')
             self._log('ambush_reveal',
                        f'{self.atk_card} vs {card} — 防守方胜！')
         else:
@@ -347,15 +386,15 @@ class GameRoom:
         return True, None
 
     def _duel_winner_auto_draw(self):
-        """Winner automatically draws 1 card from deck."""
+        """Winner draws 2 cards from deck (improved from 1 for balance)."""
         self._flush_duel_pending()
         winner = self.players[self.duel_winner_idx]
-        drawn = draw_cards(self.deck, 1)
+        drawn = draw_cards(self.deck, 2)
         self.duel_winner_drew = drawn[0] if drawn else None
-        if self.duel_winner_drew:
-            winner['hand'].append(self.duel_winner_drew)
+        if drawn:
+            winner['hand'].extend(drawn)
             winner['hand'] = sort_hand(winner['hand'])
-            self._log('duel_reward', f'胜者从牌库抽取 {self.duel_winner_drew}')
+            self._log('duel_reward', f'胜者从牌库抽取 {len(drawn)} 张牌')
         else:
             self._log('duel_reward', '牌库已空，无法抽牌')
         if self._check_race_win():
@@ -455,7 +494,13 @@ class GameRoom:
 
         if combo_key in TIER1_KEYS and not self.tier1_bonus:
             self.tier1_bonus = True
-            self._log('tier1_bonus', '禁忌连击！可再计分一次')
+            bonus_draw = draw_cards(self.deck, 2)
+            if bonus_draw:
+                p['hand'].extend(bonus_draw)
+                p['hand'] = sort_hand(p['hand'])
+                self._log('tier1_bonus', f'禁忌连击！抽取 {len(bonus_draw)} 张牌，可再计分一次')
+            else:
+                self._log('tier1_bonus', '禁忌连击！牌库已空，可再计分一次')
             return True, None
 
         self._finish_spell()
@@ -605,6 +650,18 @@ class GameRoom:
 
     # ── Collision phase ────────────────────────────────
 
+    def _col_must_discard(self, pidx):
+        """How many cards this player MUST discard to equalize hands for collision."""
+        h0 = len(self.players[0]['hand'])
+        h1 = len(self.players[1]['hand'])
+        if h0 == h1:
+            return 0
+        if pidx == 0 and h0 > h1:
+            return h0 - h1
+        if pidx == 1 and h1 > h0:
+            return h1 - h0
+        return 0
+
     def _h_col_pre_discard(self, pidx, data):
         if self.phase != 'COLLISION_PRE_DISCARD':
             return False, 'Wrong phase'
@@ -612,8 +669,13 @@ class GameRoom:
             return False, 'Already submitted'
 
         cards = data.get('cards', [])
-        if len(cards) > 2:
-            return False, 'Can discard at most 2 cards'
+        must = self._col_must_discard(pidx)
+        if must > 0:
+            if len(cards) != must:
+                return False, f'Must discard exactly {must} cards to equalize'
+        else:
+            if len(cards) > 2:
+                return False, 'Can discard at most 2 cards'
 
         p = self.players[pidx]
         for c in cards:
@@ -625,11 +687,77 @@ class GameRoom:
         self._discard(cards)
         self.col_pre_discard_done[pidx] = True
 
-        self._log('col_pre_discard', f'玩家 {pidx} 弃掉 {len(cards)} 张牌进入对撞')
+        self._log('col_pre_discard', f'{p["name"]} 弃掉 {len(cards)} 张牌进入对撞')
 
         if all(self.col_pre_discard_done):
-            self._start_collision()
+            h0 = len(self.players[0]['hand'])
+            h1 = len(self.players[1]['hand'])
+            if h0 != h1:
+                extra = min(h0, h1)
+                if h0 > extra:
+                    diff = h0 - extra
+                    worst = sorted(self.players[0]['hand'], key=lambda c: CARD_CONFIG[c]['rank'], reverse=True)[:diff]
+                    for c in worst:
+                        self.players[0]['hand'].remove(c)
+                    self._discard(worst)
+                elif h1 > extra:
+                    diff = h1 - extra
+                    worst = sorted(self.players[1]['hand'], key=lambda c: CARD_CONFIG[c]['rank'], reverse=True)[:diff]
+                    for c in worst:
+                        self.players[1]['hand'].remove(c)
+                    self._discard(worst)
+            self.col_bet_caller = self.current_player
+            self.col_bet_amount = 0
+            self.col_bet_phase = 'CALLER'
+            self.col_bet_response = None
+            self.col_bonus_pot = 0
+            self.phase = 'COLLISION_BET'
+            self._log('col_bet', '进入对撞赌注阶段 — 先手方选择押注额')
         return True, None
+
+    def _h_col_bet(self, pidx, data):
+        if self.phase != 'COLLISION_BET':
+            return False, 'Wrong phase'
+
+        if self.col_bet_phase == 'CALLER':
+            if pidx != self.col_bet_caller:
+                return False, 'Not the caller'
+            amount = data.get('amount', 0)
+            if amount not in (0, 10, 20):
+                return False, 'Bet must be 0, 10, or 20'
+            self.col_bet_amount = amount
+            if amount == 0:
+                self._log('col_bet', f'{self.players[pidx]["name"]} 选择不押注')
+                self._start_collision()
+                return True, None
+            self.col_bet_phase = 'RESPONDER'
+            self._log('col_bet', f'{self.players[pidx]["name"]} 押注 {amount} 分！')
+            return True, None
+
+        elif self.col_bet_phase == 'RESPONDER':
+            responder = 1 - self.col_bet_caller
+            if pidx != responder:
+                return False, 'Not the responder'
+            choice = data.get('choice')
+            if choice == 'follow':
+                self.col_bet_response = 'follow'
+                bet = self.col_bet_amount
+                self.players[0]['score'] -= bet
+                self.players[1]['score'] -= bet
+                self.col_bonus_pot = bet * 2
+                self._log('col_bet', f'{self.players[pidx]["name"]} 跟注！底池增加 {bet * 2} 分')
+                self._start_collision()
+                return True, None
+            elif choice == 'fold':
+                self.col_bet_response = 'fold'
+                self.players[self.col_bet_caller]['score'] += 5
+                self.col_bonus_pot = 0
+                self._log('col_bet', f'{self.players[pidx]["name"]} 退缩，{self.players[self.col_bet_caller]["name"]} 获得 5 分')
+                self._start_collision()
+                return True, None
+            return False, 'Invalid choice (follow or fold)'
+
+        return False, 'Unexpected bet phase'
 
     def _start_collision(self):
         p0_cards = list(self.players[0]['hand'])
@@ -643,8 +771,10 @@ class GameRoom:
         self.col_flipper = 0
         self.col_round_pair = [None, None]
         self.col_state = col_init(p0_cards, p1_cards)
+        self.col_state['pot'] += self.col_bonus_pot
         self.phase = 'COLLISION_FLIP'
-        self._log('collision_start', '暗阵已部署，对撞开始！')
+        base = 10 + self.col_bonus_pot
+        self._log('collision_start', f'暗阵已部署，对撞开始！初始底池 {base} 分')
 
     def _h_col_flip(self, pidx, data):
         if self.phase != 'COLLISION_FLIP':
@@ -733,6 +863,16 @@ class GameRoom:
         self._log('game_over',
                    f'对撞结束！{self.players[0]["name"]} {t0} vs {self.players[1]["name"]} {t1} — {w_name}获胜')
 
+    def _filtered_log(self, pidx):
+        """Filter log entries to hide secret info from the wrong player."""
+        filtered = []
+        for entry in self.turn_log[-10:]:
+            if entry['type'] == 'ambush_atk' and pidx != self.current_player:
+                filtered.append({**entry, 'msg': '对手暗扣了一张牌'})
+            else:
+                filtered.append(entry)
+        return filtered
+
     # ── View generation ────────────────────────────────
 
     def get_view(self, pidx):
@@ -749,6 +889,7 @@ class GameRoom:
             'my_idx': pidx,
             'my_name': p['name'],
             'opp_name': opp['name'],
+            'is_ai_game': self.is_ai_game,
             'my_hand': p['hand'],
             'opp_hand_count': len(opp['hand']),
             'my_score': _total_score(p),
@@ -762,13 +903,14 @@ class GameRoom:
             'opp_scavenge_left': opp['scavenge_remaining'],
             'my_curse': p['curse_active'],
             'deck_count': len(self.deck),
+            'deck_low': 0 < len(self.deck) <= DECK_LOW_THRESHOLD,
             'discard_count': len(self.discard_pile),
             'is_my_turn': self.current_player == pidx,
             'current_player': self.current_player,
             'turn_number': self.turn_number,
             'win_score': WIN_SCORE,
             'hand_limit': HAND_LIMIT,
-            'log': self.turn_log[-10:],
+            'log': self._filtered_log(pidx),
             'winner': self.winner,
         }
 
@@ -805,15 +947,25 @@ class GameRoom:
 
         if self.phase == 'COLLISION_PRE_DISCARD':
             view['col_pre_done'] = self.col_pre_discard_done[pidx]
+            view['col_must_discard'] = self._col_must_discard(pidx)
+
+        if self.phase == 'COLLISION_BET':
+            view['col_bet_caller'] = self.col_bet_caller
+            view['col_bet_phase'] = self.col_bet_phase
+            view['col_bet_amount'] = self.col_bet_amount
 
         if self.phase == 'COLLISION_FLIP':
-            view['col_my_cards'] = self.col_p0_cards if pidx == 0 else self.col_p1_cards
+            my_cards_list = self.col_p0_cards if pidx == 0 else self.col_p1_cards
+            my_flipped_set = self.col_p0_flipped if pidx == 0 else self.col_p1_flipped
+            view['col_my_card_count'] = len(my_cards_list)
+            view['col_my_cards'] = my_cards_list
             view['col_opp_card_count'] = len(self.col_p1_cards) if pidx == 0 else len(self.col_p0_cards)
-            view['col_my_flipped'] = list(self.col_p0_flipped if pidx == 0 else self.col_p1_flipped)
+            view['col_my_flipped'] = list(my_flipped_set)
             view['col_opp_flipped'] = list(self.col_p1_flipped if pidx == 0 else self.col_p0_flipped)
             opp_cards_list = self.col_p1_cards if pidx == 0 else self.col_p0_cards
             opp_flipped_set = self.col_p1_flipped if pidx == 0 else self.col_p0_flipped
             view['col_opp_revealed'] = {i: opp_cards_list[i] for i in opp_flipped_set}
+            view['col_my_revealed'] = {i: my_cards_list[i] for i in my_flipped_set}
             view['col_round'] = self.col_state['round'] if self.col_state else 0
             view['col_scores'] = list(self.col_state['score']) if self.col_state else [0, 0]
             view['col_pot'] = self.col_state['pot'] if self.col_state else 0

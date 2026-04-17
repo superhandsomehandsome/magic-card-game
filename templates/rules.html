@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>秘术对决 — 快速入门</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a120b;color:#d4c5a0;font-family:'Georgia',serif;line-height:1.7;padding:20px}
+.wrap{max-width:720px;margin:0 auto}
+h1{text-align:center;color:#D4AF37;font-size:1.8rem;margin-bottom:8px}
+h2{color:#D4AF37;font-size:1.2rem;margin:20px 0 8px;border-bottom:1px solid #4A3728;padding-bottom:4px}
+h3{color:#C9A96E;font-size:1rem;margin:12px 0 4px}
+.subtitle{text-align:center;color:#6B5B3A;margin-bottom:20px}
+p{margin:6px 0}
+.card-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.card{display:inline-flex;align-items:center;justify-content:center;width:36px;height:52px;border-radius:4px;font-weight:bold;font-size:1rem;border:1px solid #4A3728}
+.c-a{background:#8B0000;color:#FFD700;border-color:#FFD700}
+.c-b{background:#1a3a5c;color:#87CEEB}
+.c-c{background:#2d4a2d;color:#90EE90}
+.c-d{background:#3a3520;color:#D4C5A0}
+.c-e{background:#2a2520;color:#A09070}
+.c-f{background:#1e1a15;color:#6B5B3A}
+.c-s{background:#2a1a30;color:#B87CFF}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+th,td{padding:6px 10px;border:1px solid #4A3728;text-align:left;font-size:.9rem}
+th{background:#2A1F14;color:#D4AF37}
+.highlight{color:#FF6B6B;font-weight:bold}
+.gold{color:#D4AF37;font-weight:bold}
+.tip{background:rgba(212,175,55,.08);border-left:3px solid #D4AF37;padding:8px 12px;margin:10px 0;font-size:.9rem}
+a{color:#D4AF37}
+.back{text-align:center;margin:30px 0}
+.back a{color:#D4AF37;text-decoration:none;padding:8px 20px;border:1px solid #4A3728;border-radius:6px}
+.back a:hover{background:#2A1F14}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>秘术对决：禁忌魔典</h1>
+<p class="subtitle">30 秒快速入门</p>
+
+<h2>一句话概括</h2>
+<p>两位巫师用 A~F 六种魔力牌互相拼点、收集组合、抢先达到 <span class="gold">155 分</span> 获胜。</p>
+
+<h2>卡牌一览</h2>
+<div class="card-row">
+  <div class="card c-a">A</div>
+  <div class="card c-b">B</div>
+  <div class="card c-c">C</div>
+  <div class="card c-d">D</div>
+  <div class="card c-e">E</div>
+  <div class="card c-f">F</div>
+  <div class="card c-s">瞬</div>
+</div>
+<p>大小：A &gt; B &gt; C &gt; D &gt; E &gt; F，但 <span class="highlight">F 永远打败 A</span>（弑神）</p>
+<p>手牌上限 <strong>8 张</strong>，超出必须弃牌。先手 5 张起始，后手 6 张，先手获得 <strong>+1 分</strong>补偿。</p>
+
+<h2>你的每个回合做这 4 件事</h2>
+
+<h3>1. 汲取（抽牌）</h3>
+<p>从牌库抽 2 张牌。（如果上回合用了「瞬」，只抽 1 张）</p>
+
+<h3>2. 突袭（拼点）</h3>
+<p>可选择发起 1 次拼点：你暗扣一张牌，对手也必须出一张应战。</p>
+<ul>
+  <li><strong>赢了：</strong>从牌库摸 2 张</li>
+  <li><strong>输了：</strong>可以从弃牌堆捡 1 张 D/E/F（拾荒，全局限 3 次）</li>
+  <li><strong>平局：</strong>双方牌都丢弃，什么都不发生</li>
+</ul>
+<div class="tip">
+  <strong>小技巧：</strong>用 A 拼点赢了额外 +15 分（圣物威压）。用 F 打败 A 可获得「破法者标记」。
+</div>
+
+<h3>3. 咏唱（出组合得分）</h3>
+<p>从手牌中打出组合填入计分板：</p>
+<table>
+  <tr><th>组合</th><th>条件</th><th>大约分数</th></tr>
+  <tr><td>龙之吐息</td><td>5 张相同</td><td>50~84</td></tr>
+  <tr><td>奥术序列</td><td>A+B+C+D+E</td><td>54</td></tr>
+  <tr><td>元素激流</td><td>B+C+D+E+F</td><td>36</td></tr>
+  <tr><td>混沌炼金</td><td>3+2 葫芦</td><td>30~57</td></tr>
+  <tr><td>三重共鸣</td><td>3 张相同</td><td>14~33</td></tr>
+  <tr><td>以量取胜</td><td>任意数量 F</td><td>每张 6 分</td></tr>
+</table>
+<p>还可以使用「<strong>瞬</strong>」换牌、「<strong>黑暗献祭</strong>」清手牌。</p>
+
+<h3>4. 整理</h3>
+<p>手牌超过 8 张就弃到 8 张，然后换对手回合。</p>
+
+<h2>终局：魔力对撞</h2>
+<p>牌库抽空后，双方手牌调整为相同数量，然后进入<strong>赌注环节</strong>：</p>
+<ul>
+  <li>先手方可押注 0/10/20 分</li>
+  <li>后手方选择<strong>跟注</strong>（双方各扣分加入底池）或<strong>退缩</strong>（对手白得 5 分）</li>
+</ul>
+<p>之后将手牌面朝下排好，一张张翻开比大小。赢的拿走底池，平局底池滚雪球，最终总分高的获胜！</p>
+
+<h2>特殊机制</h2>
+<ul>
+  <li><span class="gold">破法者标记：</span>可以封印对手的一个计分格，或让对手下次计分 -10</li>
+  <li><span class="highlight">弑神（F &gt; A）：</span>无论攻防，用 F 打败 A 都能获得破法者标记</li>
+  <li><span class="gold">禁忌连击：</span>完成红色组合（龙之吐息/奥术序列）时，抽 2 张牌并可再计分一次</li>
+</ul>
+
+<div class="back"><a href="/">返回游戏</a></div>
+
+</div>
+</body>
+</html>
