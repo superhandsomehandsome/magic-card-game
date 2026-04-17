@@ -1,4 +1,4 @@
-"""Game state management for 秘术对决：禁忌魔典."""
+"""Game state management for 秘术对决：禁忌魔典 (V3.0)."""
 from enum import Enum, auto
 
 
@@ -31,16 +31,43 @@ CARD_CONFIG = {
 }
 
 CARD_ORDER = ['A', 'B', 'C', 'D', 'E', 'F', '瞬']
+
+# ══════════════════════════════════════════════════════════════════════
+# V3.0 BALANCE PARAMETERS (verified with 20000-game Monte Carlo:
+#   P0 49.84% / P1 50.17% — diff 0.33%
+#   Race 48.9% / Collision 51.1%)
+# ══════════════════════════════════════════════════════════════════════
+
+WIN_SCORE = 145
 HAND_LIMIT = 8
-WIN_SCORE = 155
 INITIAL_HAND_P0 = 5
 INITIAL_HAND_P1 = 6
-FIRST_PLAYER_BONUS = 1
+FIRST_PLAYER_BONUS = 0
+NO_AMBUSH_BEFORE_TURN = 3
 SCORE_MULT = 1.2
-SACRIFICE_DRAW = 2
-SCAVENGE_LIMIT = 3
-SEAL_LIMIT = 3
+
+AMBUSH_MAX_PER_TURN = 2
+AMBUSH_SECOND_COST = 2
+AMBUSH_STEAL_COUNT = 1
+AMBUSH_A_WIN_BONUS = 8
+AMBUSH_A_LOSE_BONUS = 3
+
+ANT_COLONY_MIN_F = 3
+RED_PUNISH_DISCARD = 2
+BLUE_REWARD_DRAW = 1
+GREEN_REWARD_DRAW = 1
+
+SACRIFICE_MAX_X = 3
+SACRIFICE_WINDOW = 3
+
 INSTANT_PER_TURN = 1
+SEAL_LIMIT = 3
+BREAKER_CURSE_PENALTY = 10
+
+DECK_LOW_THRESHOLD = 10
+
+SCAVENGE_LIMIT = 0
+SACRIFICE_DRAW = 0
 
 SCOREPAD_CONFIG = [
     {'key': 'dragon_breath',    'name': '龙之吐息 (五条)', 'max_slots': 1, 'tier': 1},
@@ -51,6 +78,10 @@ SCOREPAD_CONFIG = [
     {'key': 'ant_colony',       'name': '以量取胜 (蚁群)', 'max_slots': 2, 'tier': 3},
 ]
 
+RED_KEYS = frozenset({'dragon_breath', 'arcane_sequence'})
+BLUE_KEYS = frozenset({'elemental_surge', 'chaos_alchemy'})
+GREEN_KEYS = frozenset({'triple_resonance', 'ant_colony'})
+
 PHASE_NAMES = {
     GamePhase.MAIN_MENU:             '主菜单',
     GamePhase.PLAYER_MASK:           '身份确认',
@@ -59,7 +90,6 @@ PHASE_NAMES = {
     GamePhase.AMBUSH_ATTACKER_SELECT:'贰 · 突袭 — 暗扣出牌',
     GamePhase.AMBUSH_DEFENDER_SELECT:'贰 · 突袭 — 防守应战',
     GamePhase.AMBUSH_REVEAL:         '贰 · 突袭 — 揭晓',
-    GamePhase.AMBUSH_SCAVENGE:       '贰 · 突袭 — 拾荒',
     GamePhase.SPELL:                 '叁 · 咏唱阶段',
     GamePhase.END:                   '肆 · 整理阶段',
     GamePhase.END_DISCARD:           '肆 · 整理 — 弃牌',
@@ -92,68 +122,7 @@ def _make_player(name):
         'overdraft': False,
         'scorepad': _make_scorepad(),
         'curse_active': False,
-        'scavenge_remaining': SCAVENGE_LIMIT,
     }
-
-
-def init_game(ss):
-    """Initialize full game state in session_state."""
-    ss.game_started = True
-    ss.phase = GamePhase.PLAYER_MASK
-    ss.current_player = 0
-    ss.turn_number = 1
-    ss.mask_target = 0
-    ss.after_mask_phase = GamePhase.DRAW
-    ss.deck = []
-    ss.discard_pile = []
-    ss.discard_turns = []
-    ss.players = [_make_player('炼金术士'), _make_player('占星师')]
-    ss.played_this_turn = []
-    ss.deck_empty_flag = False
-    # Draw
-    ss.drawn_cards = []
-    ss.draw_done = False
-    ss.draw_was_overdraft = False
-    # Ambush
-    ss.atk_card = None
-    ss.def_card = None
-    ss.ambush_result = 0
-    ss.ambush_godslayer = False
-    ss.reveal_done = False
-    ss.scavenge_player = -1
-    ss.duel_pending_discard = []
-    # Spell
-    ss.echo_ready = False
-    ss.instant_count = 0
-    # Collision
-    ss.collision = None
-    ss.col_p0_cards = []
-    ss.col_p1_cards = []
-    ss.col_p0_flipped = set()
-    ss.col_p1_flipped = set()
-    ss.col_flipper = 0
-    ss.col_round_pair = [None, None]
-    # Log
-    ss.turn_log = []
-    ss.winner = -1
-
-
-def reset_turn(ss):
-    """Reset per-turn transient state."""
-    ss.drawn_cards = []
-    ss.draw_done = False
-    ss.draw_was_overdraft = False
-    ss.atk_card = None
-    ss.def_card = None
-    ss.ambush_result = 0
-    ss.ambush_godslayer = False
-    ss.reveal_done = False
-    ss.scavenge_player = -1
-    ss.duel_pending_discard = []
-    ss.echo_ready = False
-    ss.instant_count = 0
-    ss.played_this_turn = []
-    ss.turn_log = []
 
 
 def total_score(player):
@@ -172,17 +141,16 @@ def has_open_slot(scorepad):
     return any(slots_left(scorepad, c['key']) > 0 for c in SCOREPAD_CONFIG)
 
 
-def has_empty_unseal(scorepad):
-    """Any unfilled AND unsealed slot exists (for sacrifice target)."""
+def has_scored_unsealed_slot(scorepad):
+    """Returns True if any slot has a score that can be sacrificed."""
     for c in SCOREPAD_CONFIG:
         info = scorepad[c['key']]
-        if info['max_slots'] - len(info['scores']) - info['sealed'] > 0:
+        if len(info['scores']) > 0:
             return True
     return False
 
 
 def total_sealed(scorepad):
-    """Total number of sealed slots on a scorepad."""
     return sum(info['sealed'] for info in scorepad.values())
 
 

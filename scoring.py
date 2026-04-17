@@ -1,6 +1,6 @@
-"""Combo detection and scoring — pure functions, zero Streamlit dependency."""
+"""Combo detection and scoring (V3.0)."""
 from collections import Counter
-from game_state import CARD_CONFIG, SCORE_MULT
+from game_state import CARD_CONFIG, SCORE_MULT, ANT_COLONY_MIN_F
 
 
 def _bv(card):
@@ -8,7 +8,6 @@ def _bv(card):
 
 
 def _scaled(raw):
-    """Apply global score multiplier and round."""
     return int(raw * SCORE_MULT)
 
 
@@ -22,46 +21,39 @@ def find_combos(selected):
     n = len(selected)
     out = []
 
-    # 龙之吐息 (五条) — 5 identical
     if n == 5 and len(ct) == 1:
         card = next(iter(ct))
         out.append({'key': 'dragon_breath', 'name': '龙之吐息',
                     'cards': list(selected), 'base_score': _scaled(40 + _bv(card) * 5)})
 
-    # 奥术序列 (大顺) — A B C D E
     if n == 5 and set(ct) == {'A','B','C','D','E'} and max(ct.values()) == 1:
         out.append({'key': 'arcane_sequence', 'name': '奥术序列',
                     'cards': list(selected), 'base_score': _scaled(45)})
 
-    # 元素激流 (小顺) — B C D E F
     if n == 5 and set(ct) == {'B','C','D','E','F'} and max(ct.values()) == 1:
         out.append({'key': 'elemental_surge', 'name': '元素激流',
                     'cards': list(selected), 'base_score': _scaled(30)})
 
-    # 混沌炼金 (葫芦) — 3+2
     if n == 5 and sorted(ct.values(), reverse=True) == [3, 2]:
         out.append({'key': 'chaos_alchemy', 'name': '混沌炼金',
                     'cards': list(selected),
                     'base_score': _scaled(20 + sum(_bv(c) for c in selected))})
 
-    # 三重共鸣 (三条) — 3 identical
     if n == 3 and len(ct) == 1:
         card = next(iter(ct))
         out.append({'key': 'triple_resonance', 'name': '三重共鸣',
                     'cards': list(selected), 'base_score': _scaled(10 + _bv(card) * 3)})
 
-    # 以量取胜 (蚁群) — any count of F only
-    if len(ct) == 1 and 'F' in ct:
+    # V3.0: ant_colony requires at least ANT_COLONY_MIN_F F cards
+    if len(ct) == 1 and 'F' in ct and n >= ANT_COLONY_MIN_F:
         out.append({'key': 'ant_colony', 'name': '以量取胜',
                     'cards': list(selected), 'base_score': _scaled(n * 5)})
 
     return out
 
 
-def apply_modifiers(base, echo=False, curse=False):
+def apply_modifiers(base, curse=False):
     s = base
-    if echo:
-        s += 10
     if curse:
         s -= 10
     return max(0, s)
@@ -106,10 +98,12 @@ def detect_playable(hand, scorepad_slots_fn):
                 sc = _scaled(10 + _bv(card) * 3)
                 results.append(('triple_resonance', '三重共鸣', cards, sc))
 
+    # V3.0: ant_colony requires at least ANT_COLONY_MIN_F F cards
     if scorepad_slots_fn('ant_colony') > 0:
         f_cnt = ct.get('F', 0)
-        for n in range(1, f_cnt + 1):
-            results.append(('ant_colony', '以量取胜', ['F'] * n, _scaled(n * 5)))
+        if f_cnt >= ANT_COLONY_MIN_F:
+            for n in range(ANT_COLONY_MIN_F, f_cnt + 1):
+                results.append(('ant_colony', '以量取胜', ['F'] * n, _scaled(n * 5)))
 
     results.sort(key=lambda x: x[3], reverse=True)
     return results
@@ -142,7 +136,7 @@ def detect_hints(hand):
             out.append(f"三重共鸣 ({card}×3) → {_scaled(10 + _bv(card)*3)}分")
 
     f_cnt = ct.get('F', 0)
-    if f_cnt >= 1:
-        out.append(f"以量取胜 (F×1~{f_cnt}) → {_scaled(5)}~{_scaled(f_cnt*5)}分")
+    if f_cnt >= ANT_COLONY_MIN_F:
+        out.append(f"以量取胜 (F×{ANT_COLONY_MIN_F}~{f_cnt}) → {_scaled(ANT_COLONY_MIN_F*5)}~{_scaled(f_cnt*5)}分")
 
     return out

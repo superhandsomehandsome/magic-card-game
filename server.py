@@ -75,26 +75,23 @@ def _on_turn_timeout(room_id):
         phase = room.phase
         cp = room.current_player
         if phase == 'DRAW':
-            room.handle_action(_sid_for(room, cp), 'DRAW', {})
+            room.handle_action(_sid_for(room, cp), 'DRAW_ACK', {})
         elif phase == 'AMBUSH_DECIDE':
             room.handle_action(_sid_for(room, cp), 'AMBUSH_DECIDE', {'choice': 'skip'})
-        elif phase == 'AMBUSH_ATK_SELECT':
+        elif phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_PAY_COST'):
             room.handle_action(_sid_for(room, cp), 'AMBUSH_CANCEL', {})
-        elif phase == 'AMBUSH_DEF_SELECT':
+        elif phase == 'AMBUSH_DEF_CHOICE':
             defender = 1 - cp
             sid_d = _sid_for(room, defender)
             hand = room.players[defender]['hand']
             eligible = [c for c in hand if c != '瞬']
             if eligible:
                 card = min(eligible, key=lambda c: {'A':0,'B':1,'C':2,'D':3,'E':4,'F':5}.get(c, 5))
-                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': card})
+                room.handle_action(sid_d, 'AMBUSH_DEFEND', {'choice': 'defend', 'card': card})
             elif '瞬' in hand:
-                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': '瞬'})
+                room.handle_action(sid_d, 'AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
             else:
-                room.handle_action(sid_d, 'AMBUSH_DEF_SELECT', {'card': None})
-        elif phase == 'AMBUSH_SCAVENGE':
-            loser = 1 - room.duel_winner_idx if room.duel_winner_idx >= 0 else (1 - cp)
-            room.handle_action(_sid_for(room, loser), 'SCAVENGE', {'choice': 'skip'})
+                room.handle_action(sid_d, 'AMBUSH_DEFEND', {'choice': 'fold'})
         elif phase == 'SPELL':
             room.handle_action(_sid_for(room, cp), 'SPELL_SKIP', {})
         elif phase == 'END_DISCARD':

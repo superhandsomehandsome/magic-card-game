@@ -1,19 +1,17 @@
-"""AI decision engine for 秘术对决：禁忌魔典.
-
-Evaluates game state and returns (action, data) for every phase.
-Designed to be called by the server after each broadcast when it's the AI's turn.
-"""
+"""AI decision engine — V3.0『零』."""
 import random
 from collections import Counter
 from game_state import (
     CARD_CONFIG, SCOREPAD_CONFIG, HAND_LIMIT, WIN_SCORE,
-    SCORE_MULT, SCAVENGE_LIMIT, SEAL_LIMIT, INSTANT_PER_TURN,
+    SCORE_MULT, SEAL_LIMIT, INSTANT_PER_TURN,
+    ANT_COLONY_MIN_F, AMBUSH_SECOND_COST, AMBUSH_MAX_PER_TURN,
+    RED_KEYS, BLUE_KEYS, GREEN_KEYS,
+    SACRIFICE_MAX_X, NO_AMBUSH_BEFORE_TURN,
 )
 
 AI_IDX = 1
 RANK = {c: cfg['rank'] for c, cfg in CARD_CONFIG.items()}
 BV = {c: cfg['base_value'] for c, cfg in CARD_CONFIG.items()}
-TIER1_KEYS = frozenset(c['key'] for c in SCOREPAD_CONFIG if c['tier'] == 1)
 
 
 def _scaled(raw):
@@ -27,9 +25,8 @@ def _total_score(player):
     return s
 
 
-def _slots_left(pad, key):
-    info = pad[key]
-    return info['max_slots'] - len(info['scores']) - info['sealed']
+def _slots_left(room, pidx, key):
+    return room._slots_left(pidx, key)
 
 
 def _total_sealed(pad):
@@ -37,33 +34,34 @@ def _total_sealed(pad):
 
 
 # ── Hand evaluation ──────────────────────────────────────
+def _detect_playable(room, pidx):
+    from scoring import detect_playable
+    hand = room.players[pidx]['hand']
+    slots_fn = lambda key: room._slots_left(pidx, key)
+    return detect_playable(hand, slots_fn)
 
 
-def _near_combos(hand, pad):
-    """Find combos the AI is close to completing.
-    Returns list of (key, missing_count, potential_score, needed_cards).
-    """
+def _near_combos(hand, room, pidx):
+    """Find combos close to completion. Returns (key, missing, score, needed_cards)."""
     ct = Counter(c for c in hand if c != '瞬')
     results = []
 
-    if _slots_left(pad, 'dragon_breath') > 0:
-        for c in ct:
-            have = ct[c]
-            if have >= 3:
-                sc = _scaled(40 + BV[c] * 5)
-                results.append(('dragon_breath', 5 - have, sc, [c] * (5 - have)))
+    def slots(k): return room._slots_left(pidx, k)
 
-    if _slots_left(pad, 'arcane_sequence') > 0:
+    if slots('dragon_breath') > 0:
+        for c in ct:
+            if ct[c] >= 3:
+                sc = _scaled(40 + BV[c] * 5)
+                results.append(('dragon_breath', 5 - ct[c], sc, [c] * (5 - ct[c])))
+    if slots('arcane_sequence') > 0:
         needed = [c for c in 'ABCDE' if c not in ct]
         if len(needed) <= 2:
             results.append(('arcane_sequence', len(needed), _scaled(45), needed))
-
-    if _slots_left(pad, 'elemental_surge') > 0:
+    if slots('elemental_surge') > 0:
         needed = [c for c in 'BCDEF' if c not in ct]
         if len(needed) <= 2:
             results.append(('elemental_surge', len(needed), _scaled(30), needed))
-
-    if _slots_left(pad, 'chaos_alchemy') > 0:
+    if slots('chaos_alchemy') > 0:
         for c3 in ct:
             if ct[c3] >= 2:
                 for c2 in ct:
@@ -73,43 +71,48 @@ def _near_combos(hand, pad):
                             cards = [c3] * 3 + [c2] * 2
                             sc = _scaled(20 + sum(BV[c] for c in cards))
                             results.append(('chaos_alchemy', miss, sc, []))
-
-    if _slots_left(pad, 'triple_resonance') > 0:
+    if slots('triple_resonance') > 0:
         for c in ct:
             if ct[c] >= 2:
                 sc = _scaled(10 + BV[c] * 3)
                 results.append(('triple_resonance', 3 - ct[c], sc, [c] * (3 - ct[c])))
-
+    if slots('ant_colony') > 0:
+        f_cnt = ct.get('F', 0)
+        miss = max(0, ANT_COLONY_MIN_F - f_cnt)
+        if miss <= 2:
+            results.append(('ant_colony', miss,
+                            _scaled(max(f_cnt, ANT_COLONY_MIN_F) * 5), ['F'] * miss))
     return results
 
 
-def _card_value(card, hand, pad):
-    """How valuable is keeping this card? Higher = more important to keep."""
+def _card_value(card, hand, room, pidx):
+    """Value of keeping a card; higher = more important."""
     if card == '瞬':
         return 50
-
     ct = Counter(c for c in hand if c != '瞬')
     score = BV[card] * 2
-
     have = ct.get(card, 0)
-    if have >= 4 and _slots_left(pad, 'dragon_breath') > 0:
+
+    def slots(k): return room._slots_left(pidx, k)
+
+    if have >= 4 and slots('dragon_breath') > 0:
         score += 40
     elif have >= 3:
-        if _slots_left(pad, 'triple_resonance') > 0:
+        if slots('triple_resonance') > 0:
             score += 20
-        if _slots_left(pad, 'dragon_breath') > 0:
+        if slots('dragon_breath') > 0:
             score += 15
 
-    if card in 'ABCDE' and _slots_left(pad, 'arcane_sequence') > 0:
+    if card in 'ABCDE' and slots('arcane_sequence') > 0:
         needed = sum(1 for c in 'ABCDE' if c not in ct or (c == card and ct[c] == 1))
         if needed <= 2:
             score += 25 - needed * 5
-    if card in 'BCDEF' and _slots_left(pad, 'elemental_surge') > 0:
+    if card in 'BCDEF' and slots('elemental_surge') > 0:
         needed = sum(1 for c in 'BCDEF' if c not in ct or (c == card and ct[c] == 1))
         if needed <= 2:
             score += 18 - needed * 5
 
-    if have >= 2 and _slots_left(pad, 'chaos_alchemy') > 0:
+    if have >= 2 and slots('chaos_alchemy') > 0:
         for other in ct:
             if other != card and ct[other] >= 2:
                 score += 12
@@ -117,34 +120,22 @@ def _card_value(card, hand, pad):
 
     if card == 'F':
         f_cnt = ct.get('F', 0)
-        if f_cnt >= 2 and _slots_left(pad, 'ant_colony') > 0:
+        if f_cnt >= ANT_COLONY_MIN_F - 1 and slots('ant_colony') > 0:
             score += f_cnt * 3
 
     return score
 
 
-def _expendability(card, hand, pad):
-    """Inverse of card_value — higher means safer to discard/attack with."""
-    return 100 - _card_value(card, hand, pad)
+def _expendability(card, hand, room, pidx):
+    return 100 - _card_value(card, hand, room, pidx)
 
 
-def _detect_playable(hand, pad):
-    """Wrapper around scoring.detect_playable that works with raw pad dict."""
-    from scoring import detect_playable
-    slots_fn = lambda key: _slots_left(pad, key)
-    return detect_playable(hand, slots_fn)
-
-
-def _hand_strength_for_collision(hand):
-    """Rate hand strength for collision (higher rank cards = stronger)."""
+def _hand_strength(hand):
     return sum(BV[c] for c in hand if c != '瞬')
 
 
-# ── Phase decision functions ─────────────────────────────
-
-
+# ── Main decide ──────────────────────────────────────────
 def decide(room):
-    """Main entry: examine room state, return (action, data) or None if not AI's turn."""
     phase = room.phase
     ai = room.players[AI_IDX]
     opp = room.players[1 - AI_IDX]
@@ -156,29 +147,27 @@ def decide(room):
     if phase == 'DRAW':
         if cp != AI_IDX:
             return None
-        return ('DRAW', {})
+        return ('DRAW_ACK', {})
 
     if phase == 'AMBUSH_DECIDE':
         if cp != AI_IDX:
             return None
         return _decide_ambush(ai, opp, room)
 
+    if phase == 'AMBUSH_PAY_COST':
+        if cp != AI_IDX:
+            return None
+        return _decide_pay_cost(ai, room)
+
     if phase == 'AMBUSH_ATK_SELECT':
         if cp != AI_IDX:
             return None
         return _decide_atk_select(ai, opp, room)
 
-    if phase == 'AMBUSH_DEF_SELECT':
+    if phase == 'AMBUSH_DEF_CHOICE':
         if cp == AI_IDX:
             return None
-        return _decide_def_select(ai, opp, room)
-
-    if phase == 'AMBUSH_SCAVENGE':
-        winner_idx = room.duel_winner_idx
-        loser_idx = 1 - winner_idx if winner_idx >= 0 else -1
-        if loser_idx != AI_IDX:
-            return None
-        return _decide_scavenge(ai, room)
+        return _decide_defend(ai, opp, room)
 
     if phase == 'SPELL':
         if cp != AI_IDX:
@@ -188,7 +177,7 @@ def decide(room):
     if phase == 'END_DISCARD':
         if cp != AI_IDX:
             return None
-        return _decide_end_discard(ai)
+        return _decide_end_discard(ai, room)
 
     if phase == 'COLLISION_PRE_DISCARD':
         if room.col_pre_discard_done[AI_IDX]:
@@ -208,34 +197,55 @@ def decide(room):
 
 
 # ── Ambush ───────────────────────────────────────────────
-
-
 def _decide_ambush(ai, opp, room):
+    """Decide to skip or attack (1st or 2nd ambush)."""
     hand = ai['hand']
     eligible = [c for c in hand if c != '瞬']
 
-    if len(hand) <= 3 or not eligible:
+    if room.turn_number < NO_AMBUSH_BEFORE_TURN:
+        return ('AMBUSH_DECIDE', {'choice': 'skip'})
+
+    if not eligible or len(hand) <= 2:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
     if not opp['hand']:
-        return ('AMBUSH_DECIDE', {'choice': 'attack'})
+        return ('AMBUSH_DECIDE', {'choice': 'skip'})
+
+    # 2nd ambush cost gate
+    is_second = room.ambush_count_this_turn >= 1
+    if is_second:
+        if len(hand) <= AMBUSH_SECOND_COST + 2:
+            return ('AMBUSH_DECIDE', {'choice': 'skip'})
+        # Only do 2nd if opp still has cards to steal
+        if len(opp['hand']) < 3:
+            return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
     diff = my_score - opp_score
 
-    playable = _detect_playable(hand, ai['scorepad'])
-    if playable and playable[0][3] >= 30:
+    playable = _detect_playable(room, AI_IDX)
+    if playable and playable[0][3] >= 25:
+        # Would rather score
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
-    if diff > 40 and len(hand) <= 5:
+    if diff > 35 and len(hand) <= 5:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
-    best_exp = max(eligible, key=lambda c: _expendability(c, hand, ai['scorepad']))
-    if _expendability(best_exp, hand, ai['scorepad']) < 30:
+    # Expendability check
+    best_exp = max(eligible, key=lambda c: _expendability(c, hand, room, AI_IDX))
+    if _expendability(best_exp, hand, room, AI_IDX) < 30:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
     return ('AMBUSH_DECIDE', {'choice': 'attack'})
+
+
+def _decide_pay_cost(ai, room):
+    hand = ai['hand']
+    rated = [(c, _card_value(c, hand, room, AI_IDX)) for c in hand]
+    rated.sort(key=lambda x: x[1])
+    to_discard = [c for c, _ in rated[:AMBUSH_SECOND_COST]]
+    return ('AMBUSH_PAY_COST', {'cards': to_discard})
 
 
 def _decide_atk_select(ai, opp, room):
@@ -244,216 +254,169 @@ def _decide_atk_select(ai, opp, room):
     if not eligible:
         return ('AMBUSH_CANCEL', {})
 
-    pad = ai['scorepad']
-    rated = [(c, _expendability(c, hand, pad)) for c in eligible]
-    rated.sort(key=lambda x: x[1], reverse=True)
-
-    opp_hand_count = len(opp['hand'])
-    if opp_hand_count <= 2:
-        card = rated[0][0]
-    else:
-        top_candidates = [c for c, exp in rated if exp >= rated[0][1] - 10]
-        best_rank = min(top_candidates, key=lambda c: RANK[c])
-        card = best_rank
-
-    return ('AMBUSH_ATK_SELECT', {'card': card})
+    # Don't throw A unless we can back it up. Strategic mid-strength pick.
+    non_a = [c for c in eligible if c != 'A']
+    pool = non_a if non_a else eligible
+    # Prefer cards with medium rank (C/D)
+    def score_atk(c):
+        r = RANK[c]
+        exp = _expendability(c, hand, room, AI_IDX)
+        return (exp * 0.6 + (10 if r in (2, 3) else 0))
+    pool.sort(key=score_atk, reverse=True)
+    return ('AMBUSH_ATK_SELECT', {'card': pool[0]})
 
 
-def _decide_def_select(ai, opp, room):
+def _decide_defend(ai, opp, room):
+    """AI defender chooses fold or defend (with card)."""
     hand = ai['hand']
-    if not hand:
-        return ('AMBUSH_DEF_SELECT', {'card': None})
-
-    atk_card = room.atk_card
     eligible = [c for c in hand if c != '瞬']
     has_instant = '瞬' in hand
+    atk_unknown = room.atk_card  # The defender sees '?' in view; here we CHEAT minimally
+    # NOTE: in real game defender doesn't know atk_card. We enforce blind play.
+
+    # Fold when hand is very weak (only F and nothing else useful)
+    non_f = [c for c in eligible if c != 'F']
+    if len(hand) <= 2 and not has_instant:
+        # If we fold, we only lose 1 random card. If we defend, we likely lose anyway.
+        # Folding preserves more than playing a card AND losing it AND losing another card.
+        return ('AMBUSH_DEFEND', {'choice': 'fold'})
+
+    if not eligible and not has_instant:
+        return ('AMBUSH_DEFEND', {'choice': 'fold'})
+
+    # Use 瞬 if we have high-value hand to protect and likely target was high
+    if has_instant:
+        playable = _detect_playable(room, AI_IDX)
+        if playable and playable[0][3] >= 30:
+            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
 
     if not eligible:
-        if has_instant:
-            return ('AMBUSH_DEF_SELECT', {'card': '瞬'})
-        return ('AMBUSH_DEF_SELECT', {'card': None})
+        return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
 
-    if atk_card == 'A' and 'F' in eligible:
-        return ('AMBUSH_DEF_SELECT', {'card': 'F'})
-
-    if has_instant and atk_card in ('A', 'B'):
-        pad = ai['scorepad']
-        playable = _detect_playable(hand, pad)
-        if playable and playable[0][3] >= 36:
-            return ('AMBUSH_DEF_SELECT', {'card': '瞬'})
-
-    pad = ai['scorepad']
-    rated = [(c, _expendability(c, hand, pad)) for c in eligible]
-    rated.sort(key=lambda x: x[1], reverse=True)
-
-    for card, exp in rated:
-        from game_logic import compare_duel
-        result = compare_duel(card, atk_card)
-        if result == -1:
-            return ('AMBUSH_DEF_SELECT', {'card': card})
-
-    return ('AMBUSH_DEF_SELECT', {'card': rated[0][0]})
-
-
-# ── Scavenge ─────────────────────────────────────────────
-
-
-def _decide_scavenge(ai, room):
-    if ai['scavenge_remaining'] <= 0:
-        return ('SCAVENGE', {'choice': 'skip'})
-
-    recent = room._scavengeable_recent()
-    scav = [(i, c) for i, c in recent if c in ('D', 'E', 'F')]
-    if not scav:
-        return ('SCAVENGE', {'choice': 'skip'})
-
-    pad = ai['scorepad']
-    hand = ai['hand']
-
-    best_idx, best_card, best_val = -1, None, -1
-    for idx, card in scav:
-        test_hand = hand + [card]
-        val = _card_value(card, test_hand, pad)
-        if val > best_val:
-            best_idx, best_card, best_val = idx, card, val
-
-    nears = _near_combos(hand, pad)
-    useful_near = any(miss <= 2 for _, miss, sc, _ in nears if sc >= 20)
-
-    if best_val < 10 and not useful_near:
-        deck_left = len(room.deck)
-        if deck_left > 15 and ai['scavenge_remaining'] > 1:
-            return ('SCAVENGE', {'choice': 'skip'})
-
-    if best_idx >= 0:
-        return ('SCAVENGE', {'choice': 'pick', 'card_idx': best_idx})
-
-    return ('SCAVENGE', {'choice': 'skip'})
+    # Blind defense heuristic: pick middle-rank card. Avoid A/B (combo pieces).
+    non_high = [c for c in eligible if c not in ('A', 'B')]
+    pool = non_high if non_high else eligible
+    pool.sort(key=lambda c: RANK[c])  # low rank first (= higher strength)
+    # Pick a mid-rank card
+    mid_idx = max(0, len(pool) // 2 - 1)
+    card = pool[mid_idx]
+    return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': card})
 
 
 # ── Spell ────────────────────────────────────────────────
-
-
 def _decide_spell(ai, opp, room):
     hand = ai['hand']
     pad = ai['scorepad']
     opp_pad = opp['scorepad']
 
     if ai['breaker_marks'] > 0:
-        action = _decide_breaker(pad, opp_pad, ai, opp)
+        action = _decide_breaker(room, ai, opp)
         if action:
             return action
 
-    playable = _detect_playable(hand, pad)
-
-    tier1_done = room.tier1_bonus
+    playable = _detect_playable(room, AI_IDX)
     if playable:
-        best = _pick_best_combo(playable, hand, pad, tier1_done, ai, opp, room)
+        best = _pick_best_combo(playable, hand, room, ai, opp)
         if best:
             key, name, cards, score = best
             return ('SPELL_SCORE', {'cards': cards, 'combo_key': key})
 
     if '瞬' in hand and room.instant_count < INSTANT_PER_TURN:
-        instant_action = _decide_instant(hand, pad, ai, opp, room)
+        instant_action = _decide_instant(hand, room, ai, opp)
         if instant_action:
             return instant_action
 
-    if len(hand) >= 6 and not playable:
-        sac_action = _decide_sacrifice(hand, pad, room)
-        if sac_action:
-            return sac_action
+    # Sacrifice only as late-game comeback
+    sac = _decide_sacrifice(ai, opp, room)
+    if sac:
+        return sac
 
     return ('SPELL_SKIP', {})
 
 
-def _decide_breaker(my_pad, opp_pad, ai, opp):
+def _decide_breaker(room, ai, opp):
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
+    opp_pad = opp['scorepad']
 
-    if _total_sealed(opp_pad) >= SEAL_LIMIT:
-        if opp_score > my_score:
-            return ('SPELL_BREAKER', {'type': 'curse'})
-        return None
-
+    # Seal highest-value still-open slot
     for cfg in SCOREPAD_CONFIG:
-        if cfg['tier'] == 1 and _slots_left(opp_pad, cfg['key']) > 0:
+        if cfg['tier'] == 1 and room._slots_left(1 - AI_IDX, cfg['key']) > 0:
+            return ('SPELL_BREAKER', {'type': 'seal', 'slot_key': cfg['key']})
+    for cfg in SCOREPAD_CONFIG:
+        if cfg['tier'] == 2 and room._slots_left(1 - AI_IDX, cfg['key']) > 0:
+            return ('SPELL_BREAKER', {'type': 'seal', 'slot_key': cfg['key']})
+    for cfg in SCOREPAD_CONFIG:
+        if cfg['tier'] == 3 and room._slots_left(1 - AI_IDX, cfg['key']) > 0:
             return ('SPELL_BREAKER', {'type': 'seal', 'slot_key': cfg['key']})
 
-    for cfg in SCOREPAD_CONFIG:
-        if cfg['tier'] == 2 and _slots_left(opp_pad, cfg['key']) > 0:
-            return ('SPELL_BREAKER', {'type': 'seal', 'slot_key': cfg['key']})
-
-    for cfg in SCOREPAD_CONFIG:
-        if cfg['tier'] == 3 and _slots_left(opp_pad, cfg['key']) > 0:
-            return ('SPELL_BREAKER', {'type': 'seal', 'slot_key': cfg['key']})
-
-    return ('SPELL_BREAKER', {'type': 'curse'})
+    if not opp['curse_active']:
+        return ('SPELL_BREAKER', {'type': 'curse'})
+    return None
 
 
-def _pick_best_combo(playable, hand, pad, tier1_done, ai, opp, room):
-    """Pick the best combo, considering tier1 bonus, score gap, and hand preservation."""
+def _pick_best_combo(playable, hand, room, ai, opp):
     my_score = _total_score(ai)
-    opp_score = _total_score(opp)
 
-    tier1_available = [p for p in playable if p[0] in TIER1_KEYS and not tier1_done]
-    if tier1_available:
-        return tier1_available[0]
+    # Winning combo: go for it
+    winning = [p for p in playable if my_score + p[3] >= WIN_SCORE]
+    if winning:
+        return min(winning, key=lambda p: len(p[2]))
 
-    winning_combos = [p for p in playable if my_score + p[3] >= WIN_SCORE]
-    if winning_combos:
-        return min(winning_combos, key=lambda p: len(p[2]))
-
-    if not playable:
-        return None
+    # Prefer red (shared + punish) if close to winning
+    reds = [p for p in playable if p[0] in RED_KEYS]
+    if reds and my_score >= WIN_SCORE * 0.4:
+        return max(reds, key=lambda p: p[3])
 
     scored = []
-    for key, name, cards, base_score in playable:
-        remaining_hand = list(hand)
+    for key, name, cards, base in playable:
+        remaining = list(hand)
         for c in cards:
-            if c in remaining_hand:
-                remaining_hand.remove(c)
+            if c in remaining:
+                remaining.remove(c)
+        # Simulate future potential
+        from scoring import detect_playable
+        slots_fn = lambda k: room._slots_left(AI_IDX, k)
+        future = detect_playable(remaining, slots_fn)
+        future_pot = future[0][3] if future else 0
 
-        future_combos = _detect_playable(remaining_hand, pad)
-        future_potential = future_combos[0][3] if future_combos else 0
-
-        effective = base_score
-        if room.echo_ready:
-            effective += 10
+        effective = base
         if ai['curse_active']:
             effective -= 10
+        # Bonus: red = discard opp 2, blue/green = +1 draw
+        if key in RED_KEYS:
+            effective += 15
+        elif key in BLUE_KEYS or key in GREEN_KEYS:
+            effective += 5
 
-        if key == 'ant_colony' and len(cards) <= 2 and len(room.deck) > 15:
-            effective -= 15
+        # Penalty: playing too-small ant_colony early
+        if key == 'ant_colony' and len(cards) <= ANT_COLONY_MIN_F and len(room.deck) > 15:
+            effective -= 10
 
-        score = effective + future_potential * 0.3
-        scored.append((key, name, cards, base_score, score))
+        total = effective + future_pot * 0.3
+        scored.append((key, name, cards, base, total))
 
     scored.sort(key=lambda x: x[4], reverse=True)
     best = scored[0]
-
     if best[3] < 12 and len(room.deck) > 20:
         return None
-
     return (best[0], best[1], best[2], best[3])
 
 
-def _decide_instant(hand, pad, ai, opp, room):
-    """Should AI use 瞬 to swap cards?"""
+def _decide_instant(hand, room, ai, opp):
     non_instant = [c for c in hand if c != '瞬']
     if not non_instant:
         return None
-
-    playable_now = _detect_playable(hand, pad)
-    if playable_now and playable_now[0][3] >= 30:
+    playable = _detect_playable(room, AI_IDX)
+    if playable and playable[0][3] >= 25:
         return None
 
-    rated = [(c, _expendability(c, hand, pad)) for c in non_instant]
+    rated = [(c, _expendability(c, hand, room, AI_IDX)) for c in non_instant]
     rated.sort(key=lambda x: x[1], reverse=True)
-
     trash = [c for c, exp in rated if exp >= 65]
+
     if len(trash) < 2 and len(room.deck) > 10:
         return None
-
     discard_count = min(len(trash), 3) if trash else 0
     if discard_count == 0:
         if len(hand) >= 7:
@@ -461,80 +424,95 @@ def _decide_instant(hand, pad, ai, opp, room):
             trash = [c for c, _ in rated[:2]]
         else:
             return None
-
     to_discard = trash[:discard_count]
     return ('SPELL_INSTANT', {'discard_cards': to_discard})
 
 
-def _decide_sacrifice(hand, pad, room):
-    """Should AI sacrifice a scorepad slot to clear hand?"""
-    playable = _detect_playable(hand, pad)
-    if playable:
+def _decide_sacrifice(ai, opp, room):
+    """V3.0 sacrifice: only use if we're losing AND have a low-score slot to sac + good recovery targets."""
+    pad = ai['scorepad']
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
+    if opp_score - my_score < 20:
+        return None  # Not desperate enough
+
+    # Find a sacrificed slot: the *lowest* scoring one
+    candidates = []
+    for cfg in SCOREPAD_CONFIG:
+        info = pad[cfg['key']]
+        for i, sc in enumerate(info['scores']):
+            candidates.append((cfg['key'], i, sc))
+    if not candidates:
+        return None
+    # Sacrifice the lowest scoring slot (least loss)
+    candidates.sort(key=lambda x: x[2])
+    slot_key, score_idx, lost = candidates[0]
+
+    # Find window discards worth picking
+    window = room._sacrifice_window()
+    if len(window) < 2:
+        return None
+    # Rate each card by value if added to our hand
+    hand = ai['hand']
+    rated_recovery = sorted(
+        [(idx, c, _card_value(c, hand + [c], room, AI_IDX)) for idx, c in window],
+        key=lambda x: x[2], reverse=True
+    )
+    # Only worth it if top recovery value >= 20
+    if rated_recovery[0][2] < 20:
         return None
 
-    nears = _near_combos(hand, pad)
-    close = [n for n in nears if n[1] <= 1 and n[2] >= 25]
-    if close:
+    x = min(SACRIFICE_MAX_X, len(rated_recovery),
+            len([c for c in hand if _card_value(c, hand, room, AI_IDX) < 15]))
+    if x < 1:
         return None
 
-    worst_slot = None
-    for cfg in reversed(SCOREPAD_CONFIG):
-        if _slots_left(pad, cfg['key']) > 0:
-            worst_slot = cfg['key']
-            break
+    recover_indices = [r[0] for r in rated_recovery[:x]]
 
-    if not worst_slot:
+    # Pick x cards from hand to discard (lowest value)
+    rated_discard = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
+    discard_cards = rated_discard[:x]
+
+    # Only worth it if net value gain > lost score
+    recovery_value = sum(r[2] for r in rated_recovery[:x])
+    if recovery_value < lost + 20:
         return None
 
-    rated = sorted(hand, key=lambda c: _card_value(c, hand, pad))
-    discard_count = min(max(len(hand) - 5, 2), len(rated))
-    to_discard = rated[:discard_count]
-
-    return ('SPELL_SACRIFICE', {'slot_key': worst_slot, 'discard_cards': to_discard})
+    return ('SPELL_SACRIFICE', {
+        'slot_key': slot_key,
+        'score_idx': score_idx,
+        'discard_cards': discard_cards,
+        'recover_indices': recover_indices,
+    })
 
 
 # ── End Discard ──────────────────────────────────────────
-
-
-def _decide_end_discard(ai):
-    hand = ai['hand']
+def _decide_end_discard(ai, room):
     from game_logic import hand_overflow
+    hand = ai['hand']
     overflow = hand_overflow(hand)
     if overflow <= 0:
         return None
-
-    pad = ai['scorepad']
-    rated = sorted(hand, key=lambda c: _card_value(c, hand, pad))
-    to_discard = rated[:overflow]
-    return ('END_DISCARD', {'cards': to_discard})
+    rated = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
+    return ('END_DISCARD', {'cards': rated[:overflow]})
 
 
-# ── Collision Pre-Discard ────────────────────────────────
-
-
+# ── Collision ─────────────────────────────────────────────
 def _decide_col_pre_discard(ai, opp, room):
     hand = ai['hand']
-    pad = ai['scorepad']
-
     must = room._col_must_discard(AI_IDX)
     if must > 0:
-        rated = sorted(hand, key=lambda c: _card_value(c, hand, pad))
-        to_discard = rated[:must]
-        return ('COLLISION_PRE_DISCARD', {'cards': to_discard})
+        rated = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
+        return ('COLLISION_PRE_DISCARD', {'cards': rated[:must]})
 
     weak = [c for c in hand if c in ('E', 'F') and c != '瞬']
     ct = Counter(c for c in hand if c != '瞬')
-    orphan_weak = [c for c in weak if ct[c] == 1 and BV[c] <= 2]
-
-    if len(orphan_weak) >= 2:
-        return ('COLLISION_PRE_DISCARD', {'cards': orphan_weak[:2]})
-    elif len(orphan_weak) == 1:
-        return ('COLLISION_PRE_DISCARD', {'cards': orphan_weak[:1]})
-
+    orphan = [c for c in weak if ct[c] == 1 and BV[c] <= 2]
+    if len(orphan) >= 2:
+        return ('COLLISION_PRE_DISCARD', {'cards': orphan[:2]})
+    if len(orphan) == 1:
+        return ('COLLISION_PRE_DISCARD', {'cards': orphan[:1]})
     return ('COLLISION_PRE_DISCARD', {'cards': []})
-
-
-# ── Collision Bet ────────────────────────────────────────
 
 
 def _decide_col_bet(ai, opp, room):
@@ -546,7 +524,7 @@ def _decide_col_bet(ai, opp, room):
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
     diff = my_score - opp_score
-    my_strength = _hand_strength_for_collision(ai['hand'])
+    my_strength = _hand_strength(ai['hand'])
     opp_hand_count = len(opp['hand'])
 
     if room.col_bet_phase == 'CALLER':
@@ -557,32 +535,29 @@ def _decide_col_bet(ai, opp, room):
         if diff < 0 and my_strength >= opp_hand_count * 3:
             return ('COLLISION_BET', {'amount': 10})
         return ('COLLISION_BET', {'amount': 0})
-
-    else:
-        bet = room.col_bet_amount
-        if diff > bet + 10:
-            return ('COLLISION_BET', {'choice': 'fold'})
-        if my_strength >= opp_hand_count * 2.5:
-            return ('COLLISION_BET', {'choice': 'follow'})
-        if diff < -15:
-            return ('COLLISION_BET', {'choice': 'follow'})
-        if bet == 10:
-            return ('COLLISION_BET', {'choice': 'follow'})
+    bet = room.col_bet_amount
+    if diff > bet + 10:
         return ('COLLISION_BET', {'choice': 'fold'})
+    if my_strength >= opp_hand_count * 2.5:
+        return ('COLLISION_BET', {'choice': 'follow'})
+    if diff < -15:
+        return ('COLLISION_BET', {'choice': 'follow'})
+    if bet == 10:
+        return ('COLLISION_BET', {'choice': 'follow'})
+    return ('COLLISION_BET', {'choice': 'fold'})
 
 
-# ── Delay config (seconds) ──────────────────────────────
-
+# ── Delay ────────────────────────────────────────────────
 DELAY = {
-    'DRAW': (0.15, 0.3),
+    'DRAW_ACK': (0.15, 0.3),
     'AMBUSH_DECIDE': (0.3, 0.5),
+    'AMBUSH_PAY_COST': (0.25, 0.4),
     'AMBUSH_ATK_SELECT': (0.3, 0.5),
-    'AMBUSH_DEF_SELECT': (0.3, 0.5),
+    'AMBUSH_DEFEND': (0.3, 0.55),
     'AMBUSH_CANCEL': (0.15, 0.25),
-    'SCAVENGE': (0.3, 0.5),
-    'SPELL_SCORE': (0.4, 0.7),
+    'SPELL_SCORE': (0.35, 0.65),
     'SPELL_INSTANT': (0.3, 0.5),
-    'SPELL_SACRIFICE': (0.3, 0.5),
+    'SPELL_SACRIFICE': (0.4, 0.7),
     'SPELL_BREAKER': (0.3, 0.5),
     'SPELL_SKIP': (0.15, 0.3),
     'END_DISCARD': (0.2, 0.35),
@@ -593,5 +568,5 @@ DELAY = {
 
 
 def get_delay(action):
-    lo, hi = DELAY.get(action, (0.8, 1.5))
+    lo, hi = DELAY.get(action, (0.3, 0.6))
     return random.uniform(lo, hi)
