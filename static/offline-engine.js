@@ -48,6 +48,11 @@ const C = {
   MARKET_SIZE: 3,
   MARKET_DECK_GUARD: 8,
   MARKET_DARK_INTERVAL: 5,
+  PROPHET_COST: 5,
+  BLUFF_CALL_PENALTY: 10,
+  RED_BID_MIN: 1,
+  RED_BID_MAX: 3,
+  RED_BID_BONUS_MULT: 2,
   LOCKDOWN_BREAK_COST: 15,
   LOCKDOWN_DEBT_ENABLE: true,
   LOCKDOWN_BAN_INSTANT: true,
@@ -248,6 +253,8 @@ function makePlayer(name){
     curse_active: false,
     lockdown_card: null,
     lockdown_debt: 0,
+    prophet_used: false,
+    prophet_peek: null,
   };
 }
 function makeScorepad(){
@@ -310,6 +317,15 @@ class GameRoom {
     this.winner = -1;
     this.turn_log = [];
     this.game_log = [];
+    // V5.1: Bluff Call
+    this.bluff_declared_rank = null;
+    // V5.1: Red Zone Bid
+    this.red_bid_cards = [null, null];
+    this.red_bid_done = [false, false];
+    this.red_bid_trigger_key = null;
+    this.red_bid_trigger_score = 0;
+    this.red_bid_trigger_cards = [];
+    this.red_bid_initiator = -1;
   }
 
   startGame(){
@@ -361,6 +377,14 @@ class GameRoom {
     this.instant_count = 0;
     this.played_this_turn = [];
     this.turn_log = [];
+    this.bluff_declared_rank = null;
+    this.red_bid_cards = [null, null];
+    this.red_bid_done = [false, false];
+    this.red_bid_trigger_key = null;
+    this.red_bid_trigger_score = 0;
+    this.red_bid_trigger_cards = [];
+    this.red_bid_initiator = -1;
+    for (const p of this.players) p.prophet_peek = null;
   }
 
   _beginTurn(){
@@ -507,11 +531,16 @@ class GameRoom {
       'AMBUSH_ATK_SELECT': this._h_ambush_atk_select,
       'AMBUSH_CANCEL': this._h_ambush_cancel,
       'AMBUSH_DEFEND': this._h_ambush_defend,
+      'BLUFF_DECLARE': this._h_bluff_declare,
+      'BLUFF_RESPOND': this._h_bluff_respond,
       'SPELL_SCORE': this._h_spell_score,
       'SPELL_INSTANT': this._h_spell_instant,
       'SPELL_BREAKER': this._h_spell_breaker,
       'SPELL_SACRIFICE': this._h_spell_sacrifice,
       'SPELL_SKIP': this._h_spell_skip,
+      'PROPHET_WHISPER': this._h_prophet_whisper,
+      'PROPHET_DECK': this._h_prophet_deck,
+      'RED_BID': this._h_red_bid,
       'END_DISCARD': this._h_end_discard,
       'LOCKDOWN_PLACE': this._h_lockdown_place,
       'LOCKDOWN_SKIP': this._h_lockdown_skip,
@@ -637,15 +666,67 @@ class GameRoom {
       this._postAmbushContinue();
       return [true, null];
     }
-    this.phase = 'AMBUSH_DEF_CHOICE';
+    this.bluff_declared_rank = null;
+    this.phase = 'AMBUSH_BLUFF_DECLARE';
+    return [true, null];
+  }
+
+  _h_bluff_declare(pidx, data){
+    if (this.phase !== 'AMBUSH_BLUFF_DECLARE' || pidx !== this.current_player) return [false, 'Wrong phase'];
+    const declared = data.declared_rank || 'none';
+    if (!([...'ABCDEF', 'none'].includes(declared))) return [false, 'Invalid declaration'];
+    if (declared === 'none'){
+      this._log('bluff_declare', `${this._cur().name} 未作声明，直接进入拼点`);
+      this.bluff_declared_rank = null;
+      this.phase = 'AMBUSH_DEF_CHOICE';
+    } else {
+      this._log('bluff_declare', `${this._cur().name} 声明暗扣牌为【${declared}】`);
+      this.bluff_declared_rank = declared;
+      this.phase = 'AMBUSH_BLUFF_RESPOND';
+    }
+    return [true, null];
+  }
+
+  _h_bluff_respond(pidx, data){
+    if (this.phase !== 'AMBUSH_BLUFF_RESPOND' || pidx !== (1 - this.current_player)) return [false, 'Wrong phase'];
+    const choice = data.choice;
+    if (!['believe','call'].includes(choice)) return [false, 'Invalid choice'];
+    const attacker = this._cur();
+    const defender = this._opp();
+    if (choice === 'believe'){
+      this._log('bluff_respond', `${defender.name} 相信声明，正常迎战`);
+      this.phase = 'AMBUSH_DEF_CHOICE';
+      return [true, null];
+    }
+    const trueCard = this.atk_card;
+    const declared = this.bluff_declared_rank;
+    this._log('bluff_respond', `${defender.name} 拆穿！揭示攻击牌 [${trueCard}]`);
+    if (trueCard === declared){
+      defender.score -= C.BLUFF_CALL_PENALTY;
+      defender.hand.push(trueCard);
+      defender.hand = sortHand(defender.hand);
+      this._log('bluff_reveal', `声明属实！${defender.name} -${C.BLUFF_CALL_PENALTY} 分，${trueCard} 入${defender.name}手`);
+      this.ambush_last_outcome = {outcome:'bluff_true', declared, atk:trueCard, penalty_to:'defender'};
+    } else {
+      attacker.score -= C.BLUFF_CALL_PENALTY;
+      defender.hand.push(trueCard);
+      defender.hand = sortHand(defender.hand);
+      this._log('bluff_reveal', `虚张声势！${attacker.name} -${C.BLUFF_CALL_PENALTY} 分，${trueCard} 入${defender.name}手`);
+      this.ambush_last_outcome = {outcome:'bluff_false', declared, atk:trueCard, penalty_to:'attacker'};
+    }
+    this.atk_card = null;
+    this.bluff_declared_rank = null;
+    this._postAmbushContinue();
     return [true, null];
   }
 
   _h_ambush_cancel(pidx, data){
-    if (!['AMBUSH_ATK_SELECT','AMBUSH_PAY_COST'].includes(this.phase) || pidx !== this.current_player)
+    if (!['AMBUSH_ATK_SELECT','AMBUSH_PAY_COST','AMBUSH_BLUFF_DECLARE'].includes(this.phase) || pidx !== this.current_player)
       return [false, 'Wrong phase'];
     this.phase = 'AMBUSH_DECIDE';
     this.ambush_second_pending = false;
+    this.atk_card = null;
+    this.bluff_declared_rank = null;
     return [true, null];
   }
 
@@ -798,6 +879,24 @@ class GameRoom {
       else if (brokenBy === 'pay_full') this._log('lockdown_break', `${p.name} 鲜血破拆！支付 ${C.LOCKDOWN_BREAK_COST} 分击碎封锁 [${oppLock}]`);
       else this._log('lockdown_break', `${p.name} 鲜血破拆！背负 ${p.lockdown_debt} 分魔力债击碎封锁 [${oppLock}]`);
     }
+    // V5.1: Red Zone Sealed-Bid trigger
+    if (RED_KEYS.has(combo_key) && this.shared_red[combo_key] === -1){
+      const oppSlots = k => this._slotsLeft(1 - pidx, k);
+      const oppPlayable = detectPlayable(opp.hand, oppSlots);
+      if (oppPlayable.some(x => x[0] === combo_key)){
+        const preScore = applyModifiers(match.base_score, p.curse_active);
+        this.red_bid_trigger_key = combo_key;
+        this.red_bid_trigger_score = preScore;
+        this.red_bid_trigger_cards = [...cards];
+        this.red_bid_initiator = pidx;
+        this.red_bid_done = [false, false];
+        this.red_bid_cards = [null, null];
+        this._log('red_bid_trigger', `双方均拥有【${match.name}】！触发暗标拍卖！`);
+        this.phase = 'RED_BID';
+        return [true, null];
+      }
+    }
+
     for (const c of cards){ const i = p.hand.indexOf(c); if (i>=0) p.hand.splice(i,1); }
     this.played_this_turn.push(...cards);
     let finalScore = applyModifiers(match.base_score, p.curse_active);
@@ -918,6 +1017,115 @@ class GameRoom {
     this._log('spell_skip', `${this._cur().name} 跳过咏唱阶段`);
     this._finishSpell(false);
     return [true, null];
+  }
+
+  // ── 先知低语 (Prophet's Whisper) ─────────────────────
+  _h_prophet_whisper(pidx, data){
+    if (this.phase !== 'SPELL' || pidx !== this.current_player) return [false, 'Wrong phase'];
+    const p = this.players[pidx];
+    if (p.prophet_used) return [false, '本局先知低语已用尽'];
+    const choice = data.choice;
+    if (!['peek_hand','peek_deck','peek_market'].includes(choice)) return [false, 'Invalid choice'];
+    p.score -= C.PROPHET_COST;
+    p.prophet_used = true;
+    const opp = this.players[1 - pidx];
+    if (choice === 'peek_hand'){
+      const sample = [];
+      const tmp = [...opp.hand];
+      for (let i=0; i<Math.min(3,tmp.length); i++){
+        const idx = Math.floor(Math.random()*tmp.length);
+        sample.push(tmp.splice(idx,1)[0]);
+      }
+      p.prophet_peek = sample;
+      this._log('prophet', `${p.name} 低语先知 — 窥探对手 ${sample.length} 张手牌（-${C.PROPHET_COST}分）`);
+    } else if (choice === 'peek_deck'){
+      p.prophet_peek = this.deck.slice(-3);  // deck is stored in reverse
+      this._log('prophet', `${p.name} 低语先知 — 窥视牌库顶 ${p.prophet_peek.length} 张（-${C.PROPHET_COST}分）`);
+      this.phase = 'PROPHET_DECK';
+      return [true, null];
+    } else {
+      if (this._isDarkMarketTurn() && this.market.length){
+        p.prophet_peek = [this.market[this.market.length-1]];
+        this._log('prophet', `${p.name} 低语先知 — 暗市夜窥见 [${p.prophet_peek[0]}]（-${C.PROPHET_COST}分）`);
+      } else {
+        p.prophet_peek = [];
+        this._log('prophet', `${p.name} 低语先知 — 市场已公开（-${C.PROPHET_COST}分）`);
+      }
+    }
+    return [true, null];
+  }
+
+  _h_prophet_deck(pidx, data){
+    if (this.phase !== 'PROPHET_DECK' || pidx !== this.current_player) return [false, 'Wrong phase'];
+    const discardIdx = data.discard_idx;
+    const peek = this.players[pidx].prophet_peek || [];
+    if (discardIdx != null){
+      const deckLen = this.deck.length;
+      const deckIdx = deckLen - 1 - discardIdx;  // deck stored reversed; top = last element
+      if (deckIdx < 0 || deckIdx >= deckLen) return [false, 'Invalid index'];
+      const card = this.deck.splice(deckIdx, 1)[0];
+      this.deck.unshift(card);  // move to bottom
+      this._log('prophet_deck', `牌库第 ${discardIdx+1} 张已移至底部`);
+    }
+    this.phase = 'SPELL';
+    return [true, null];
+  }
+
+  // ── 红区暗标拍卖 (Sealed-Bid Red Zone) ───────────────
+  _h_red_bid(pidx, data){
+    if (this.phase !== 'RED_BID') return [false, 'Wrong phase'];
+    if (this.red_bid_done[pidx]) return [false, '已暗标'];
+    const cards = data.cards || [];
+    if (cards.length < C.RED_BID_MIN || cards.length > C.RED_BID_MAX)
+      return [false, `需出价 ${C.RED_BID_MIN}~${C.RED_BID_MAX} 张牌`];
+    const p = this.players[pidx];
+    const tmp = [...p.hand];
+    for (const c of cards){
+      const i = tmp.indexOf(c);
+      if (i < 0) return [false, `手牌中没有 ${c}`];
+      tmp.splice(i, 1);
+    }
+    this.red_bid_cards[pidx] = [...cards];
+    this.red_bid_done[pidx] = true;
+    this._log('red_bid', `${p.name} 已提交暗标（${cards.length} 张）`);
+    if (this.red_bid_done[0] && this.red_bid_done[1]) this._resolveRedBid();
+    return [true, null];
+  }
+
+  _resolveRedBid(){
+    const cardVal = c => (CARD_CONFIG[c]||{base_value:0}).base_value;
+    const p0v = this.red_bid_cards[0].reduce((a,c)=>a+cardVal(c), 0);
+    const p1v = this.red_bid_cards[1].reduce((a,c)=>a+cardVal(c), 0);
+    let winner, loser;
+    if (p0v > p1v || (p0v === p1v && this.red_bid_initiator === 0)){
+      winner=0; loser=1;
+    } else {
+      winner=1; loser=0;
+    }
+    const key = this.red_bid_trigger_key;
+    const score = this.red_bid_trigger_score;
+    const winnerBid = this.red_bid_cards[winner];
+    const bonus = winnerBid.reduce((a,c)=>a+cardVal(c),0) * C.RED_BID_BONUS_MULT;
+    // Remove combo cards from winner's hand
+    for (const c of this.red_bid_trigger_cards){
+      const i = this.players[winner].hand.indexOf(c);
+      if (i >= 0) this.players[winner].hand.splice(i, 1);
+    }
+    // Remove bid cards from winner's hand
+    for (const c of winnerBid){
+      const i = this.players[winner].hand.indexOf(c);
+      if (i >= 0) this.players[winner].hand.splice(i, 1);
+    }
+    // Award
+    this.players[winner].scorepad[key].scores.push(score);
+    this.shared_red[key] = winner;
+    this.players[winner].score += bonus;
+    this._log('red_bid_reveal', `暗标揭晓！p0出价 ${p0v}，p1出价 ${p1v}`);
+    this._log('red_bid_result', `${this.players[winner].name} 夺得【${key}】得 ${score}分 + 奉献奖励 ${bonus}分！`);
+    this.players[winner].hand = sortHand(this.players[winner].hand);
+    if (this._checkRaceWin()) return;
+    this.phase = 'SPELL';
+    this.current_player = this.red_bid_initiator;
   }
 
   _finishSpell(forceEnd){
@@ -1199,7 +1407,8 @@ class GameRoom {
       view.drawn_cards = [...this.drawn_cards];
       view.draw_was_overdraft = this.draw_was_overdraft;
     }
-    if (['AMBUSH_ATK_SELECT','AMBUSH_DEF_CHOICE','AMBUSH_PAY_COST'].includes(this.phase)){
+    if (['AMBUSH_ATK_SELECT','AMBUSH_DEF_CHOICE','AMBUSH_PAY_COST',
+         'AMBUSH_BLUFF_DECLARE','AMBUSH_BLUFF_RESPOND'].includes(this.phase)){
       if (pidx === this.current_player) view.atk_card = this.atk_card;
       else view.atk_card = this.atk_card ? '?' : null;
     }
@@ -1208,7 +1417,35 @@ class GameRoom {
       view.can_fold = true;
       view.my_hand_for_defend = pidx === (1 - this.current_player) ? p.hand : null;
     }
+    if (['AMBUSH_BLUFF_DECLARE','AMBUSH_BLUFF_RESPOND'].includes(this.phase)){
+      view.bluff_declared_rank = this.bluff_declared_rank;
+    }
     if (this.ambush_last_outcome) view.ambush_last_outcome = this.ambush_last_outcome;
+    // Prophet
+    view.prophet_used_me = p.prophet_used || false;
+    view.prophet_cost = C.PROPHET_COST;
+    if (p.prophet_peek != null && ['SPELL','PROPHET_DECK'].includes(this.phase))
+      view.prophet_peek = [...p.prophet_peek];
+    if (this.phase === 'PROPHET_DECK' && pidx === this.current_player)
+      view.prophet_deck_cards = [...(p.prophet_peek || [])];
+    // Red Zone Bid
+    if (this.phase === 'RED_BID'){
+      view.red_bid_done_me = this.red_bid_done[pidx];
+      view.red_bid_trigger_key = this.red_bid_trigger_key;
+      view.red_bid_trigger_score = this.red_bid_trigger_score;
+      view.red_bid_min = C.RED_BID_MIN;
+      view.red_bid_max = C.RED_BID_MAX;
+      if (this.red_bid_done[0] && this.red_bid_done[1]){
+        const cv = c => (CARD_CONFIG[c]||{base_value:0}).base_value;
+        const p0v = this.red_bid_cards[0].reduce((a,c)=>a+cv(c),0);
+        const p1v = this.red_bid_cards[1].reduce((a,c)=>a+cv(c),0);
+        view.red_bid_reveal = {
+          p0_cards: [...this.red_bid_cards[0]],
+          p1_cards: [...this.red_bid_cards[1]],
+          winner: p0v >= p1v ? 0 : 1,
+        };
+      }
+    }
     if (this.phase === 'SPELL' && pidx === this.current_player){
       view.instant_count = this.instant_count;
       view.instant_limit = C.INSTANT_PER_TURN;
@@ -1289,7 +1526,8 @@ class ZeroBrain {
       const lc = room.players[i].lockdown_card;
       if (lc) full[lc]--;
     }
-    if (room.atk_card && room.current_player === ai_idx) full[room.atk_card]--;
+    // 突袭牌已从攻击方手牌打出扣在桌上，须从全牌池扣除（无论 AI 是攻方还是守方）
+    if (room.atk_card) full[room.atk_card] = Math.max(0, (full[room.atk_card]||0) - 1);
     return full;
   }
 
@@ -1359,15 +1597,23 @@ class ZeroBrain {
       scored.push([c, net, ev]);
     }
     scored.sort((a,b)=> b[1] - a[1]);
-    if (scored[0][1] <= 0) return null;
+    if (scored[0][1] < -1.2 && scored[0][2] < 0.5) return null;
     return scored[0][0];
   }
 
   bestDefenseCard(room, ai_idx, canFold){
     const ai = room.players[ai_idx];
     const oppDist = this.oppHandDistribution(room, ai_idx);
-    const atkDist = {}; let atkTotal = 0;
-    for (const c in oppDist){ if (c !== '瞬'){ atkDist[c] = oppDist[c]; atkTotal += oppDist[c]; }}
+    // 离线模式下 room.atk_card 就是真实攻击牌（AI 守方可以完美应对）
+    const atkKnown = room.atk_card && room.atk_card !== '瞬' ? room.atk_card : null;
+    let atkDist, atkTotal;
+    if (atkKnown){
+      atkDist = {[atkKnown]: 1.0};
+      atkTotal = 1.0;
+    } else {
+      atkDist = {}; atkTotal = 0;
+      for (const c in oppDist){ if (c !== '瞬'){ atkDist[c] = oppDist[c]; atkTotal += oppDist[c]; }}
+    }
     if (atkTotal <= 0) return canFold ? ['fold', null] : null;
     const eligible = ai.hand.filter(c => c !== '瞬');
     const hasShun = ai.hand.includes('瞬');
@@ -1376,12 +1622,19 @@ class ZeroBrain {
     const evFold = -avgMyVal * 1.2;
     const evs = {};
     if (hasShun){
-      let absorbedValue = 0;
-      for (const c in atkDist) absorbedValue += atkDist[c] * (BV[c] || 1);
-      absorbedValue /= Math.max(atkTotal, 1);
-      const highAtk = ((atkDist['A']||0) + (atkDist['B']||0)) / Math.max(atkTotal, 1);
-      let evShun = absorbedValue * 1.5 - 5.0;
-      evShun += highAtk * 4;
+      let absorbedValue;
+      let highAtk;
+      if (atkKnown){
+        absorbedValue = BV[atkKnown] || 1;
+        highAtk = (atkKnown === 'A' || atkKnown === 'B') ? 1.0 : 0.0;
+      } else {
+        absorbedValue = 0;
+        for (const c in atkDist) absorbedValue += atkDist[c] * (BV[c] || 1);
+        absorbedValue /= Math.max(atkTotal, 1);
+        highAtk = ((atkDist['A']||0) + (atkDist['B']||0)) / Math.max(atkTotal, 1);
+      }
+      let evShun = absorbedValue * 1.6 - 4.5 + highAtk * 6.0;
+      if (atkKnown === 'A') evShun += 8.0;
       evs['瞬'] = evShun;
     }
     const defSet = new Set(eligible);
@@ -1410,7 +1663,8 @@ class ZeroBrain {
     if (!Object.keys(evs).length) return canFold ? ['fold', null] : null;
     let bestCard = null, bestEV = -Infinity;
     for (const c in evs){ if (evs[c] > bestEV){ bestEV = evs[c]; bestCard = c; }}
-    if (canFold && evFold > bestEV + 1.0) return ['fold', null];
+    const margin = atkKnown ? 0.5 : 1.0;
+    if (canFold && evFold > bestEV + margin) return ['fold', null];
     return ['defend', bestCard];
   }
 
@@ -1538,13 +1792,62 @@ function decide(room){
   if (phase === 'AMBUSH_DECIDE'){ if (cp !== AI_IDX) return null; return decideAmbush(ai, opp, room); }
   if (phase === 'AMBUSH_PAY_COST'){ if (cp !== AI_IDX) return null; return decidePayCost(ai, room); }
   if (phase === 'AMBUSH_ATK_SELECT'){ if (cp !== AI_IDX) return null; return decideAtkSelect(ai, opp, room); }
+  if (phase === 'AMBUSH_BLUFF_DECLARE'){ if (cp !== AI_IDX) return null; return decideBluffDeclare(ai, opp, room); }
+  if (phase === 'AMBUSH_BLUFF_RESPOND'){ if (cp === AI_IDX) return null; return decideBluffRespond(ai, opp, room); }
   if (phase === 'AMBUSH_DEF_CHOICE'){ if (cp === AI_IDX) return null; return decideDefend(ai, opp, room); }
   if (phase === 'SPELL'){ if (cp !== AI_IDX) return null; return decideSpell(ai, opp, room); }
+  if (phase === 'PROPHET_DECK'){ if (cp !== AI_IDX) return null; return ['PROPHET_DECK', {discard_idx: null}]; }
+  if (phase === 'RED_BID') return decideRedBid(ai, opp, room, AI_IDX);
   if (phase === 'END_DISCARD'){ if (cp !== AI_IDX) return null; return decideEndDiscard(ai, room); }
   if (phase === 'COLLISION_PRE_DISCARD'){ if (room.col_pre_discard_done[AI_IDX]) return null; return decideColPreDiscard(ai, opp, room); }
   if (phase === 'COLLISION_BET') return decideColBet(ai, opp, room);
   if (phase === 'COLLISION_FLIP'){ const wf = room._colWaitingFor(); if (wf !== AI_IDX) return null; return ['COLLISION_FLIP', {}]; }
   return null;
+}
+
+function decideBluffDeclare(ai, opp, room){
+  const trueCard = room.atk_card;
+  if (!trueCard) return ['BLUFF_DECLARE', {declared_rank:'none'}];
+  if (Math.random() < 0.30){
+    const fakes = [...'ABCDEF'].filter(c => c !== trueCard);
+    const pool = ['A','A','B',...fakes];
+    const declared = pool[Math.floor(Math.random()*pool.length)];
+    return ['BLUFF_DECLARE', {declared_rank: declared}];
+  }
+  if (['A','B'].includes(trueCard) && Math.random() < 0.50)
+    return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+  return ['BLUFF_DECLARE', {declared_rank:'none'}];
+}
+
+function decideBluffRespond(ai, opp, room){
+  const declared = room.bluff_declared_rank;
+  if (!declared) return ['BLUFF_RESPOND', {choice:'believe'}];
+  const oppHand = opp.hand;
+  const oppFreq = {};
+  for (const c of oppHand) oppFreq[c] = (oppFreq[c]||0)+1;
+  const pTrue = (oppFreq[declared]||0) / Math.max(1, oppHand.length);
+  const myScore = totalScore(ai);
+  const callThreshold = myScore >= 20 ? 0.35 : 0.25;
+  if (pTrue < callThreshold) return ['BLUFF_RESPOND', {choice:'call'}];
+  return ['BLUFF_RESPOND', {choice:'believe'}];
+}
+
+function decideRedBid(ai, opp, room, aiIdx){
+  if (room.red_bid_done[aiIdx]) return null;
+  const hand = ai.hand;
+  const myScore = totalScore(ai);
+  const oppScore = totalScore(opp);
+  const diff = myScore - oppScore;
+  const trigScore = room.red_bid_trigger_score;
+  let nBid = C.RED_BID_MIN;
+  if (diff < -20 || trigScore >= 50) nBid = C.RED_BID_MAX;
+  else if (diff < 0 || trigScore >= 30) nBid = 2;
+  nBid = Math.min(nBid, hand.length, C.RED_BID_MAX);
+  nBid = Math.max(nBid, C.RED_BID_MIN);
+  const cardVal = c => (CARD_CONFIG[c]||{base_value:0}).base_value;
+  const sorted = [...hand].sort((a,b) => cardVal(a)-cardVal(b));
+  const bidCards = sorted.slice(0, nBid);
+  return ['RED_BID', {cards: bidCards}];
 }
 
 function decideMarket(ai, opp, room){
@@ -1568,8 +1871,18 @@ function decideMarket(ai, opp, room){
   for (let i=0;i<market.length;i++){
     const mc = market[i];
     let pri = 0;
-    if (isDark) pri = Math.random() < 0.4 ? 25 : 0;
-    else {
+    if (isDark){
+      // 黑市：按未见牌池期望完成度估算，比纯随机更理性
+      const unseen = _brain.unseenDistribution(room, AI_IDX);
+      let tot = 0; for (const c in unseen) tot += unseen[c];
+      let evSlot = 0;
+      if (tot > 0) for (const c in unseen){
+        if (c === '瞬') continue;
+        evSlot += unseen[c] / tot * ((needs[c]||0) + (BV[c]||1) * 4);
+      }
+      if (evSlot === 0) evSlot = 18;
+      pri = Math.round(evSlot * 0.55 + 6 + Math.random() * 22);
+    } else {
       pri = needs[mc] || 0;
       if (pri === 0){
         if (mc === 'A') pri = 50;
@@ -1579,7 +1892,7 @@ function decideMarket(ai, opp, room){
     }
     if (pri > bestPri){ bestPri = pri; bestIdx = i; }
   }
-  if (bestIdx < 0 || bestPri < 20) return ['MARKET_SKIP', {}];
+  if (bestIdx < 0 || bestPri < (isDark ? 14 : 20)) return ['MARKET_SKIP', {}];
   const target = market[bestIdx];
   const targetV = _bvMarket(target);
   const sortedHand = [...hand].sort((a,b) => (a==='瞬'?1:0) - (b==='瞬'?1:0) || _bvMarket(a) - _bvMarket(b));
@@ -1683,6 +1996,9 @@ function decideDefend(ai, opp, room){
 }
 
 function decideSpell(ai, opp, room){
+  const myScore = totalScore(ai), oppScore = totalScore(opp);
+  const oppDist0 = _brain.oppHandDistribution(room, AI_IDX);
+  const oppPressure = oppScore + estimateOppMaxCombo(oppDist0, room) >= C.WIN_SCORE;
   if (ai.breaker_marks > 0){
     const a = decideBreaker(room, ai, opp);
     if (a) return a;
@@ -1696,7 +2012,8 @@ function decideSpell(ai, opp, room){
       if (oppLock && oppLock !== '瞬' && cards.includes(oppLock)){
         if (ai.breaker_marks > 0)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'marker'}];
-        if (score >= 25)
+        const breakThreshold = (myScore + 30 >= C.WIN_SCORE || oppPressure) ? 18 : 22;
+        if (score >= breakThreshold)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'pay'}];
         for (const e of playable){
           const [k2,n2,c2,s2] = e;
@@ -1711,6 +2028,9 @@ function decideSpell(ai, opp, room){
   }
   const sac = decideSacrifice(ai, opp, room);
   if (sac) return sac;
+  // 先知低语: use when behind by 15+ and haven't used it
+  if (!ai.prophet_used && myScore >= C.PROPHET_COST && oppScore - myScore >= 15)
+    return ['PROPHET_WHISPER', {choice:'peek_hand'}];
   return ['SPELL_SKIP', {}];
 }
 
@@ -1848,18 +2168,20 @@ function decideColBet(ai, opp, room){
   const diff = myS - oppS;
   let myStrength = 0;
   for (const c of ai.hand) if (c !== '瞬') myStrength += BV[c];
-  const oppHandCount = opp.hand.length;
+  const shunBonus = ai.hand.filter(c => c === '瞬').length * 5;
+  const momentum = myStrength + shunBonus;
+  const oppHandCount = Math.max(1, opp.hand.length);
   if (room.col_bet_phase === 'CALLER'){
-    if (diff < -20 && myStrength >= oppHandCount * 2.5) return ['COLLISION_BET', {amount: 20}];
-    if (diff < -10) return ['COLLISION_BET', {amount: 10}];
-    if (diff < 0 && myStrength >= oppHandCount * 3) return ['COLLISION_BET', {amount: 10}];
+    if (diff < -25 && momentum >= oppHandCount * 2.2) return ['COLLISION_BET', {amount: 20}];
+    if (diff < -12) return ['COLLISION_BET', {amount: 10}];
+    if (diff < 5 && momentum >= oppHandCount * 2.7) return ['COLLISION_BET', {amount: 10}];
     return ['COLLISION_BET', {amount: 0}];
   }
   const bet = room.col_bet_amount;
-  if (diff > bet + 10) return ['COLLISION_BET', {choice: 'fold'}];
-  if (myStrength >= oppHandCount * 2.5) return ['COLLISION_BET', {choice: 'follow'}];
-  if (diff < -15) return ['COLLISION_BET', {choice: 'follow'}];
-  if (bet === 10) return ['COLLISION_BET', {choice: 'follow'}];
+  if (diff > bet + 8) return ['COLLISION_BET', {choice: 'fold'}];
+  if (momentum >= oppHandCount * 2.2) return ['COLLISION_BET', {choice: 'follow'}];
+  if (diff < -12) return ['COLLISION_BET', {choice: 'follow'}];
+  if (bet === 10 && diff >= -8) return ['COLLISION_BET', {choice: 'follow'}];
   return ['COLLISION_BET', {choice: 'fold'}];
 }
 

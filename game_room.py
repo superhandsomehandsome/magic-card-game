@@ -29,6 +29,8 @@ from game_state import (
     BREAKER_CURSE_PENALTY,
     MARKET_SIZE, MARKET_DECK_GUARD, MARKET_DARK_INTERVAL,
     LOCKDOWN_BREAK_COST, LOCKDOWN_DEBT_ENABLE, LOCKDOWN_BAN_INSTANT,
+    PROPHET_COST, BLUFF_CALL_PENALTY,
+    RED_BID_MIN, RED_BID_MAX, RED_BID_BONUS_MULT,
 )
 
 
@@ -128,10 +130,17 @@ class GameRoom:
         self.market = []
         self.market_buy_done = [False, False]
 
-        # V5: Lockdown (each player can place 1 card affecting opponent's next turn)
-        # Active lockdowns affecting the OWNER's opponent. Cleared at start of opponent's NEXT turn.
-        # i.e. lockdown_card[i] is the lockdown placed by player i, restricting player (1-i)'s spell phase.
-        # Pending until opponent finishes their spell phase.
+        # V5: Lockdown
+        # V5.1: Bluff Call (虚实之言)
+        self.bluff_declared_rank = None   # rank attacker declared ('A'-'F') or None
+
+        # V5.1: Red Zone Sealed-Bid (红区暗标拍卖)
+        self.red_bid_cards = [None, None]  # cards each player bid
+        self.red_bid_done = [False, False]
+        self.red_bid_trigger_key = None
+        self.red_bid_trigger_score = 0
+        self.red_bid_trigger_cards = []
+        self.red_bid_initiator = -1
 
     @staticmethod
     def _make_player(name):
@@ -143,8 +152,10 @@ class GameRoom:
             'overdraft': False,
             'scorepad': _make_scorepad(),
             'curse_active': False,
-            'lockdown_card': None,  # card I placed last turn, restricting opponent
-            'lockdown_debt': 0,     # magic debt to pay off from future score
+            'lockdown_card': None,
+            'lockdown_debt': 0,
+            'prophet_used': False,
+            'prophet_peek': None,
         }
 
     # ── Session management ─────────────────────────────
@@ -228,6 +239,16 @@ class GameRoom:
         self.instant_count = 0
         self.played_this_turn = []
         self.turn_log = []
+        self.bluff_declared_rank = None
+        self.red_bid_cards = [None, None]
+        self.red_bid_done = [False, False]
+        self.red_bid_trigger_key = None
+        self.red_bid_trigger_score = 0
+        self.red_bid_trigger_cards = []
+        self.red_bid_initiator = -1
+        # Clear prophet peek for current player
+        for p in self.players:
+            p['prophet_peek'] = None
 
     def _begin_turn(self):
         """Called at start of every turn. Drops opponent's expired lockdown,
@@ -405,11 +426,16 @@ class GameRoom:
             'AMBUSH_ATK_SELECT': self._h_ambush_atk_select,
             'AMBUSH_CANCEL': self._h_ambush_cancel,
             'AMBUSH_DEFEND': self._h_ambush_defend,
+            'BLUFF_DECLARE': self._h_bluff_declare,
+            'BLUFF_RESPOND': self._h_bluff_respond,
             'SPELL_SCORE': self._h_spell_score,
             'SPELL_INSTANT': self._h_spell_instant,
             'SPELL_BREAKER': self._h_spell_breaker,
             'SPELL_SACRIFICE': self._h_spell_sacrifice,
             'SPELL_SKIP': self._h_spell_skip,
+            'PROPHET_WHISPER': self._h_prophet_whisper,
+            'PROPHET_DECK': self._h_prophet_deck,
+            'RED_BID': self._h_red_bid,
             'END_DISCARD': self._h_end_discard,
             'LOCKDOWN_PLACE': self._h_lockdown_place,
             'LOCKDOWN_SKIP': self._h_lockdown_skip,
@@ -562,14 +588,74 @@ class GameRoom:
             self._post_ambush_continue()
             return True, None
 
-        self.phase = 'AMBUSH_DEF_CHOICE'
+        self.bluff_declared_rank = None
+        self.phase = 'AMBUSH_BLUFF_DECLARE'
+        return True, None
+
+    def _h_bluff_declare(self, pidx, data):
+        if self.phase != 'AMBUSH_BLUFF_DECLARE' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        declared = data.get('declared_rank', 'none')
+        if declared not in (set('ABCDEF') | {'none'}):
+            return False, 'Invalid declaration'
+        if declared == 'none':
+            self._log('bluff_declare', f'{self._cur()["name"]} 未作声明，直接进入拼点')
+            self.bluff_declared_rank = None
+            self.phase = 'AMBUSH_DEF_CHOICE'
+        else:
+            self._log('bluff_declare', f'{self._cur()["name"]} 声明暗扣牌为【{declared}】')
+            self.bluff_declared_rank = declared
+            self.phase = 'AMBUSH_BLUFF_RESPOND'
+        return True, None
+
+    def _h_bluff_respond(self, pidx, data):
+        if self.phase != 'AMBUSH_BLUFF_RESPOND' or pidx != (1 - self.current_player):
+            return False, 'Wrong phase / not defender'
+        choice = data.get('choice')
+        if choice not in ('believe', 'call'):
+            return False, 'Invalid choice'
+        attacker = self._cur()
+        defender = self._opp()
+        if choice == 'believe':
+            self._log('bluff_respond', f'{defender["name"]} 相信声明，正常迎战')
+            self.phase = 'AMBUSH_DEF_CHOICE'
+            return True, None
+        # Call bluff
+        true_card = self.atk_card
+        declared = self.bluff_declared_rank
+        self._log('bluff_respond', f'{defender["name"]} 拆穿！揭示攻击牌 [{true_card}]')
+        if true_card == declared:
+            defender['score'] -= BLUFF_CALL_PENALTY
+            defender['hand'].append(true_card)
+            defender['hand'] = sort_hand(defender['hand'])
+            self._log('bluff_reveal',
+                      f'声明属实！{defender["name"]} -{BLUFF_CALL_PENALTY} 分，{true_card} 作为「敬意」入{defender["name"]}手')
+            self.ambush_last_outcome = {
+                'outcome': 'bluff_true', 'declared': declared,
+                'atk': true_card, 'penalty_to': 'defender',
+            }
+        else:
+            attacker['score'] -= BLUFF_CALL_PENALTY
+            defender['hand'].append(true_card)
+            defender['hand'] = sort_hand(defender['hand'])
+            self._log('bluff_reveal',
+                      f'虚张声势！{attacker["name"]} -{BLUFF_CALL_PENALTY} 分，{true_card} 进入{defender["name"]}手')
+            self.ambush_last_outcome = {
+                'outcome': 'bluff_false', 'declared': declared,
+                'atk': true_card, 'penalty_to': 'attacker',
+            }
+        self.atk_card = None
+        self.bluff_declared_rank = None
+        self._post_ambush_continue()
         return True, None
 
     def _h_ambush_cancel(self, pidx, data):
-        if self.phase not in ('AMBUSH_ATK_SELECT', 'AMBUSH_PAY_COST') or pidx != self.current_player:
+        if self.phase not in ('AMBUSH_ATK_SELECT', 'AMBUSH_PAY_COST', 'AMBUSH_BLUFF_DECLARE') or pidx != self.current_player:
             return False, 'Wrong phase'
         self.phase = 'AMBUSH_DECIDE'
         self.ambush_second_pending = False
+        self.atk_card = None
+        self.bluff_declared_rank = None
         return True, None
 
     def _h_ambush_defend(self, pidx, data):
@@ -782,6 +868,24 @@ class GameRoom:
                 self._log('lockdown_break',
                           f'{p["name"]} 鲜血破拆！背负 {p["lockdown_debt"]} 分魔力债击碎封锁 [{opp_lock}]')
 
+        # V5.1: Red Zone Sealed-Bid trigger — check if both players have the same red combo
+        if combo_key in RED_KEYS and self.shared_red.get(combo_key, -1) == -1:
+            opp_slots_fn = lambda key: self._slots_left(1 - pidx, key)
+            opp_playable = detect_playable(self.players[1 - pidx]['hand'], opp_slots_fn)
+            if any(p2[0] == combo_key for p2 in opp_playable):
+                # Both have it — trigger auction; stash combo info and pause
+                pre_score = apply_modifiers(match['base_score'], p['curse_active'])
+                self.red_bid_trigger_key = combo_key
+                self.red_bid_trigger_score = pre_score
+                self.red_bid_trigger_cards = list(cards)
+                self.red_bid_initiator = pidx
+                self.red_bid_done = [False, False]
+                self.red_bid_cards = [None, None]
+                self._log('red_bid_trigger',
+                          f'双方均拥有【{match["name"]}】！触发暗标拍卖！')
+                self.phase = 'RED_BID'
+                return True, None
+
         for c in cards:
             p['hand'].remove(c)
         self.played_this_turn.extend(cards)
@@ -968,6 +1072,111 @@ class GameRoom:
         self._log('spell_skip', f'{self._cur()["name"]} 跳过咏唱阶段')
         self._finish_spell()
         return True, None
+
+    # ── 先知低语 (Prophet's Whisper) ────────────────────
+    def _h_prophet_whisper(self, pidx, data):
+        if self.phase != 'SPELL' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        p = self.players[pidx]
+        if p['prophet_used']:
+            return False, '本局先知低语已用尽'
+        choice = data.get('choice')
+        if choice not in ('peek_hand', 'peek_deck', 'peek_market'):
+            return False, 'Invalid choice'
+        p['score'] -= PROPHET_COST
+        p['prophet_used'] = True
+        opp = self.players[1 - pidx]
+        if choice == 'peek_hand':
+            sample = random.sample(opp['hand'], min(3, len(opp['hand'])))
+            p['prophet_peek'] = list(sample)
+            self._log('prophet', f'{p["name"]} 低语先知 — 窥探对手 {len(sample)} 张手牌（-{PROPHET_COST}分）')
+        elif choice == 'peek_deck':
+            p['prophet_peek'] = list(self.deck[:3])
+            self._log('prophet', f'{p["name"]} 低语先知 — 窥视牌库顶 {len(p["prophet_peek"])} 张（-{PROPHET_COST}分）')
+            self.phase = 'PROPHET_DECK'
+            return True, None
+        elif choice == 'peek_market':
+            if self._is_dark_market_turn() and self.market:
+                card = self.market[0]
+                p['prophet_peek'] = [card]
+                self._log('prophet', f'{p["name"]} 低语先知 — 暗市夜窥见 [{card}]（-{PROPHET_COST}分）')
+            else:
+                p['prophet_peek'] = []
+                self._log('prophet', f'{p["name"]} 低语先知 — 市场已公开，无额外信息（-{PROPHET_COST}分）')
+        return True, None
+
+    def _h_prophet_deck(self, pidx, data):
+        if self.phase != 'PROPHET_DECK' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        discard_idx = data.get('discard_idx')
+        peek = self.players[pidx]['prophet_peek'] or []
+        if discard_idx is not None:
+            if not isinstance(discard_idx, int) or not (0 <= discard_idx < len(peek)):
+                return False, 'Invalid index'
+            card = self.deck[discard_idx]
+            self.deck.pop(discard_idx)
+            self.deck.append(card)
+            self._log('prophet_deck', f'牌库第 {discard_idx + 1} 张已移至底部')
+        self.phase = 'SPELL'
+        return True, None
+
+    # ── 红区暗标拍卖 (Sealed-Bid Red Zone) ───────────────
+    def _h_red_bid(self, pidx, data):
+        if self.phase != 'RED_BID':
+            return False, 'Wrong phase'
+        if self.red_bid_done[pidx]:
+            return False, '已暗标'
+        cards = data.get('cards', [])
+        if not (RED_BID_MIN <= len(cards) <= RED_BID_MAX):
+            return False, f'需出价 {RED_BID_MIN}~{RED_BID_MAX} 张牌'
+        p = self.players[pidx]
+        tmp = list(p['hand'])
+        for c in cards:
+            if c not in tmp:
+                return False, f'手牌中没有 {c}'
+            tmp.remove(c)
+        self.red_bid_cards[pidx] = list(cards)
+        self.red_bid_done[pidx] = True
+        self._log('red_bid', f'{p["name"]} 已提交暗标（{len(cards)} 张）')
+        if all(self.red_bid_done):
+            self._resolve_red_bid()
+        return True, None
+
+    def _resolve_red_bid(self):
+        p0_val = sum(_card_value(c) for c in self.red_bid_cards[0])
+        p1_val = sum(_card_value(c) for c in self.red_bid_cards[1])
+        # Initiator wins ties
+        if p0_val > p1_val or (p0_val == p1_val and self.red_bid_initiator == 0):
+            winner, loser = 0, 1
+        else:
+            winner, loser = 1, 0
+        key = self.red_bid_trigger_key
+        score = self.red_bid_trigger_score
+        winner_bid = self.red_bid_cards[winner]
+        winner_bid_val = sum(_card_value(c) for c in winner_bid)
+        bonus = winner_bid_val * RED_BID_BONUS_MULT
+        # Remove combo cards AND bid cards from winner's hand
+        for c in self.red_bid_trigger_cards:
+            if c in self.players[winner]['hand']:
+                self.players[winner]['hand'].remove(c)
+        for c in winner_bid:
+            if c in self.players[winner]['hand']:
+                self.players[winner]['hand'].remove(c)
+        # Award score
+        self.players[winner]['scorepad'][key]['scores'].append(score)
+        self.shared_red[key] = winner
+        self.players[winner]['score'] += bonus
+        # Loser's bid cards stay in hand (already there)
+        self._log('red_bid_reveal',
+                  f'暗标揭晓！{self.players[0]["name"]} 出价 {p0_val}，{self.players[1]["name"]} 出价 {p1_val}')
+        self._log('red_bid_result',
+                  f'{self.players[winner]["name"]} 夺得【{key}】得 {score} 分 + 奉献奖励 {bonus} 分！')
+        from game_logic import sort_hand
+        self.players[winner]['hand'] = sort_hand(self.players[winner]['hand'])
+        if self._check_race_win():
+            return
+        self.phase = 'SPELL'
+        self.current_player = self.red_bid_initiator
 
     def _finish_spell(self, force_end=False):
         self._discard(self.played_this_turn)
@@ -1362,8 +1571,8 @@ class GameRoom:
             view['draw_was_overdraft'] = self.draw_was_overdraft
 
         # Ambush phase info
-        if self.phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_DEF_CHOICE', 'AMBUSH_PAY_COST'):
-            # Reveal atk only to attacker (it's their card)
+        if self.phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_DEF_CHOICE', 'AMBUSH_PAY_COST',
+                          'AMBUSH_BLUFF_DECLARE', 'AMBUSH_BLUFF_RESPOND'):
             if pidx == self.current_player:
                 view['atk_card'] = self.atk_card
             else:
@@ -1373,6 +1582,32 @@ class GameRoom:
             view['defender_idx'] = 1 - self.current_player
             view['can_fold'] = True
             view['my_hand_for_defend'] = p['hand'] if pidx == (1 - self.current_player) else None
+
+        if self.phase in ('AMBUSH_BLUFF_DECLARE', 'AMBUSH_BLUFF_RESPOND'):
+            view['bluff_declared_rank'] = self.bluff_declared_rank
+
+        # Prophet's Whisper
+        view['prophet_used_me'] = p.get('prophet_used', False)
+        view['prophet_cost'] = PROPHET_COST
+        if p.get('prophet_peek') is not None and self.phase in ('SPELL', 'PROPHET_DECK'):
+            view['prophet_peek'] = p['prophet_peek']
+        if self.phase == 'PROPHET_DECK' and pidx == self.current_player:
+            view['prophet_deck_cards'] = p.get('prophet_peek', [])
+
+        # Red Zone Bid
+        if self.phase == 'RED_BID':
+            view['red_bid_done_me'] = self.red_bid_done[pidx]
+            view['red_bid_trigger_key'] = self.red_bid_trigger_key
+            view['red_bid_trigger_score'] = self.red_bid_trigger_score
+            view['red_bid_min'] = RED_BID_MIN
+            view['red_bid_max'] = RED_BID_MAX
+            if all(self.red_bid_done):
+                view['red_bid_reveal'] = {
+                    'p0_cards': self.red_bid_cards[0],
+                    'p1_cards': self.red_bid_cards[1],
+                    'winner': (0 if sum(_card_value(c) for c in self.red_bid_cards[0]) >=
+                               sum(_card_value(c) for c in self.red_bid_cards[1]) else 1),
+                }
 
         if self.ambush_last_outcome:
             view['ambush_last_outcome'] = self.ambush_last_outcome

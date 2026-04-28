@@ -412,6 +412,37 @@ def on_action(data):
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    import argparse
+    import webbrowser
+
+    parser = argparse.ArgumentParser(description='秘术对决 · 游戏服务器')
+    parser.add_argument(
+        '--offline',
+        action='store_true',
+        help='仅绑定 127.0.0.1；与客户端同机运行，无需外网',
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=None,
+        help='端口（默认环境变量 PORT 或 5000）',
+    )
+    parser.add_argument(
+        '--open-browser',
+        action='store_true',
+        help='启动约 1 秒后自动打开本机游戏页',
+    )
+    args = parser.parse_args()
+    port = args.port if args.port is not None else int(os.environ.get('PORT', 5000))
+    host = '127.0.0.1' if args.offline else '0.0.0.0'
     debug = os.environ.get('RENDER') is None
-    socketio.run(app, host='0.0.0.0', port=port, debug=debug, allow_unsafe_werkzeug=True)
+
+    if args.open_browser:
+
+        def _open_later():
+            time.sleep(1.25)
+            webbrowser.open(f'http://127.0.0.1:{port}/')
+
+        threading.Thread(target=_open_later, daemon=True).start()
+
+    socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)

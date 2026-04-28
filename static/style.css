@@ -4,7 +4,11 @@
    I. RESET & GLOBAL — Dark Academia Foundation
    ══════════════════════════════════════════ */
 *{box-sizing:border-box;margin:0;padding:0}
-html{font-size:15px;overflow-x:hidden}
+html{font-size:15px;overflow-x:hidden;-webkit-text-size-adjust:100%}
+/* 防止双击缩放卡顿；所有可交互元素统一设置 */
+button,a,.cd.selectable,.col-card,.market-buy-slot,.sac-pick,.sp-grid tr.sp-avail{
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
 body{
   background:#1A1110;color:#E8DCC8;
   font-family:'EB Garamond','Noto Serif SC',Georgia,serif;
@@ -546,26 +550,29 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
    ══════════════════════════════════════════ */
 @media(max-width:768px){
   html{font-size:13px}
-  .board{height:auto;min-height:100vh}
+  .board{height:auto;min-height:100dvh}
   .player-zone{padding:6px 8px}
   .pbar{gap:8px}
   .pbar .avatar{width:32px;height:32px;font-size:16px}
   .pbar .pname{font-size:.85rem}
   .pbar .pscore{font-size:1.1rem}
   .sp-chip{font-size:.6rem;padding:1px 4px}
-  .cards-row{gap:5px;padding:4px 0}
-  .cd{width:46px;height:78px}
-  .cd .lt{font-size:1.15rem}
+  .cards-row{gap:5px;padding:4px 0;justify-content:flex-start;overflow-x:auto;
+    flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .cards-row::-webkit-scrollbar{display:none}
+  .cd{width:50px;height:85px;flex-shrink:0}
+  .cd .lt{font-size:1.2rem}
   .cd .st{font-size:.45rem}
   .cd .vl{font-size:.45rem}
-  .cd-sm{width:38px;height:64px}
-  .cd-sm .lt{font-size:.9rem}
+  .cd-sm{width:40px;height:68px}
+  .cd-sm .lt{font-size:.95rem}
   .cd-raised{transform:translateY(-10px)!important}
   .arena{padding:6px 8px;min-height:150px}
   .phase-bar{padding:5px 10px;font-size:.8rem;margin:4px auto}
-  .btn{padding:8px 14px;font-size:.85rem}
-  .btn-sm{padding:4px 10px;font-size:.75rem}
-  .game-log{max-height:70px;font-size:.75rem;margin:4px 0;padding:5px 8px}
+  .btn{padding:10px 16px;font-size:.9rem;min-height:44px}
+  .btn-sm{padding:6px 12px;font-size:.8rem;min-height:38px}
+  .action-bar{gap:6px}
+  .game-log{max-height:60px;font-size:.72rem;margin:3px 0;padding:4px 8px}
   .sp-grid th,.sp-grid td{padding:3px 6px;font-size:.75rem}
   .duel-stage{min-height:120px;padding:12px 0}
   .duel-card-slot{width:56px;height:95px}
@@ -577,11 +584,20 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   .final-scores{font-size:1.2rem}
   .toast{top:auto;bottom:16px;right:8px;left:8px;max-width:none;font-size:.85rem}
   .top-controls{top:6px;right:6px}
-  .top-controls .btn{padding:3px 8px;font-size:.65rem}
+  .top-controls .btn{padding:5px 10px;font-size:.7rem;min-height:34px}
   .board.vs-zero .player-zone.opp{padding:14px 8px 12px}
   .zero-totem{width:32px;height:32px}
   .board.vs-zero .pbar-zero .pname{font-size:1rem;letter-spacing:5px}
   .board.vs-zero .pbar-zero .pscore{font-size:1.1rem}
+  /* 手机端手牌横向滚动时也要滚动我的区域 */
+  .player-zone.me .cards-row{padding-bottom:4px}
+}
+
+/* 极窄手机（≤390px）进一步缩小 */
+@media(max-width:390px){
+  .cd{width:46px;height:78px}
+  .cd .lt{font-size:1.1rem}
+  .btn{padding:9px 12px;font-size:.85rem}
 }
 
 /* ══════════════════════════════════════════
@@ -655,9 +671,9 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   font-weight:700;
 }
 
-/* Lockdown break modal */
-.modal-backdrop{
-  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;
+/* Lockdown break / Prophet / Pass-device modal */
+.modal-backdrop, .modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:9000;
   display:flex;align-items:center;justify-content:center;padding:20px;
 }
 .modal-box{
@@ -672,8 +688,10 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
 /* Mobile market */
 @media (max-width:640px){
   .market-panel{font-size:.8rem;padding:4px 8px;gap:8px}
-  .market-cards{gap:4px}
-  .market-buy-slot{padding:4px}
+  .market-cards{gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .market-buy-slot{padding:6px;min-width:64px;min-height:44px}
   .market-price{font-size:.7rem}
   .lockdown-banner{font-size:.75rem;padding:4px 8px}
+  .modal-box{padding:16px;max-width:calc(100vw - 32px)}
+  .modal-box .btn{min-height:44px;width:100%;margin-top:6px}
 }

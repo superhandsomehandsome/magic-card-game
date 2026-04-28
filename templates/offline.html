@@ -2,7 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1A1110">
 <title>秘术对决 · 离线版（无需网络）</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -11,17 +15,30 @@
 <!-- Lobby -->
 <div id="lobby" class="lobby">
   <h1>秘术对决 · 离线版</h1>
-  <p class="subtitle">禁忌魔典 V5.0 · 无需网络 · 直面『零』</p>
+  <p class="subtitle">禁忌魔典 V5.0 · 无需网络 · 单人 / 双人本地对战</p>
   <div class="lobby-box">
-    <label>你的名字</label>
+    <label>玩家 1（我）</label>
     <input id="playerName" placeholder="输入昵称..." maxlength="12" value="炼金术士">
+    <label style="margin-top:10px">玩家 2（同台对手）</label>
+    <input id="playerName2" placeholder="留空将使用 AI 「零」" maxlength="12" value="">
     <button class="btn btn-ai" id="btnStartAI" onclick="startOfflineGame()">开始对决 · 挑战「零」</button>
+    <button class="btn btn-success" id="btnStartPVP" onclick="startOfflinePVP()" style="margin-top:8px">双人本地对战（同设备轮流）</button>
     <div class="or">── ──</div>
     <a href="/rules" target="_blank" class="btn btn-sm" style="display:inline-block;text-decoration:none;text-align:center;color:#D4AF37">查看规则</a>
     <div style="margin-top:12px;font-size:.78rem;color:#6B5B3A;text-align:center;line-height:1.5">
       ⚡ 离线模式：本页面所有逻辑 + AI 全部运行在浏览器中。<br>
-      可以保存到本地后双击打开（无需网络/服务器）。
+      双人本地对战：两人共用一台设备，每次切换玩家时会弹出过场，防止偷看手牌。
     </div>
+  </div>
+</div>
+
+<!-- Pass-device overlay (双人本地对战) -->
+<div id="passDeviceOverlay" class="modal-overlay hidden" style="z-index:9999">
+  <div class="modal-box" style="max-width:360px;text-align:center">
+    <h2 style="color:#D4AF37;margin-bottom:12px">⇄ 切换玩家</h2>
+    <p id="passDeviceMsg" style="font-size:1rem;color:#E8D5B7;line-height:1.6;margin-bottom:18px"></p>
+    <p class="text-muted" style="font-size:.8rem;margin-bottom:14px">请把设备交给对方，确认后再点击下方按钮。</p>
+    <button class="btn btn-success" onclick="confirmPassDevice()" style="width:100%">我已就位 · 揭开手牌</button>
   </div>
 </div>
 

@@ -11,3 +11,5 @@ build/
 .vscode/
 *.swp
 *.swo
+# Local simulation / debug logs
+sim_*.txt

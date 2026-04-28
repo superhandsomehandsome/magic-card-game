@@ -78,6 +78,17 @@ LOCKDOWN_BREAK_COST = 15
 LOCKDOWN_DEBT_ENABLE = True
 LOCKDOWN_BAN_INSTANT = True
 
+# ── 先知低语 (Prophet's Whisper) ─────────────────────
+PROPHET_COST = 5           # Score deducted to activate
+
+# ── 虚实之言 (Bluff Call) ────────────────────────────
+BLUFF_CALL_PENALTY = 10    # Penalty to the liar (or wrongful accuser)
+
+# ── 红区暗标拍卖 (Sealed-Bid Red Zone) ───────────────
+RED_BID_MIN = 1
+RED_BID_MAX = 3
+RED_BID_BONUS_MULT = 2     # Winner's bid value × this = bonus score
+
 FIVE_KIND_BASE = 40
 FIVE_KIND_PER_BV = 5
 ARCANE_SEQUENCE_BASE = 45
@@ -143,6 +154,8 @@ def _make_player(name):
         'lockdown_card': None,
         'lockdown_debt': 0,
         'market_purchased': False,
+        'prophet_used': False,
+        'prophet_peek': None,  # Peek results for current turn; cleared each turn
     }
 
 

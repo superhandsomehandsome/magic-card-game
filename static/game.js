@@ -291,6 +291,7 @@ function needsCardSelection() {
   if (p === 'LOCKDOWN_PLACE' && state.is_my_turn) return true;
   if (p === 'MARKET' && state.is_my_turn && uiMode === 'market') return true;
   if (p === 'COLLISION_PRE_DISCARD') return true;
+  if (p === 'RED_BID' && !state.red_bid_done_me) return true;
   return false;
 }
 
@@ -299,6 +300,7 @@ function canSelectCard(card, idx) {
   if (p === 'AMBUSH_ATK_SELECT') return card !== '瞬';
   if (p === 'AMBUSH_DEF_CHOICE') return true;
   if (p === 'AMBUSH_PAY_COST') return true;
+  if (p === 'RED_BID') return true;
   if (p === 'SPELL') {
     if (uiMode === 'instant') return card !== '瞬';
     if (uiMode === 'sacrifice' && sacState && sacState.step === 'discard') return true;
@@ -401,8 +403,12 @@ function renderArena() {
     case 'AMBUSH_DECIDE': h += renderAmbushDecide(); break;
     case 'AMBUSH_PAY_COST': h += renderAmbushPayCost(); break;
     case 'AMBUSH_ATK_SELECT': h += renderAmbushAtkSelect(); break;
+    case 'AMBUSH_BLUFF_DECLARE': h += renderBluffDeclare(); break;
+    case 'AMBUSH_BLUFF_RESPOND': h += renderBluffRespond(); break;
     case 'AMBUSH_DEF_CHOICE': h += renderAmbushDefChoice(); break;
     case 'SPELL': h += renderSpell(); break;
+    case 'PROPHET_DECK': h += renderProphetDeck(); break;
+    case 'RED_BID': h += renderRedBid(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
     case 'LOCKDOWN_PLACE': h += renderLockdownPlace(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
@@ -420,8 +426,12 @@ function phaseLabel(p) {
     AMBUSH_DECIDE:'贰 · 突袭',
     AMBUSH_PAY_COST:'贰 · 明弃代价',
     AMBUSH_ATK_SELECT:'贰 · 暗扣出牌',
+    AMBUSH_BLUFF_DECLARE:'贰 · 虚实之言',
+    AMBUSH_BLUFF_RESPOND:'贰 · 拆穿 or 相信',
     AMBUSH_DEF_CHOICE:'贰 · 迎战 / 怯战',
     SPELL:'叁 · 咏唱',
+    PROPHET_DECK:'叁 · 先知选择',
+    RED_BID:'叁 · 红区暗标',
     END_DISCARD:'肆 · 弃牌',
     LOCKDOWN_PLACE:'肆 · 明牌封锁',
     COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌',
@@ -451,6 +461,8 @@ function renderAmbushOutcome() {
   else if (o.outcome === 'lose') label = `【上次突袭】${o.atk} < ${o.def} — 防守方胜 · 抽${o.drew}偷${o.stole}`;
   else if (o.outcome === 'tie') label = `【上次突袭】${o.atk} = ${o.def} — 平局`;
   else if (o.outcome === 'auto_win') label = `【上次突袭】${o.atk} 自动胜利（对手无牌）`;
+  else if (o.outcome === 'bluff_true') label = `【虚实之言】声明 [${o.declared}] 属实！攻击牌 [${o.atk}] 入防守方手 · 防守方 -10`;
+  else if (o.outcome === 'bluff_false') label = `【虚实之言】声明 [${o.declared}] 虚假！攻击牌 [${o.atk}] 入防守方手 · 攻击方 -10`;
   return `<div class="ambush-outcome">${label}</div>`;
 }
 
@@ -623,8 +635,7 @@ function renderAmbushPayCost() {
   h += `<p class="text-muted">已选 ${selectedCards.length}/${need}</p>`;
   h += '<div class="action-bar">';
   if (selectedCards.length === need) {
-    const cards = selectedCards.map(i => state.my_hand[i]);
-    h += `<button class="btn btn-danger" onclick="sendAction('AMBUSH_PAY_COST',{cards:${JSON.stringify(cards)}})">确认明弃</button>`;
+    h += `<button class="btn btn-danger" onclick="doAmbushPayCost()">确认明弃</button>`;
   }
   h += `<button class="btn" onclick="sendAction('AMBUSH_CANCEL')">取消</button>`;
   return h + '</div></div>';
@@ -639,6 +650,37 @@ function renderAmbushAtkSelect() {
     h += `<button class="btn btn-danger" onclick="sendAction('AMBUSH_ATK_SELECT',{card:'${card}'})">确认暗扣</button>`;
   }
   h += `<button class="btn" onclick="sendAction('AMBUSH_CANCEL')">取消</button>`;
+  return h + '</div></div>';
+}
+
+/* ── Phase: Bluff Declare (attacker declares rank) ─── */
+function renderBluffDeclare() {
+  const s = state;
+  if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在决定是否声明...</div>';
+  let h = '<div class="text-center">';
+  h += '<p style="color:#D4AF37;font-size:1.05rem">虚实之言 — 可选声明暗扣牌等级</p>';
+  h += '<p class="text-muted" style="font-size:.82rem">声明后对手可选择「拆穿」或「相信」。若声明属实被拆穿：对手 -10 分；若虚张声势被识破：你 -10 分。</p>';
+  h += '<div class="action-bar" style="flex-wrap:wrap">';
+  for (const r of ['A','B','C','D','E','F']) {
+    h += `<button class="btn btn-sm" onclick="sendAction('BLUFF_DECLARE',{declared_rank:'${r}'})">声明 [${r}]</button>`;
+  }
+  h += `<button class="btn btn-sm" onclick="sendAction('BLUFF_DECLARE',{declared_rank:'none'})">不声明（直接拼点）</button>`;
+  h += `<button class="btn btn-sm" onclick="sendAction('AMBUSH_CANCEL')">取消突袭</button>`;
+  return h + '</div></div>';
+}
+
+/* ── Phase: Bluff Respond (defender calls or believes) */
+function renderBluffRespond() {
+  const s = state;
+  const isDefender = !s.is_my_turn;
+  const declared = s.bluff_declared_rank || '？';
+  if (!isDefender) return `<div class="text-center text-muted">等待对手决定是否拆穿声明 [${declared}]...</div>`;
+  let h = `<div class="defend-alert">对手声明暗扣牌为 [${declared}]</div>`;
+  h += '<div class="text-center">';
+  h += `<p class="text-muted" style="font-size:.82rem">「拆穿」：若声明虚假 → 对手 -10 分，攻击牌归你；若声明属实 → 你 -10 分，攻击牌归你。</p>`;
+  h += '<div class="action-bar">';
+  h += `<button class="btn btn-danger" onclick="sendAction('BLUFF_RESPOND',{choice:'call'})">拆穿！Call Bluff</button>`;
+  h += `<button class="btn btn-success" onclick="sendAction('BLUFF_RESPOND',{choice:'believe'})">相信，正常迎战</button>`;
   return h + '</div></div>';
 }
 
@@ -672,12 +714,21 @@ function renderSpell() {
   if (uiMode === 'sacrifice') return h + renderSacrificeMode() + '</div>';
   if (uiMode === 'breaker') return h + renderBreakerMode() + '</div>';
 
+  // Show prophet peek results
+  if (s.prophet_peek) {
+    const names = s.prophet_peek.length ? s.prophet_peek.join(', ') : '（无牌可窥）';
+    h += `<div style="background:rgba(155,89,182,.2);border:1px solid #9B59B6;border-radius:6px;padding:8px;text-align:center;margin-bottom:8px">`;
+    h += `<span style="color:#C792EA;font-size:.85rem">先知低语揭示：${names}</span></div>`;
+  }
+
   h += '<div class="action-bar">';
   if (s.my_breaker > 0) h += `<button class="btn btn-sm" onclick="enterBreakerMode()">破法者 (${s.my_breaker})</button>`;
   if (s.instant_count < s.instant_limit && s.my_hand.includes('瞬'))
     h += `<button class="btn btn-sm" onclick="enterInstantMode()">使用瞬</button>`;
   if ((s.sacrifice_slots || []).length > 0)
     h += `<button class="btn btn-sm btn-danger" onclick="enterSacrificeMode()">黑暗献祭</button>`;
+  if (!s.prophet_used_me)
+    h += `<button class="btn btn-sm" style="color:#C792EA;border-color:#9B59B6" onclick="showProphetModal()">先知低语 (-${s.prophet_cost||5}分)</button>`;
   h += '</div>';
 
   h += renderScorepadGrid();
@@ -960,6 +1011,64 @@ function arraysMatchUnordered(a, b) {
 }
 
 /* ── Phase: End Discard ───────────────────────────── */
+/* ── Phase: Prophet Deck (choose which card to move to bottom) */
+function renderProphetDeck() {
+  const s = state;
+  const cards = s.prophet_deck_cards || [];
+  let h = '<div class="text-center">';
+  h += '<p style="color:#9B59B6;font-size:1rem">先知低语 — 牌库顶</p>';
+  h += `<p class="text-muted">看到以下 ${cards.length} 张，可选一张移至底部（或直接跳过）</p>`;
+  if (cards.length) {
+    h += '<div class="cards-row" style="justify-content:center">';
+    cards.forEach((c, i) => {
+      h += `<div onclick="sendAction('PROPHET_DECK',{discard_idx:${i}})" style="cursor:pointer">`;
+      h += cardHTML(c);
+      h += `<div style="font-size:.7rem;text-align:center;color:#C792EA;margin-top:2px">移至底部</div></div>`;
+    });
+    h += '</div>';
+  } else {
+    h += '<p class="text-muted">（牌库为空）</p>';
+  }
+  h += `<div class="action-bar"><button class="btn" onclick="sendAction('PROPHET_DECK',{discard_idx:null})">保持原样，继续</button></div>`;
+  return h + '</div>';
+}
+
+/* ── Phase: Red Zone Sealed Bid ─────────────────────── */
+function renderRedBid() {
+  const s = state;
+  const triggerName = {dragon_breath:'龙之吐息',arcane_sequence:'奥术序列'}[s.red_bid_trigger_key] || s.red_bid_trigger_key;
+  const max = s.red_bid_max || 3, min = s.red_bid_min || 1;
+
+  if (s.red_bid_reveal) {
+    // Both bids submitted — show reveal
+    const r = s.red_bid_reveal;
+    const p0v = (r.p0_cards||[]).reduce((a,c)=>a+(CARD_BV[c]||1),0);
+    const p1v = (r.p1_cards||[]).reduce((a,c)=>a+(CARD_BV[c]||1),0);
+    let h = `<div class="text-center"><p style="color:#E74C3C;font-size:1.1rem">🔴 暗标揭晓！</p>`;
+    h += `<p>玩家0 出价：${(r.p0_cards||[]).join(',')} (${p0v})</p>`;
+    h += `<p>玩家1 出价：${(r.p1_cards||[]).join(',')} (${p1v})</p>`;
+    h += `<p style="color:#D4AF37">胜者夺得【${triggerName}】</p></div>`;
+    return h;
+  }
+
+  if (s.red_bid_done_me) {
+    return `<div class="text-center"><p style="color:#D4AF37">已暗标 — 等待对手提交...</p></div>`;
+  }
+
+  let h = `<div class="text-center">`;
+  h += `<p style="color:#E74C3C;font-size:1.05rem">🔴 暗标拍卖 — 双方争夺【${triggerName}】(${s.red_bid_trigger_score}分)</p>`;
+  h += `<p class="text-muted" style="font-size:.82rem">选 ${min}~${max} 张牌作为奉献。出价高者得组合 + 2×奉献价值奖励；落败方牌归还手中。</p>`;
+  h += `<p class="text-muted">已选 ${selectedCards.length}/${max}</p>`;
+  if (selectedCards.length >= min && selectedCards.length <= max) {
+    h += `<div class="action-bar"><button class="btn btn-danger" onclick="doRedBid()">暗标确认（出价 ${selectedCards.length} 张）</button></div>`;
+  }
+  return h + '</div>';
+}
+function doRedBid() {
+  const cards = selectedCards.map(i => state.my_hand[i]);
+  sendAction('RED_BID', {cards});
+}
+
 function renderEndDiscard() {
   if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在弃牌...</div>';
   const overflow = state.overflow || 0;
@@ -968,6 +1077,32 @@ function renderEndDiscard() {
   if (selectedCards.length === overflow)
     h += `<button class="btn btn-danger" onclick="doEndDiscard()">确认弃牌</button>`;
   return h + '</div></div>';
+}
+function doAmbushPayCost() {
+  const cards = selectedCards.map(i => state.my_hand[i]);
+  sendAction('AMBUSH_PAY_COST', {cards});
+}
+
+/* ── Prophet's Whisper modal ─────────────────────── */
+function showProphetModal() {
+  let h = '<div class="modal-overlay" id="prophetModal" onclick="if(event.target===this)closeProphetModal()">';
+  h += '<div class="modal-box" style="max-width:340px">';
+  h += '<h3 style="color:#C792EA;text-align:center;margin-bottom:12px">先知低语</h3>';
+  h += `<p style="font-size:.85rem;color:#aaa;text-align:center;margin-bottom:12px">消耗 ${state.prophet_cost||5} 分，获得以下任意一项信息</p>`;
+  h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_hand')">👁 窥视手牌 — 随机看对手3张手牌</button>`;
+  h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_deck')">📚 窥视牌库 — 看库顶3张（可弃1到底部）</button>`;
+  h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_market')">🏪 窥视黑市 — 暗市夜提前看1张商品</button>`;
+  h += `<button class="btn" style="width:100%;color:#aaa" onclick="closeProphetModal()">取消</button>`;
+  h += '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+function closeProphetModal() {
+  const el = document.getElementById('prophetModal');
+  if (el) el.remove();
+}
+function useProphet(choice) {
+  closeProphetModal();
+  sendAction('PROPHET_WHISPER', {choice});
 }
 function doEndDiscard() {
   const cards = selectedCards.map(i => state.my_hand[i]);

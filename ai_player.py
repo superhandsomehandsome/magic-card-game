@@ -13,6 +13,8 @@ from game_state import (
     RED_KEYS, BLUE_KEYS, GREEN_KEYS,
     SACRIFICE_MAX_X, NO_AMBUSH_BEFORE_TURN,
     MARKET_DECK_GUARD, LOCKDOWN_BREAK_COST,
+    PROPHET_COST, BLUFF_CALL_PENALTY,
+    RED_BID_MIN, RED_BID_MAX,
 )
 
 
@@ -64,10 +66,10 @@ class ZeroBrain:
             lc = room.players[i].get('lockdown_card')
             if lc:
                 full[lc] -= 1
-        # Atk card (if visible to me — only if I'm attacker)
+        # 突袭牌已从攻击方手牌打出，扣在桌上：既不在双方手牌也不在牌堆，必须从全牌池扣除
         atk = getattr(room, 'atk_card', None)
-        if atk and room.current_player == ai_idx:
-            full[atk] -= 1  # I see my own atk
+        if atk:
+            full[atk] = max(0, full[atk] - 1)
         return full
 
     def opp_hand_distribution(self, room, ai_idx):
@@ -156,20 +158,26 @@ class ZeroBrain:
             scored.append((c, net, ev))
         scored.sort(key=lambda x: x[1], reverse=True)
         best_card, best_net, best_ev = scored[0]
-        if best_net <= 0:
+        # 更激进：微弱负期望值仍发动突袭抢节奏（「零」风格）
+        if best_net < -1.2 and best_ev < 0.5:
             return None
         return best_card
 
-    # ── Defense EV (blind defense) ────────────────────
+    # ── Defense EV (uses real atk_card on server — perfect play) ───
     def best_defense_card(self, room, ai_idx, can_fold=True):
         """Decide fold vs defend (and if defend, with which card)."""
         from game_logic import compare_duel
         ai = room.players[ai_idx]
         opp = room.players[1 - ai_idx]
         opp_dist = self.opp_hand_distribution(room, ai_idx)
-        # Atk card dist (opp doesn't use 瞬 to attack, so exclude 瞬)
-        atk_dist = {c: p for c, p in opp_dist.items() if c != '瞬'}
-        atk_total = sum(atk_dist.values())
+        # 服务器端防守阶段 room.atk_card 即真实攻击牌（客户端显示为 ?）
+        atk_known = getattr(room, 'atk_card', None)
+        if atk_known and atk_known != '瞬':
+            atk_dist = {atk_known: 1.0}
+            atk_total = 1.0
+        else:
+            atk_dist = {c: p for c, p in opp_dist.items() if c != '瞬'}
+            atk_total = sum(atk_dist.values())
         if atk_total <= 0:
             return ('fold', None) if can_fold else None
         eligible = [c for c in ai['hand'] if c != '瞬']
@@ -186,14 +194,17 @@ class ZeroBrain:
         evs = {}
         # Special: 瞬 absorbs => +atk_card to hand, 瞬 to discard
         if has_shun:
-            # Expected absorbed value
-            absorbed_value = sum(prob * BV.get(c, 1) for c, prob in atk_dist.items()) / max(atk_total, 1)
-            # Use 瞬 only against high-rank attacks; weight by prob of A/B in atk_dist
-            high_atk_prob = (atk_dist.get('A', 0) + atk_dist.get('B', 0)) / max(atk_total, 1)
-            # 瞬 itself worth ~5 BV
-            ev_shun = absorbed_value * 1.5 - 5.0
-            # Bonus when opp is likely sending high-rank (we got a great absorb)
-            ev_shun += high_atk_prob * 4
+            if atk_known and atk_known != '瞬':
+                absorbed_value = BV.get(atk_known, 1)
+                high_atk_prob = 1.0 if atk_known in ('A', 'B') else 0.0
+            else:
+                absorbed_value = sum(prob * BV.get(c, 1) for c, prob in atk_dist.items()) / max(atk_total, 1)
+                high_atk_prob = (atk_dist.get('A', 0) + atk_dist.get('B', 0)) / max(atk_total, 1)
+            ev_shun = absorbed_value * 1.6 - 4.5
+            ev_shun += high_atk_prob * 6.0
+            # 吸收 A 时战略价值极高
+            if atk_known == 'A':
+                ev_shun += 8.0
             evs['瞬'] = ev_shun
 
         for def_c in set(eligible):
@@ -233,7 +244,9 @@ class ZeroBrain:
         # Compare best defend EV vs fold EV
         best_def_card = max(evs, key=evs.get)
         best_def_ev = evs[best_def_card]
-        if can_fold and ev_fold > best_def_ev + 1.0:
+        # 已知攻击牌时更偏迎战（少用 fold）；信念防守时仍可怯战
+        margin = 0.5 if atk_known else 1.0
+        if can_fold and ev_fold > best_def_ev + margin:
             return ('fold', None)
         return ('defend', best_def_card)
 
@@ -448,6 +461,24 @@ def decide(room):
             return None
         return _decide_spell(ai, opp, room)
 
+    if phase == 'AMBUSH_BLUFF_DECLARE':
+        if cp != AI_IDX:
+            return None
+        return _decide_bluff_declare(ai, opp, room)
+
+    if phase == 'AMBUSH_BLUFF_RESPOND':
+        if cp == AI_IDX:
+            return None
+        return _decide_bluff_respond(ai, opp, room)
+
+    if phase == 'PROPHET_DECK':
+        if cp != AI_IDX:
+            return None
+        return ('PROPHET_DECK', {'discard_idx': None})
+
+    if phase == 'RED_BID':
+        return _decide_red_bid(ai, opp, room, AI_IDX)
+
     if phase == 'END_DISCARD':
         if cp != AI_IDX:
             return None
@@ -506,8 +537,17 @@ def _decide_market(ai, opp, room):
     best_pri = -1
     for i, mc in enumerate(market):
         if is_dark:
-            # Blind: pretend it's an 'unknown' average value of 3
-            pri = 25 if random.random() < 0.4 else 0
+            # 黑市：按未见牌池估计「随机一位」的期望完成度，比纯随机更敢买关键节奏
+            unseen = _brain.unseen_distribution(room, AI_IDX)
+            tot = sum(unseen.values())
+            if tot > 0:
+                ev_slot = sum(
+                    unseen[c] / tot * (needs_priority.get(c, 0) + BV.get(c, 1) * 4)
+                    for c in unseen if c != '瞬'
+                )
+            else:
+                ev_slot = 18
+            pri = int(ev_slot * 0.55 + random.uniform(6, 28))
         else:
             pri = needs_priority.get(mc, 0)
             if pri == 0:
@@ -522,7 +562,7 @@ def _decide_market(ai, opp, room):
             best_pri = pri
             best_idx = i
 
-    if best_idx < 0 or best_pri < 20:
+    if best_idx < 0 or best_pri < (14 if is_dark else 20):
         return ('MARKET_SKIP', {})
 
     target = market[best_idx]
@@ -738,6 +778,10 @@ def _decide_spell(ai, opp, room):
     hand = ai['hand']
     pad = ai['scorepad']
     opp_pad = opp['scorepad']
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
+    opp_dist0 = _brain.opp_hand_distribution(room, AI_IDX)
+    opp_pressure = opp_score + _estimate_opp_max_combo(opp_dist0, room) >= WIN_SCORE
 
     if ai['breaker_marks'] > 0:
         action = _decide_breaker(room, ai, opp)
@@ -757,8 +801,8 @@ def _decide_spell(ai, opp, room):
                     return ('SPELL_SCORE', {
                         'cards': cards, 'combo_key': key, 'break_lockdown': 'marker'
                     })
-                # Pay 15 only if combo is worth >= 25 and our score allows
-                if score >= 25:
+                # 强势 AI：更值得为中等分连招付 15 破锁
+                if score >= (18 if (my_score + 30 >= WIN_SCORE or opp_pressure) else 22):
                     return ('SPELL_SCORE', {
                         'cards': cards, 'combo_key': key, 'break_lockdown': 'pay'
                     })
@@ -781,6 +825,12 @@ def _decide_spell(ai, opp, room):
     sac = _decide_sacrifice(ai, opp, room)
     if sac:
         return sac
+
+    # 先知低语: use late-game if not used, behind, and can afford
+    if not ai.get('prophet_used', False):
+        if my_score >= PROPHET_COST and opp_score - my_score >= 15:
+            # Peek opponent hand for strategic info
+            return ('PROPHET_WHISPER', {'choice': 'peek_hand'})
 
     return ('SPELL_SKIP', {})
 
@@ -1017,30 +1067,37 @@ def _decide_col_bet(ai, opp, room):
     opp_score = _total_score(opp)
     diff = my_score - opp_score
     my_strength = _hand_strength(ai['hand'])
-    opp_hand_count = len(opp['hand'])
+    opp_hand_count = max(1, len(opp['hand']))
+    shun_bonus = ai['hand'].count('瞬') * 5
+    momentum = my_strength + shun_bonus
 
     if room.col_bet_phase == 'CALLER':
-        if diff < -20 and my_strength >= opp_hand_count * 2.5:
+        if diff < -25 and momentum >= opp_hand_count * 2.2:
             return ('COLLISION_BET', {'amount': 20})
-        if diff < -10:
+        if diff < -12:
             return ('COLLISION_BET', {'amount': 10})
-        if diff < 0 and my_strength >= opp_hand_count * 3:
+        if diff < 5 and momentum >= opp_hand_count * 2.7:
             return ('COLLISION_BET', {'amount': 10})
         return ('COLLISION_BET', {'amount': 0})
     bet = room.col_bet_amount
-    if diff > bet + 10:
+    if diff > bet + 8:
         return ('COLLISION_BET', {'choice': 'fold'})
-    if my_strength >= opp_hand_count * 2.5:
+    if momentum >= opp_hand_count * 2.2:
         return ('COLLISION_BET', {'choice': 'follow'})
-    if diff < -15:
+    if diff < -12:
         return ('COLLISION_BET', {'choice': 'follow'})
-    if bet == 10:
+    if bet == 10 and diff >= -8:
         return ('COLLISION_BET', {'choice': 'follow'})
     return ('COLLISION_BET', {'choice': 'fold'})
 
 
 # ── Delay ────────────────────────────────────────────────
 DELAY = {
+    'BLUFF_DECLARE': (0.4, 0.8),
+    'BLUFF_RESPOND': (0.4, 0.8),
+    'PROPHET_WHISPER': (0.5, 0.9),
+    'PROPHET_DECK': (0.3, 0.5),
+    'RED_BID': (0.6, 1.0),
     'DRAW_ACK': (0.15, 0.3),
     'MARKET_BUY': (0.4, 0.7),
     'MARKET_SKIP': (0.15, 0.3),
@@ -1066,3 +1123,70 @@ DELAY = {
 def get_delay(action):
     lo, hi = DELAY.get(action, (0.3, 0.6))
     return random.uniform(lo, hi)
+
+
+# ── Bluff Call (虚实之言) ─────────────────────────────
+def _decide_bluff_declare(ai, opp, room):
+    """AI rarely bluffs; when it does, picks a high-impact fake rank."""
+    hand = ai['hand']
+    true_card = room.atk_card
+    if not true_card:
+        return ('BLUFF_DECLARE', {'declared_rank': 'none'})
+    # Bluff ~30% of the time — declare a high-rank card to intimidate
+    if random.random() < 0.30:
+        # Pick a rank other than true (most threatening = A)
+        fakes = [c for c in 'ABCDEF' if c != true_card]
+        # Bias toward A/B for intimidation
+        weighted = ['A', 'A', 'B'] + fakes
+        declared = random.choice(weighted)
+        return ('BLUFF_DECLARE', {'declared_rank': declared})
+    # Sometimes tell truth (to build credibility or if true card is strong)
+    if true_card in ('A', 'B') and random.random() < 0.50:
+        return ('BLUFF_DECLARE', {'declared_rank': true_card})
+    return ('BLUFF_DECLARE', {'declared_rank': 'none'})
+
+
+def _decide_bluff_respond(ai, opp, room):
+    """AI decides whether to call bluff based on declared rank vs expected distribution."""
+    declared = room.bluff_declared_rank
+    if declared is None:
+        return ('BLUFF_RESPOND', {'choice': 'believe'})
+    # Use belief distribution to estimate P(declaration is true)
+    unseen = _brain.unseen_distribution(room, AI_IDX)
+    total = max(1, sum(unseen.values()))
+    atk_dist = _brain.opp_hand_distribution(room, AI_IDX)
+    # Probability that the declared rank was the real attack card
+    p_true = (atk_dist.get(declared, 0) / max(1, sum(v for k, v in atk_dist.items() if k != '瞬')))
+    # Call when we're fairly confident it's a bluff (p_true < 0.35)
+    # and the penalty for being wrong (BLUFF_CALL_PENALTY = 10) is acceptable
+    my_score = _total_score(ai)
+    call_threshold = 0.35 if my_score >= 20 else 0.25  # more cautious when losing
+    if p_true < call_threshold:
+        return ('BLUFF_RESPOND', {'choice': 'call'})
+    return ('BLUFF_RESPOND', {'choice': 'believe'})
+
+
+# ── Red Zone Bid (红区暗标拍卖) ────────────────────────
+def _decide_red_bid(ai, opp, room, ai_idx):
+    if room.red_bid_done[ai_idx]:
+        return None
+    hand = ai['hand']
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
+    # Bid more when behind or the red zone score is critical
+    trigger_score = room.red_bid_trigger_score
+    diff = my_score - opp_score
+    # Estimate how many cards to bid (1-3)
+    # Bid aggressively if behind or if red zone is worth a lot
+    if diff < -20 or trigger_score >= 50:
+        n_bid = RED_BID_MAX
+    elif diff < 0 or trigger_score >= 30:
+        n_bid = 2
+    else:
+        n_bid = RED_BID_MIN
+    n_bid = min(n_bid, len(hand), RED_BID_MAX)
+    n_bid = max(n_bid, RED_BID_MIN)
+    # Bid lowest-value cards first (preserve combo pieces)
+    eligible = sorted(hand, key=lambda c: BV.get(c, 1))
+    bid_cards = eligible[:n_bid]
+    return ('RED_BID', {'cards': bid_cards})
