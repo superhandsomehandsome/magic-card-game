@@ -29,7 +29,7 @@ const C = {
   FIRST_PLAYER_BONUS: -5,
   P1_FIRST_TURN_OVERDRAFT: true,
   NO_AMBUSH_BEFORE_TURN: 3,
-  SCORE_MULT: 2.0,
+  SCORE_MULT: 1.0,
   AMBUSH_MAX_PER_TURN: 2,
   AMBUSH_SECOND_COST: 1,
   AMBUSH_STEAL_COUNT: 1,
@@ -49,7 +49,8 @@ const C = {
   MARKET_DECK_GUARD: 8,
   MARKET_DARK_INTERVAL: 5,
   PROPHET_COST: 5,
-  BLUFF_CALL_PENALTY: 10,
+  BLUFF_TRUE_PENALTY: 15,
+  BLUFF_FALSE_PENALTY: 15,
   RED_BID_MIN: 1,
   RED_BID_MAX: 3,
   RED_BID_BONUS_MULT: 2,
@@ -700,19 +701,24 @@ class GameRoom {
     }
     const trueCard = this.atk_card;
     const declared = this.bluff_declared_rank;
+    const atkIdx = this.current_player;
+    const defIdx = 1 - atkIdx;
     this._log('bluff_respond', `${defender.name} 拆穿！揭示攻击牌 [${trueCard}]`);
     if (trueCard === declared){
-      defender.score -= C.BLUFF_CALL_PENALTY;
-      defender.hand.push(trueCard);
-      defender.hand = sortHand(defender.hand);
-      this._log('bluff_reveal', `声明属实！${defender.name} -${C.BLUFF_CALL_PENALTY} 分，${trueCard} 入${defender.name}手`);
-      this.ambush_last_outcome = {outcome:'bluff_true', declared, atk:trueCard, penalty_to:'defender'};
+      // Truthful — defender punished, card discarded, attacker draws
+      this._discard([trueCard]);
+      defender.score -= C.BLUFF_TRUE_PENALTY;
+      const drawn = this._drawToHand(atkIdx, 1);
+      this._log('bluff_reveal', `声明属实！${defender.name} -${C.BLUFF_TRUE_PENALTY} 分，${trueCard} 弃置，${attacker.name} 抽 ${drawn.length} 张`);
+      this.ambush_last_outcome = {outcome:'bluff_true', declared, atk:trueCard, penalty_to:'defender', drew:drawn.length};
     } else {
-      attacker.score -= C.BLUFF_CALL_PENALTY;
+      // Liar caught — attacker punished, card to defender, defender draws
       defender.hand.push(trueCard);
       defender.hand = sortHand(defender.hand);
-      this._log('bluff_reveal', `虚张声势！${attacker.name} -${C.BLUFF_CALL_PENALTY} 分，${trueCard} 入${defender.name}手`);
-      this.ambush_last_outcome = {outcome:'bluff_false', declared, atk:trueCard, penalty_to:'attacker'};
+      attacker.score -= C.BLUFF_FALSE_PENALTY;
+      const drawn = this._drawToHand(defIdx, 1);
+      this._log('bluff_reveal', `虚张声势！${attacker.name} -${C.BLUFF_FALSE_PENALTY} 分，${trueCard} 入${defender.name}手，${defender.name} 抽 ${drawn.length} 张`);
+      this.ambush_last_outcome = {outcome:'bluff_false', declared, atk:trueCard, penalty_to:'attacker', drew:drawn.length};
     }
     this.atk_card = null;
     this.bluff_declared_rank = null;

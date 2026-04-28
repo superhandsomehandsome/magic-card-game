@@ -29,7 +29,7 @@ from game_state import (
     BREAKER_CURSE_PENALTY,
     MARKET_SIZE, MARKET_DECK_GUARD, MARKET_DARK_INTERVAL,
     LOCKDOWN_BREAK_COST, LOCKDOWN_DEBT_ENABLE, LOCKDOWN_BAN_INSTANT,
-    PROPHET_COST, BLUFF_CALL_PENALTY,
+    PROPHET_COST, BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
     RED_BID_MIN, RED_BID_MAX, RED_BID_BONUS_MULT,
 )
 
@@ -623,26 +623,33 @@ class GameRoom:
         # Call bluff
         true_card = self.atk_card
         declared = self.bluff_declared_rank
+        atk_idx = self.current_player
+        def_idx = 1 - atk_idx
         self._log('bluff_respond', f'{defender["name"]} 拆穿！揭示攻击牌 [{true_card}]')
         if true_card == declared:
-            defender['score'] -= BLUFF_CALL_PENALTY
-            defender['hand'].append(true_card)
-            defender['hand'] = sort_hand(defender['hand'])
+            # Truthful declaration wrongly called — defender punished
+            self._discard([true_card])
+            defender['score'] -= BLUFF_TRUE_PENALTY
+            drawn = self._draw_to_hand(atk_idx, 1)
             self._log('bluff_reveal',
-                      f'声明属实！{defender["name"]} -{BLUFF_CALL_PENALTY} 分，{true_card} 作为「敬意」入{defender["name"]}手')
+                      f'声明属实！{defender["name"]} -{BLUFF_TRUE_PENALTY} 分，{true_card} 弃置，{attacker["name"]} 抽 {len(drawn)} 张')
             self.ambush_last_outcome = {
                 'outcome': 'bluff_true', 'declared': declared,
                 'atk': true_card, 'penalty_to': 'defender',
+                'drew': len(drawn),
             }
         else:
-            attacker['score'] -= BLUFF_CALL_PENALTY
+            # Liar caught — attacker punished, card goes to defender
             defender['hand'].append(true_card)
             defender['hand'] = sort_hand(defender['hand'])
+            attacker['score'] -= BLUFF_FALSE_PENALTY
+            drawn = self._draw_to_hand(def_idx, 1)
             self._log('bluff_reveal',
-                      f'虚张声势！{attacker["name"]} -{BLUFF_CALL_PENALTY} 分，{true_card} 进入{defender["name"]}手')
+                      f'虚张声势！{attacker["name"]} -{BLUFF_FALSE_PENALTY} 分，{true_card} 入{defender["name"]}手，{defender["name"]} 抽 {len(drawn)} 张')
             self.ambush_last_outcome = {
                 'outcome': 'bluff_false', 'declared': declared,
                 'atk': true_card, 'penalty_to': 'attacker',
+                'drew': len(drawn),
             }
         self.atk_card = None
         self.bluff_declared_rank = None

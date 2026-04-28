@@ -461,8 +461,8 @@ function renderAmbushOutcome() {
   else if (o.outcome === 'lose') label = `【上次突袭】${o.atk} < ${o.def} — 防守方胜 · 抽${o.drew}偷${o.stole}`;
   else if (o.outcome === 'tie') label = `【上次突袭】${o.atk} = ${o.def} — 平局`;
   else if (o.outcome === 'auto_win') label = `【上次突袭】${o.atk} 自动胜利（对手无牌）`;
-  else if (o.outcome === 'bluff_true') label = `【虚实之言】声明 [${o.declared}] 属实！攻击牌 [${o.atk}] 入防守方手 · 防守方 -10`;
-  else if (o.outcome === 'bluff_false') label = `【虚实之言】声明 [${o.declared}] 虚假！攻击牌 [${o.atk}] 入防守方手 · 攻击方 -10`;
+  else if (o.outcome === 'bluff_true') label = `【虚实之言】声明 [${o.declared}] 属实！[${o.atk}] 弃置 · 防守方 -15 · 攻击方抽${o.drew||0}`;
+  else if (o.outcome === 'bluff_false') label = `【虚实之言】声明 [${o.declared}] 虚假！[${o.atk}] 入防守方手 · 攻击方 -15 · 防守方抽${o.drew||0}`;
   return `<div class="ambush-outcome">${label}</div>`;
 }
 
@@ -659,7 +659,7 @@ function renderBluffDeclare() {
   if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在决定是否声明...</div>';
   let h = '<div class="text-center">';
   h += '<p style="color:#D4AF37;font-size:1.05rem">虚实之言 — 可选声明暗扣牌等级</p>';
-  h += '<p class="text-muted" style="font-size:.82rem">声明后对手可选择「拆穿」或「相信」。若声明属实被拆穿：对手 -10 分；若虚张声势被识破：你 -10 分。</p>';
+  h += '<p class="text-muted" style="font-size:.82rem">声明后对手可选择「拆穿」或「相信」。属实被拆穿：对手 -15 分，牌弃置，你抽 1；虚假被识破：你 -15 分，牌归对手，对手抽 1。</p>';
   h += '<div class="action-bar" style="flex-wrap:wrap">';
   for (const r of ['A','B','C','D','E','F']) {
     h += `<button class="btn btn-sm" onclick="sendAction('BLUFF_DECLARE',{declared_rank:'${r}'})">声明 [${r}]</button>`;
@@ -677,7 +677,7 @@ function renderBluffRespond() {
   if (!isDefender) return `<div class="text-center text-muted">等待对手决定是否拆穿声明 [${declared}]...</div>`;
   let h = `<div class="defend-alert">对手声明暗扣牌为 [${declared}]</div>`;
   h += '<div class="text-center">';
-  h += `<p class="text-muted" style="font-size:.82rem">「拆穿」：若声明虚假 → 对手 -10 分，攻击牌归你；若声明属实 → 你 -10 分，攻击牌归你。</p>`;
+  h += `<p class="text-muted" style="font-size:.82rem">「拆穿」：若声明虚假 → 对手 -15 分，攻击牌归你，你抽 1 张；若声明属实 → 你 -15 分，攻击牌弃置，对手抽 1 张。</p>`;
   h += '<div class="action-bar">';
   h += `<button class="btn btn-danger" onclick="sendAction('BLUFF_RESPOND',{choice:'call'})">拆穿！Call Bluff</button>`;
   h += `<button class="btn btn-success" onclick="sendAction('BLUFF_RESPOND',{choice:'believe'})">相信，正常迎战</button>`;

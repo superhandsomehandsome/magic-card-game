@@ -44,7 +44,7 @@ INITIAL_HAND_P1 = 6
 FIRST_PLAYER_BONUS = -5
 P1_FIRST_TURN_OVERDRAFT = True
 NO_AMBUSH_BEFORE_TURN = 3
-SCORE_MULT = 2.0
+SCORE_MULT = 1.0
 
 AMBUSH_MAX_PER_TURN = 2
 AMBUSH_SECOND_COST = 1
@@ -82,7 +82,8 @@ LOCKDOWN_BAN_INSTANT = True
 PROPHET_COST = 5           # Score deducted to activate
 
 # ── 虚实之言 (Bluff Call) ────────────────────────────
-BLUFF_CALL_PENALTY = 10    # Penalty to the liar (or wrongful accuser)
+BLUFF_TRUE_PENALTY = 15    # Defender wrongly calls bluff on truthful declaration
+BLUFF_FALSE_PENALTY = 15   # Attacker caught lying
 
 # ── 红区暗标拍卖 (Sealed-Bid Red Zone) ───────────────
 RED_BID_MIN = 1
