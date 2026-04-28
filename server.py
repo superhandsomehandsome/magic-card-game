@@ -189,6 +189,11 @@ def rules_page():
     return render_template('rules.html')
 
 
+@app.route('/offline')
+def offline_page():
+    return render_template('offline.html')
+
+
 @app.route('/ping')
 def ping():
     return 'ok'

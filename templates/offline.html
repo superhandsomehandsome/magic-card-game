@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>秘术对决 · 离线版（无需网络）</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Lobby -->
+<div id="lobby" class="lobby">
+  <h1>秘术对决 · 离线版</h1>
+  <p class="subtitle">禁忌魔典 V5.0 · 无需网络 · 直面『零』</p>
+  <div class="lobby-box">
+    <label>你的名字</label>
+    <input id="playerName" placeholder="输入昵称..." maxlength="12" value="炼金术士">
+    <button class="btn btn-ai" id="btnStartAI" onclick="startOfflineGame()">开始对决 · 挑战「零」</button>
+    <div class="or">── ──</div>
+    <a href="/rules" target="_blank" class="btn btn-sm" style="display:inline-block;text-decoration:none;text-align:center;color:#D4AF37">查看规则</a>
+    <div style="margin-top:12px;font-size:.78rem;color:#6B5B3A;text-align:center;line-height:1.5">
+      ⚡ 离线模式：本页面所有逻辑 + AI 全部运行在浏览器中。<br>
+      可以保存到本地后双击打开（无需网络/服务器）。
+    </div>
+  </div>
+</div>
+
+<!-- Game Board -->
+<div id="gameBoard" class="board hidden">
+  <div class="player-zone opp" id="oppZone"></div>
+  <div class="arena" id="arenaZone"></div>
+  <div class="player-zone me" id="myZone"></div>
+</div>
+
+<!-- Game Over -->
+<div id="gameOver" class="game-over hidden"></div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- Optional BGM (works only when accessed via web; offline file:// usage may block audio) -->
+<audio id="bgm" loop preload="auto">
+  <source src="/static/bgm.mp3" type="audio/mpeg">
+</audio>
+<div id="bgmControl" class="bgm-control" onclick="toggleBGM()" style="display:none">🔇</div>
+
+<!-- Hidden waiting screen (not used offline but required by game.js) -->
+<div id="waitingScreen" class="hidden"></div>
+
+<script src="/static/offline-engine.js"></script>
+<script src="/static/game.js"></script>
+<script src="/static/offline-shim.js"></script>
+</body>
+</html>
