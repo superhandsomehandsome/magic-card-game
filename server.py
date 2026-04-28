@@ -1,5 +1,5 @@
 """Flask + Flask-SocketIO server for online 2-player game."""
-import os, random, string, time, threading
+import os, random, time, threading
 from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from game_room import GameRoom
@@ -27,7 +27,7 @@ def _get_lock(room_id):
 
 def _gen_room_id():
     while True:
-        rid = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        rid = str(random.randint(1000, 9999))
         if rid not in rooms:
             return rid
 
@@ -302,7 +302,7 @@ def on_create_ai_room(data):
 def on_join_room(data):
     from flask import request
     sid = request.sid
-    rid = data.get('room_id', '').upper().strip()
+    rid = data.get('room_id', '').strip()
     if rid not in rooms:
         emit('error', {'msg': f'房间 {rid} 不存在'})
         return
@@ -364,7 +364,7 @@ def on_leave_game(data):
 def on_reconnect_room(data):
     from flask import request
     sid = request.sid
-    rid = data.get('room_id', '').upper().strip()
+    rid = data.get('room_id', '').strip()
     pidx = data.get('player_idx')
     if rid not in rooms:
         emit('reconnect_fail', {'msg': '房间已不存在'})

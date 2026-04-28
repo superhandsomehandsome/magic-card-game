@@ -23,11 +23,15 @@
     <button class="btn btn-ai" id="btnAI" onclick="createAIRoom()">人机对战 — 挑战魔典守卫</button>
     <div class="or">── 或 ──</div>
     <label>输入房间号</label>
-    <input id="roomInput" placeholder="6 位房间号" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;text-align:center">
+    <input id="roomInput" placeholder="4 位房间号" maxlength="4" style="letter-spacing:6px;text-align:center;font-size:1.2rem" inputmode="numeric" pattern="[0-9]*">
     <button class="btn" id="btnJoin" onclick="joinRoom()">加入房间</button>
     <div class="or">── ──</div>
     <a href="/rules" target="_blank" class="btn btn-sm" style="display:inline-block;text-decoration:none;text-align:center;color:#D4AF37">查看规则</a>
     <a href="/offline" class="btn btn-sm" style="display:inline-block;text-decoration:none;text-align:center;color:#7DD3A0;margin-top:6px">⚡ 离线版（无需联网）</a>
+    <div style="margin-top:12px;font-size:.75rem;color:#6B5B3A;text-align:center;line-height:1.5">
+      局域网对战：两台设备连同一 WiFi/热点，主机运行 lan_play.bat 启动服务器，<br>
+      对方浏览器输入主机 IP:5000 → 创建房间 → 把 4 位房号告诉对方即可。
+    </div>
   </div>
 </div>
 
@@ -67,7 +71,7 @@
 </audio>
 <div id="bgmControl" class="bgm-control" onclick="toggleBGM()">🔇</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/static/socket.io.min.js"></script>
 <script src="/static/game.js"></script>
 </body>
 </html>

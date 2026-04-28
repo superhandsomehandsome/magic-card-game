@@ -87,8 +87,8 @@ function createAIRoom() {
 }
 function joinRoom() {
   const name = document.getElementById('playerName').value.trim() || '占星师';
-  const rid = document.getElementById('roomInput').value.trim().toUpperCase();
-  if (rid.length !== 6) { showToast('请输入 6 位房间号'); return; }
+  const rid = document.getElementById('roomInput').value.trim();
+  if (!/^\d{4}$/.test(rid)) { showToast('请输入 4 位房间号'); return; }
   socket.emit('join_room', {room_id: rid, name});
 }
 function sendAction(action, data={}) {
