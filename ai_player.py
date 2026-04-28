@@ -1,4 +1,4 @@
-"""AI decision engine — V3.0『零』."""
+"""AI decision engine — V5.0『零』· 黑市博弈版."""
 import random
 from collections import Counter
 from game_state import (
@@ -7,7 +7,14 @@ from game_state import (
     ANT_COLONY_MIN_F, AMBUSH_SECOND_COST, AMBUSH_MAX_PER_TURN,
     RED_KEYS, BLUE_KEYS, GREEN_KEYS,
     SACRIFICE_MAX_X, NO_AMBUSH_BEFORE_TURN,
+    MARKET_DECK_GUARD, LOCKDOWN_BREAK_COST,
 )
+
+
+def _bv(card):
+    if card == '瞬':
+        return 5
+    return CARD_CONFIG[card]['base_value']
 
 AI_IDX = 1
 RANK = {c: cfg['rank'] for c, cfg in CARD_CONFIG.items()}
@@ -149,6 +156,16 @@ def decide(room):
             return None
         return ('DRAW_ACK', {})
 
+    if phase == 'MARKET':
+        if cp != AI_IDX:
+            return None
+        return _decide_market(ai, opp, room)
+
+    if phase == 'LOCKDOWN_PLACE':
+        if cp != AI_IDX:
+            return None
+        return _decide_lockdown_place(ai, opp, room)
+
     if phase == 'AMBUSH_DECIDE':
         if cp != AI_IDX:
             return None
@@ -194,6 +211,136 @@ def decide(room):
         return ('COLLISION_FLIP', {})
 
     return None
+
+
+# ── Market (V5) ──────────────────────────────────────────
+def _decide_market(ai, opp, room):
+    """Buy a card from market if it completes a near combo or is high-tempo."""
+    market = room.market
+    if not market or room.market_buy_done[AI_IDX]:
+        return ('MARKET_SKIP', {})
+
+    hand = ai['hand']
+    ct = Counter(c for c in hand if c != '瞬')
+
+    # Determine needs
+    def slots(k): return room._slots_left(AI_IDX, k)
+    needs_priority = {}
+    if slots('arcane_sequence') > 0:
+        for c in 'ABCDE':
+            if c not in ct:
+                needs_priority[c] = max(needs_priority.get(c, 0), 100 - 5 * sum(1 for x in 'ABCDE' if x not in ct))
+    if slots('elemental_surge') > 0:
+        for c in 'BCDEF':
+            if c not in ct:
+                needs_priority[c] = max(needs_priority.get(c, 0), 80 - 5 * sum(1 for x in 'BCDEF' if x not in ct))
+    for c, n in ct.items():
+        if c == '瞬':
+            continue
+        if n == 4 and slots('dragon_breath') > 0:
+            needs_priority[c] = max(needs_priority.get(c, 0), 120)
+        if n == 2 and slots('triple_resonance') > 0:
+            needs_priority[c] = max(needs_priority.get(c, 0), 70)
+
+    # Dark market: blind buy with reduced enthusiasm
+    is_dark = room._is_dark_market_turn()
+
+    best_idx = -1
+    best_pri = -1
+    for i, mc in enumerate(market):
+        if is_dark:
+            # Blind: pretend it's an 'unknown' average value of 3
+            pri = 25 if random.random() < 0.4 else 0
+        else:
+            pri = needs_priority.get(mc, 0)
+            if pri == 0:
+                # Tempo bonuses: A/B for ambush leverage
+                if mc == 'A':
+                    pri = 50
+                elif mc == 'B':
+                    pri = 25
+                elif mc == '瞬':
+                    pri = 15
+        if pri > best_pri:
+            best_pri = pri
+            best_idx = i
+
+    if best_idx < 0 or best_pri < 20:
+        return ('MARKET_SKIP', {})
+
+    target = market[best_idx]
+    target_v = _bv(target)
+
+    # Build cheapest payment >= target_v from low-value cards
+    sorted_hand = sorted(hand, key=lambda c: (c == '瞬', _bv(c)))
+    payment = []
+    total = 0
+    for c in sorted_hand:
+        if total >= target_v:
+            break
+        # Don't pay with very valuable cards unless needed
+        cv = _card_value(c, hand, room, AI_IDX)
+        if cv >= 60 and total + _bv(c) > target_v + 4:
+            continue
+        payment.append(c)
+        total += _bv(c)
+    if total < target_v:
+        return ('MARKET_SKIP', {})
+
+    # Premium check: don't overpay drastically except for high priority
+    if total > target_v * 1.5 and best_pri < 70:
+        return ('MARKET_SKIP', {})
+
+    # Check we won't deplete hand to dangerous levels
+    if len(hand) - len(payment) + 1 < 3:
+        return ('MARKET_SKIP', {})
+
+    return ('MARKET_BUY', {'market_idx': best_idx, 'payment': payment})
+
+
+# ── Lockdown Placement (V5) ──────────────────────────────
+def _decide_lockdown_place(ai, opp, room):
+    """Place a lockdown card if leading or pressing advantage; else skip."""
+    hand = ai['hand']
+    if len(hand) <= 4:
+        return ('LOCKDOWN_SKIP', {})
+
+    my_total = _total_score(ai)
+    opp_total = _total_score(opp)
+    diff = my_total - opp_total
+
+    # Don't lockdown when far behind (waste of card)
+    if diff < -25:
+        return ('LOCKDOWN_SKIP', {})
+
+    # Predict opponent's likely combo
+    opp_hand = opp['hand']
+    opp_ct = Counter(c for c in opp_hand if c != '瞬')
+    opp_view_size = len(opp_hand)
+
+    # If opponent is close to a big combo, lock the rank that hurts most
+    # Heuristic: lock C/D (mid-rank, in many combos) or F (kills ant_colony)
+    candidates_priority = ['C', 'D', 'F', 'E', 'B', 'A']
+    ct = Counter(c for c in hand if c != '瞬')
+
+    # If opponent has many F → lock F to disrupt ant_colony
+    if opp_view_size >= 5 and opp_ct.get('F', 0) >= 3 and ct.get('F', 0) >= 1:
+        return ('LOCKDOWN_PLACE', {'card': 'F'})
+
+    # If we have several of a low-rank card, sac one
+    for c in candidates_priority:
+        if ct.get(c, 0) >= 2:
+            return ('LOCKDOWN_PLACE', {'card': c})
+
+    # Random gentle play 30% of the time
+    if random.random() < 0.3:
+        eligible = [c for c in hand if c != '瞬']
+        if eligible:
+            # Pick least valuable
+            rated = sorted(eligible, key=lambda c: _card_value(c, hand, room, AI_IDX))
+            return ('LOCKDOWN_PLACE', {'card': rated[0]})
+
+    return ('LOCKDOWN_SKIP', {})
 
 
 # ── Ambush ───────────────────────────────────────────────
@@ -319,7 +466,28 @@ def _decide_spell(ai, opp, room):
         best = _pick_best_combo(playable, hand, room, ai, opp)
         if best:
             key, name, cards, score = best
-            return ('SPELL_SCORE', {'cards': cards, 'combo_key': key})
+            # V5: Check if this combo is lockdown'd by opponent
+            opp_lock = opp.get('lockdown_card')
+            if opp_lock and opp_lock != '瞬' and opp_lock in cards:
+                # Decide break method
+                if ai['breaker_marks'] > 0:
+                    return ('SPELL_SCORE', {
+                        'cards': cards, 'combo_key': key, 'break_lockdown': 'marker'
+                    })
+                # Pay 15 only if combo is worth >= 25 and our score allows
+                if score >= 25:
+                    return ('SPELL_SCORE', {
+                        'cards': cards, 'combo_key': key, 'break_lockdown': 'pay'
+                    })
+                # Else skip this combo, try next
+                # Re-iterate to find one not blocked
+                for entry in playable:
+                    k2, n2, c2, s2 = entry
+                    if not opp_lock in c2:
+                        return ('SPELL_SCORE', {'cards': c2, 'combo_key': k2})
+                # No alternative — fall through to other actions
+            else:
+                return ('SPELL_SCORE', {'cards': cards, 'combo_key': key})
 
     if '瞬' in hand and room.instant_count < INSTANT_PER_TURN:
         instant_action = _decide_instant(hand, room, ai, opp)
@@ -550,6 +718,8 @@ def _decide_col_bet(ai, opp, room):
 # ── Delay ────────────────────────────────────────────────
 DELAY = {
     'DRAW_ACK': (0.15, 0.3),
+    'MARKET_BUY': (0.4, 0.7),
+    'MARKET_SKIP': (0.15, 0.3),
     'AMBUSH_DECIDE': (0.3, 0.5),
     'AMBUSH_PAY_COST': (0.25, 0.4),
     'AMBUSH_ATK_SELECT': (0.3, 0.5),
@@ -561,6 +731,8 @@ DELAY = {
     'SPELL_BREAKER': (0.3, 0.5),
     'SPELL_SKIP': (0.15, 0.3),
     'END_DISCARD': (0.2, 0.35),
+    'LOCKDOWN_PLACE': (0.35, 0.6),
+    'LOCKDOWN_SKIP': (0.15, 0.3),
     'COLLISION_PRE_DISCARD': (0.3, 0.5),
     'COLLISION_BET': (0.4, 0.7),
     'COLLISION_FLIP': (0.15, 0.3),

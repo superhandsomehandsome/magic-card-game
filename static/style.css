@@ -583,3 +583,97 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   .board.vs-zero .pbar-zero .pname{font-size:1rem;letter-spacing:5px}
   .board.vs-zero .pbar-zero .pscore{font-size:1.1rem}
 }
+
+/* ══════════════════════════════════════════
+   V5.0 additions · 黑市博弈版
+   ══════════════════════════════════════════ */
+
+/* Black Market panel — always visible above arena phase */
+.market-panel{
+  margin:6px auto;padding:6px 10px;border-radius:8px;
+  background:linear-gradient(180deg,rgba(212,175,55,.12) 0%,rgba(80,50,15,.20) 100%);
+  border:1px solid rgba(212,175,55,.45);
+  display:flex;align-items:center;justify-content:flex-start;
+  gap:14px;flex-wrap:wrap;max-width:560px;
+}
+.market-empty{opacity:.55}
+.market-title{
+  color:#D4AF37;font-weight:700;letter-spacing:1.5px;font-size:.95rem;
+  text-shadow:0 0 6px rgba(212,175,55,.4);min-width:70px;
+}
+.market-cards{display:flex;gap:6px;align-items:center;}
+.market-card{
+  border-color:rgba(212,175,55,.55)!important;
+  box-shadow:0 0 6px rgba(212,175,55,.25);
+}
+.market-dark{
+  background:linear-gradient(180deg,rgba(50,0,80,.22) 0%,rgba(0,0,0,.45) 100%);
+  border-color:rgba(150,80,200,.55);
+}
+.market-dark .market-title{
+  color:#C792EA;text-shadow:0 0 8px rgba(199,146,234,.5);
+}
+
+/* Market buy interaction grid */
+.market-buy-grid{
+  display:flex;gap:14px;justify-content:center;
+  margin:10px auto;flex-wrap:wrap;
+}
+.market-buy-slot{
+  cursor:pointer;padding:6px;border-radius:8px;
+  border:1px solid rgba(212,175,55,.3);
+  transition:transform .15s,box-shadow .15s;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.market-buy-slot:hover{
+  transform:translateY(-3px);
+  box-shadow:0 6px 14px rgba(212,175,55,.35);
+  border-color:#D4AF37;
+}
+.market-price{
+  font-size:.8rem;color:#D4AF37;font-weight:700;
+}
+.market-buy-confirm{
+  text-align:center;margin:8px auto;padding:10px;
+  background:rgba(212,175,55,.08);border:1px dashed rgba(212,175,55,.45);
+  border-radius:8px;max-width:400px;
+}
+
+/* Lockdown banners */
+.lockdown-banner{
+  margin:4px auto;padding:6px 12px;border-radius:6px;
+  text-align:center;font-size:.85rem;max-width:520px;
+}
+.lockdown-against{
+  background:rgba(155,0,0,.15);border:1px solid #9B0000;color:#FF8080;
+}
+.lockdown-mine{
+  background:rgba(0,100,50,.12);border:1px solid #2A8B5F;color:#7DD3A0;
+}
+.lockdown-debt{
+  background:rgba(200,100,0,.12);border:1px solid #C36B00;color:#FFB58A;
+  font-weight:700;
+}
+
+/* Lockdown break modal */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.modal-box{
+  background:linear-gradient(180deg,#2a1810 0%,#1a0c08 100%);
+  border:2px solid #9B0000;border-radius:12px;
+  padding:20px 24px;max-width:420px;
+  box-shadow:0 0 30px rgba(155,0,0,.5);
+}
+.modal-box h3{margin:0 0 10px 0}
+.modal-box p{margin:0 0 12px 0;font-size:.9rem;line-height:1.5}
+
+/* Mobile market */
+@media (max-width:640px){
+  .market-panel{font-size:.8rem;padding:4px 8px;gap:8px}
+  .market-cards{gap:4px}
+  .market-buy-slot{padding:4px}
+  .market-price{font-size:.7rem}
+  .lockdown-banner{font-size:.75rem;padding:4px 8px}
+}

@@ -1,27 +1,25 @@
-"""Server-side game room — V3.0.
+"""Server-side game room — V5.0 · 黑市博弈版.
 
-V3.0 mechanics:
-- Auto-draw at turn start (phase DRAW is a display-only phase; client sends DRAW_ACK)
-- No ambush before turn NO_AMBUSH_BEFORE_TURN (default 3)
-- Ambush: up to 2/turn. 2nd costs AMBUSH_SECOND_COST open-discards.
-- Defender picks FOLD or DEFEND. Fold → attacker steals 1 random, attack card discards.
-  Defend → winner draws 1 + steals 1. 瞬 absorbs attack card, forces tie (瞬 to discard).
-- A-win +8, A-loss +3 (only applies when beaten by non-F / beat non-F).
-- F > A: winner still gets breaker mark, A side gets NO +3 consolation.
-- A vs A tie: no bonus.
-- Red zone (dragon_breath / arcane_sequence) is SHARED — first to fill locks it globally.
-  Completing red → opponent random-discards RED_PUNISH_DISCARD cards.
-- Blue complete → draw BLUE_REWARD_DRAW.
-- Green complete → draw GREEN_REWARD_DRAW.
-- Ant colony now requires ANT_COLONY_MIN_F F cards minimum.
-- Scavenge and instant-echo removed.
-- New sacrifice: pick a scored slot (deletes score, seals), discard X, pick X from
-  last SACRIFICE_WINDOW turns' discard. Ends turn forcibly.
+V5.0 mechanics on top of V3.0:
+- BLACK MARKET: 3 face-up cards in center. Players may buy 1/turn by discarding
+  hand cards whose summed base-value ≥ target value. Refills from deck top
+  unless deck ≤ MARKET_DECK_GUARD.
+- DARK MARKET NIGHT: every MARKET_DARK_INTERVAL turns, market shown face-down (blind buy).
+- LOCKDOWN: at end of turn, player may place 1 card from hand to lockdown.
+  Opponent's next-turn spell phase: any combo containing that rank is BLOCKED.
+- BLOOD BREAK: opponent may pay LOCKDOWN_BREAK_COST (15) score to bypass lockdown.
+  If score < cost, the deficit becomes "magic debt" deducted from next combo score.
+- MARKER BREAK: opponent may consume 1 breaker mark to bypass lockdown for free.
+- FIRST_PLAYER_BONUS = -5 (P0 starts -5 to compensate race-first advantage).
+- P1 first turn = overdraft (only draws 1).
+- A WIN bonus increased to +10. Sacrifice window extended to 5 turns.
+- WIN_SCORE = 115. SCORE_MULT = 2.0 (tuned to give 50/50 race-vs-collision).
 """
 import random
 from game_state import (
     CARD_CONFIG, SCOREPAD_CONFIG, HAND_LIMIT, WIN_SCORE,
     SCORE_MULT, INITIAL_HAND_P0, INITIAL_HAND_P1, FIRST_PLAYER_BONUS,
+    P1_FIRST_TURN_OVERDRAFT,
     INSTANT_PER_TURN, SEAL_LIMIT, DECK_LOW_THRESHOLD,
     NO_AMBUSH_BEFORE_TURN, AMBUSH_MAX_PER_TURN, AMBUSH_SECOND_COST,
     AMBUSH_STEAL_COUNT, AMBUSH_A_WIN_BONUS, AMBUSH_A_LOSE_BONUS,
@@ -29,7 +27,16 @@ from game_state import (
     SACRIFICE_MAX_X, SACRIFICE_WINDOW,
     RED_KEYS, BLUE_KEYS, GREEN_KEYS,
     BREAKER_CURSE_PENALTY,
+    MARKET_SIZE, MARKET_DECK_GUARD, MARKET_DARK_INTERVAL,
+    LOCKDOWN_BREAK_COST, LOCKDOWN_DEBT_ENABLE, LOCKDOWN_BAN_INSTANT,
 )
+
+
+def _card_value(card):
+    """Black market value: 瞬 = 5, others = base_value."""
+    if card == '瞬':
+        return 5
+    return CARD_CONFIG[card]['base_value']
 from game_logic import create_deck, sort_hand, bv, draw_cards, compare_duel, hand_overflow
 from scoring import find_combos, apply_modifiers, detect_playable
 from collision import init as col_init, next_round as col_next, final_winner, compare as col_compare
@@ -117,6 +124,15 @@ class GameRoom:
         self.game_log = []
         self.turn_deadline = 0
 
+        # V5: Black market (3 face-up cards center board)
+        self.market = []
+        self.market_buy_done = [False, False]
+
+        # V5: Lockdown (each player can place 1 card affecting opponent's next turn)
+        # Active lockdowns affecting the OWNER's opponent. Cleared at start of opponent's NEXT turn.
+        # i.e. lockdown_card[i] is the lockdown placed by player i, restricting player (1-i)'s spell phase.
+        # Pending until opponent finishes their spell phase.
+
     @staticmethod
     def _make_player(name):
         return {
@@ -127,6 +143,8 @@ class GameRoom:
             'overdraft': False,
             'scorepad': _make_scorepad(),
             'curse_active': False,
+            'lockdown_card': None,  # card I placed last turn, restricting opponent
+            'lockdown_debt': 0,     # magic debt to pay off from future score
         }
 
     # ── Session management ─────────────────────────────
@@ -156,17 +174,42 @@ class GameRoom:
         p1_hand = draw_cards(self.deck, INITIAL_HAND_P1)
         self.players[0]['hand'] = sort_hand(p0_hand)
         self.players[1]['hand'] = sort_hand(p1_hand)
-        if FIRST_PLAYER_BONUS > 0:
+        # V5: P0 may start with negative score (race-first compensation)
+        if FIRST_PLAYER_BONUS != 0:
             self.players[0]['score'] = FIRST_PLAYER_BONUS
-            self._log('game_start', f'对决开始！先手获得 {FIRST_PLAYER_BONUS} 点先攻补偿。')
-        else:
-            self._log('game_start', f'对决开始！先手 {INITIAL_HAND_P0} 张，后手 {INITIAL_HAND_P1} 张。')
+        # V5: P1 first turn overdraft (only draws 1)
+        if P1_FIRST_TURN_OVERDRAFT:
+            self.players[1]['overdraft'] = True
+        # V5: init market with 3 face-up cards from deck top
+        self._init_market()
+
+        self._log('game_start',
+                  f'V5.0 对决开始！先手 {INITIAL_HAND_P0} 张（开局 {FIRST_PLAYER_BONUS} 分），后手 {INITIAL_HAND_P1} 张。')
         if NO_AMBUSH_BEFORE_TURN > 1:
             self._log('rule_notice',
                       f'前 {NO_AMBUSH_BEFORE_TURN - 1} 回合为【蓄力阶段】，不能发起突袭。')
+        self._log('rule_notice', f'胜利分 {WIN_SCORE}。黑市初始化完成（{len(self.market)} 张商品）。')
         self.current_player = 0
         self.turn_number = 1
         self._begin_turn()
+
+    def _init_market(self):
+        self.market = []
+        for _ in range(MARKET_SIZE):
+            if not self.deck:
+                break
+            self.market.append(self.deck.pop(0))
+
+    def _refill_market(self):
+        if len(self.deck) <= MARKET_DECK_GUARD:
+            return
+        while len(self.market) < MARKET_SIZE and len(self.deck) > MARKET_DECK_GUARD:
+            self.market.append(self.deck.pop(0))
+
+    def _is_dark_market_turn(self):
+        """Every MARKET_DARK_INTERVAL turn → market is dark (face-down blind buy)."""
+        return (self.turn_number > 0
+                and self.turn_number % MARKET_DARK_INTERVAL == 0)
 
     # ── Turn management ────────────────────────────────
     def _reset_turn(self):
@@ -187,8 +230,21 @@ class GameRoom:
         self.turn_log = []
 
     def _begin_turn(self):
-        """Called at start of every turn. Auto-draws, logs, sets phase to DRAW."""
+        """Called at start of every turn. Drops opponent's expired lockdown,
+        auto-draws, logs, sets phase to DRAW."""
         self._reset_turn()
+        # V5: Drop opponent's lockdown card (it expires at start of locked player's next turn)
+        opp_idx = 1 - self.current_player
+        opp = self.players[opp_idx]
+        if opp['lockdown_card'] is not None:
+            expired = opp['lockdown_card']
+            self._discard([expired])
+            opp['lockdown_card'] = None
+            self._log('lockdown_expire', f'{opp["name"]} 上回合的明牌封锁 [{expired}] 失效，进入弃牌堆')
+
+        # V5: Reset market purchase flag for current player
+        self.market_buy_done = [False, False]
+
         p = self._cur()
         n = 1 if p['overdraft'] else 2
         self.draw_was_overdraft = p['overdraft']
@@ -198,17 +254,24 @@ class GameRoom:
         p['hand'] = sort_hand(p['hand'])
         self.drawn_cards = list(drawn)
         if drawn:
-            self._log('draw', f'{p["name"]} 自动汲取 {len(drawn)} 张牌')
+            ovstr = '（透支）' if self.draw_was_overdraft else ''
+            self._log('draw', f'{p["name"]} 自动汲取 {len(drawn)} 张牌{ovstr}')
         else:
             self._log('draw', f'{p["name"]} 牌库已空，无法汲取')
 
         deck_left = len(self.deck)
         if 0 < deck_left <= DECK_LOW_THRESHOLD:
             self._log('deck_warning', f'⚠ 牌库仅剩 {deck_left} 张！终局将至！')
+        if self._is_dark_market_turn():
+            self._log('dark_market', f'⚫ 第 {self.turn_number} 回合 · 暗市夜！黑市商品翻面盲买！')
         self.phase = 'DRAW'
 
     def _after_draw(self):
-        """After DRAW_ACK or timeout, move to ambush or spell."""
+        """After DRAW_ACK or timeout, move to MARKET phase (always present)."""
+        self.phase = 'MARKET'
+
+    def _after_market(self):
+        """After MARKET buy/skip, move to ambush or spell depending on cold-start."""
         if self.turn_number < NO_AMBUSH_BEFORE_TURN:
             self._log('phase_skip', f'【蓄力期】本回合无法突袭')
             self.phase = 'SPELL'
@@ -335,6 +398,8 @@ class GameRoom:
 
         handler = {
             'DRAW_ACK': self._h_draw_ack,
+            'MARKET_BUY': self._h_market_buy,
+            'MARKET_SKIP': self._h_market_skip,
             'AMBUSH_DECIDE': self._h_ambush_decide,
             'AMBUSH_PAY_COST': self._h_ambush_pay_cost,
             'AMBUSH_ATK_SELECT': self._h_ambush_atk_select,
@@ -346,6 +411,8 @@ class GameRoom:
             'SPELL_SACRIFICE': self._h_spell_sacrifice,
             'SPELL_SKIP': self._h_spell_skip,
             'END_DISCARD': self._h_end_discard,
+            'LOCKDOWN_PLACE': self._h_lockdown_place,
+            'LOCKDOWN_SKIP': self._h_lockdown_skip,
             'COLLISION_PRE_DISCARD': self._h_col_pre_discard,
             'COLLISION_BET': self._h_col_bet,
             'COLLISION_FLIP': self._h_col_flip,
@@ -360,6 +427,59 @@ class GameRoom:
         if self.phase != 'DRAW' or pidx != self.current_player:
             return False, 'Wrong phase / not your turn'
         self._after_draw()
+        return True, None
+
+    # ── MARKET ────────────────────────────────────────
+    def _h_market_buy(self, pidx, data):
+        if self.phase != 'MARKET' or pidx != self.current_player:
+            return False, 'Wrong phase / not your turn'
+        if self.market_buy_done[pidx]:
+            return False, '本回合已购买'
+        if not self.market:
+            return False, '黑市无商品'
+
+        market_idx = data.get('market_idx')
+        payment = data.get('payment', [])
+        if not isinstance(market_idx, int) or not (0 <= market_idx < len(self.market)):
+            return False, '无效的商品索引'
+        if not payment:
+            return False, '必须支付至少 1 张牌'
+
+        target_card = self.market[market_idx]
+        target_value = _card_value(target_card)
+
+        p = self._cur()
+        tmp = list(p['hand'])
+        for c in payment:
+            if c not in tmp:
+                return False, f'手牌中没有 {c}'
+            tmp.remove(c)
+        pay_value = sum(_card_value(c) for c in payment)
+        if pay_value < target_value:
+            return False, f'支付不足：需 ≥ {target_value}，实付 {pay_value}'
+
+        # Execute: remove payment cards, discard them, add target to hand
+        for c in payment:
+            p['hand'].remove(c)
+        self._discard(payment)
+        self.market.pop(market_idx)
+        p['hand'].append(target_card)
+        p['hand'] = sort_hand(p['hand'])
+        self.market_buy_done[pidx] = True
+        self._refill_market()
+        dark = '（暗市夜）' if self._is_dark_market_turn() else ''
+        self._log('market_buy',
+                  f'{p["name"]} 黑市{dark}购入 [{target_card}]（支付 {len(payment)} 张 = {pay_value}/{target_value}）')
+
+        # No phase change — player can still choose to skip after buying or buy more (but buy_done blocks)
+        # Auto-advance after one buy.
+        self._after_market()
+        return True, None
+
+    def _h_market_skip(self, pidx, data):
+        if self.phase != 'MARKET' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        self._after_market()
         return True, None
 
     # ── AMBUSH ────────────────────────────────────────
@@ -597,6 +717,7 @@ class GameRoom:
             return False, 'Not your turn / wrong phase'
         cards = data.get('cards', [])
         combo_key = data.get('combo_key')
+        break_choice = data.get('break_lockdown')  # None / 'marker' / 'pay'
 
         combos = find_combos(cards)
         match = None
@@ -608,6 +729,7 @@ class GameRoom:
             return False, '无效组合'
 
         p = self._cur()
+        opp = self._opp()
         if self._slots_left(pidx, combo_key) <= 0:
             return False, '该组合已无可用格位'
 
@@ -616,6 +738,49 @@ class GameRoom:
             if c not in hand_copy:
                 return False, f'手牌中没有 {c}'
             hand_copy.remove(c)
+
+        # V5: Lockdown check - opp's lockdown_card restricts combos containing that rank
+        opp_lock = opp.get('lockdown_card')
+        is_locked = False
+        if opp_lock and opp_lock != '瞬' and opp_lock in cards:
+            is_locked = True
+
+        broken_by = None
+        if is_locked:
+            if break_choice == 'marker':
+                if p['breaker_marks'] <= 0:
+                    return False, '没有破法者标记可用'
+                p['breaker_marks'] -= 1
+                broken_by = 'marker'
+            elif break_choice == 'pay':
+                # Pay LOCKDOWN_BREAK_COST or accumulate debt
+                cur_total = _total_score(p)
+                if cur_total >= LOCKDOWN_BREAK_COST:
+                    p['score'] -= LOCKDOWN_BREAK_COST
+                    broken_by = 'pay_full'
+                elif LOCKDOWN_DEBT_ENABLE:
+                    pay_now = max(0, cur_total)
+                    p['score'] -= pay_now
+                    debt = LOCKDOWN_BREAK_COST - pay_now
+                    p['lockdown_debt'] += debt
+                    broken_by = 'pay_debt'
+                else:
+                    return False, f'分数不足 {LOCKDOWN_BREAK_COST}'
+            else:
+                return False, f'该组合包含被封锁等级 [{opp_lock}]，需选择破拆方式（marker/pay）'
+
+            # Lockdown is consumed
+            self._discard([opp_lock])
+            opp['lockdown_card'] = None
+            if broken_by == 'marker':
+                self._log('lockdown_break',
+                          f'{p["name"]} 消耗破法者标记解除封锁 [{opp_lock}]')
+            elif broken_by == 'pay_full':
+                self._log('lockdown_break',
+                          f'{p["name"]} 鲜血破拆！支付 {LOCKDOWN_BREAK_COST} 分击碎封锁 [{opp_lock}]')
+            else:
+                self._log('lockdown_break',
+                          f'{p["name"]} 鲜血破拆！背负 {p["lockdown_debt"]} 分魔力债击碎封锁 [{opp_lock}]')
 
         for c in cards:
             p['hand'].remove(c)
@@ -626,9 +791,17 @@ class GameRoom:
         if p['curse_active']:
             curse_msg = '（受诅咒 -10）'
             p['curse_active'] = False
-        p['scorepad'][combo_key]['scores'].append(final_score)
 
-        self._log('score', f'{p["name"]} 施展 {match["name"]} = {final_score} 分 {curse_msg}')
+        # V5: Pay off magic debt from this score
+        debt_msg = ''
+        if p['lockdown_debt'] > 0 and final_score > 0:
+            pay = min(p['lockdown_debt'], final_score)
+            final_score -= pay
+            p['lockdown_debt'] -= pay
+            debt_msg = f'（偿还魔力债 {pay}，剩余 {p["lockdown_debt"]}）'
+
+        p['scorepad'][combo_key]['scores'].append(final_score)
+        self._log('score', f'{p["name"]} 施展 {match["name"]} = {final_score} 分 {curse_msg}{debt_msg}')
 
         # V3: Red zone shared + punish / Blue+Green reward draw
         if combo_key in RED_KEYS:
@@ -805,13 +978,18 @@ class GameRoom:
         overflow = hand_overflow(p['hand'])
         if overflow > 0 and not force_end:
             self.phase = 'END_DISCARD'
-        else:
-            if overflow > 0 and force_end:
-                # Auto-trim on forced end (sacrifice)
-                dumped = self._enforce_hand_limit(self.current_player)
-                if dumped:
-                    self._log('end_discard', f'（强制结束）整理自动弃 {len(dumped)} 张')
+            return
+        if overflow > 0 and force_end:
+            # Auto-trim on forced end (sacrifice)
+            dumped = self._enforce_hand_limit(self.current_player)
+            if dumped:
+                self._log('end_discard', f'（强制结束）整理自动弃 {len(dumped)} 张')
+        # V5: Sacrifice skips lockdown placement (cost is already paid)
+        if force_end:
             self._finish_turn()
+            return
+        # Otherwise → LOCKDOWN_PLACE
+        self._enter_lockdown_place()
 
     def _h_end_discard(self, pidx, data):
         if self.phase != 'END_DISCARD' or pidx != self.current_player:
@@ -830,6 +1008,44 @@ class GameRoom:
             p['hand'].remove(c)
         self._discard(cards)
         self._log('end_discard', f'{p["name"]} 弃 {len(cards)} 张')
+        # V5: After end-discard, transition to LOCKDOWN_PLACE
+        self._enter_lockdown_place()
+        return True, None
+
+    # ── LOCKDOWN PLACE (V5) ───────────────────────────
+    def _enter_lockdown_place(self):
+        """Transition to LOCKDOWN_PLACE phase if player has hand cards. Else finish turn."""
+        if self._check_race_win():
+            return
+        p = self._cur()
+        # If hand empty or has only 瞬 (which can't be locked when LOCKDOWN_BAN_INSTANT), skip
+        eligible = [c for c in p['hand'] if not (LOCKDOWN_BAN_INSTANT and c == '瞬')]
+        if not eligible:
+            self._finish_turn()
+            return
+        self.phase = 'LOCKDOWN_PLACE'
+
+    def _h_lockdown_place(self, pidx, data):
+        if self.phase != 'LOCKDOWN_PLACE' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        card = data.get('card')
+        p = self._cur()
+        if card not in p['hand']:
+            return False, '手牌中没有该牌'
+        if LOCKDOWN_BAN_INSTANT and card == '瞬':
+            return False, '不能用「瞬」做封锁牌'
+        # Place
+        p['hand'].remove(card)
+        p['lockdown_card'] = card
+        self._log('lockdown_place',
+                  f'{p["name"]} 明牌封锁 [{card}] — 对手下回合任何含 {card} 的组合被禁止')
+        self._finish_turn()
+        return True, None
+
+    def _h_lockdown_skip(self, pidx, data):
+        if self.phase != 'LOCKDOWN_PLACE' or pidx != self.current_player:
+            return False, 'Wrong phase'
+        self._log('lockdown_skip', f'{self._cur()["name"]} 跳过封锁')
         self._finish_turn()
         return True, None
 
@@ -1129,6 +1345,16 @@ class GameRoom:
             'ambush_count': self.ambush_count_this_turn,
             'ambush_max': AMBUSH_MAX_PER_TURN,
             'ambush_second_cost': AMBUSH_SECOND_COST,
+            # V5: Market & Lockdown
+            'market': list(self.market),
+            'market_size': MARKET_SIZE,
+            'market_buy_done_me': self.market_buy_done[pidx] if 0 <= pidx < 2 else False,
+            'market_dark': self._is_dark_market_turn(),
+            'my_lockdown': p['lockdown_card'],
+            'opp_lockdown': opp['lockdown_card'],
+            'my_lockdown_debt': p['lockdown_debt'],
+            'opp_lockdown_debt': opp['lockdown_debt'],
+            'lockdown_break_cost': LOCKDOWN_BREAK_COST,
         }
 
         if self.phase == 'DRAW' and pidx == self.current_player:

@@ -1,4 +1,4 @@
-/* 秘术对决：禁忌魔典 V3.0 — Client */
+/* 秘术对决：禁忌魔典 V5.0 黑市博弈版 — Client */
 
 const TIER_CLASS = {A:'tier-A',B:'tier-B',C:'tier-C',D:'tier-D',E:'tier-E',F:'tier-F','瞬':'tier-inst'};
 const CARD_SYM  = {A:'♠',B:'♦',C:'♣',D:'◆',E:'○',F:'△','瞬':'⚡'};
@@ -28,8 +28,10 @@ let prevHandStr = '';
 let isAIRoom = false;
 
 /* UI sub-state */
-let uiMode = null;  // null | 'instant' | 'ambush_pay_cost' | 'sacrifice' | 'breaker'
+let uiMode = null;  // null | 'instant' | 'ambush_pay_cost' | 'sacrifice' | 'breaker' | 'market' | 'lockdown'
 let sacState = null;  // { step: 'slot'|'discard'|'recover', slot_key, score_idx, discard, recover }
+let marketState = null;  // { selectedMarketIdx }
+let pendingLockedCombo = null;  // { cards, combo_key, score, lock_card }
 
 /* Socket */
 function initSocket() {
@@ -112,6 +114,8 @@ function onState(s) {
   if (!prevState || prevState.phase !== s.phase) {
     uiMode = null;
     sacState = null;
+    marketState = null;
+    pendingLockedCombo = null;
   }
 
   hideOverlay();
@@ -284,6 +288,8 @@ function needsCardSelection() {
   if (p === 'AMBUSH_PAY_COST' && state.is_my_turn) return true;
   if (p === 'SPELL' && state.is_my_turn) return true;
   if (p === 'END_DISCARD' && state.is_my_turn) return true;
+  if (p === 'LOCKDOWN_PLACE' && state.is_my_turn) return true;
+  if (p === 'MARKET' && state.is_my_turn && uiMode === 'market') return true;
   if (p === 'COLLISION_PRE_DISCARD') return true;
   return false;
 }
@@ -298,7 +304,9 @@ function canSelectCard(card, idx) {
     if (uiMode === 'sacrifice' && sacState && sacState.step === 'discard') return true;
     return card !== '瞬';
   }
+  if (p === 'MARKET' && uiMode === 'market') return true;
   if (p === 'END_DISCARD') return true;
+  if (p === 'LOCKDOWN_PLACE') return card !== '瞬';
   if (p === 'COLLISION_PRE_DISCARD') return true;
   return false;
 }
@@ -382,14 +390,21 @@ function renderArena() {
   h += renderLog();
   h += renderAmbushOutcome();
 
+  // V5: Always render market panel above phase content
+  h += renderMarketPanel();
+  // V5: Show opponent's lockdown banner
+  h += renderLockdownBanner();
+
   switch (s.phase) {
     case 'DRAW': h += renderDraw(); break;
+    case 'MARKET': h += renderMarketPhase(); break;
     case 'AMBUSH_DECIDE': h += renderAmbushDecide(); break;
     case 'AMBUSH_PAY_COST': h += renderAmbushPayCost(); break;
     case 'AMBUSH_ATK_SELECT': h += renderAmbushAtkSelect(); break;
     case 'AMBUSH_DEF_CHOICE': h += renderAmbushDefChoice(); break;
     case 'SPELL': h += renderSpell(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
+    case 'LOCKDOWN_PLACE': h += renderLockdownPlace(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
     case 'COLLISION_BET': h += renderColBet(); break;
     case 'COLLISION_FLIP': h += renderColFlip(); break;
@@ -401,12 +416,14 @@ function renderArena() {
 function phaseLabel(p) {
   const m = {
     DRAW:'壹 · 汲取',
+    MARKET:'壹 · 黑市',
     AMBUSH_DECIDE:'贰 · 突袭',
     AMBUSH_PAY_COST:'贰 · 明弃代价',
     AMBUSH_ATK_SELECT:'贰 · 暗扣出牌',
     AMBUSH_DEF_CHOICE:'贰 · 迎战 / 怯战',
     SPELL:'叁 · 咏唱',
     END_DISCARD:'肆 · 弃牌',
+    LOCKDOWN_PLACE:'肆 · 明牌封锁',
     COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌',
     COLLISION_BET:'终局 · 对撞赌注',
     COLLISION_FLIP:'终局 · 对撞翻牌',
@@ -435,6 +452,136 @@ function renderAmbushOutcome() {
   else if (o.outcome === 'tie') label = `【上次突袭】${o.atk} = ${o.def} — 平局`;
   else if (o.outcome === 'auto_win') label = `【上次突袭】${o.atk} 自动胜利（对手无牌）`;
   return `<div class="ambush-outcome">${label}</div>`;
+}
+
+/* ── V5: Market panel (always visible above phase content) ── */
+function renderMarketPanel() {
+  const s = state;
+  const market = s.market || [];
+  if (!market.length) {
+    return `<div class="market-panel market-empty"><span class="market-title">⚖ 黑市</span><span class="text-muted">（空）</span></div>`;
+  }
+  const dark = s.market_dark;
+  let h = `<div class="market-panel${dark ? ' market-dark' : ''}">`;
+  h += `<div class="market-title">⚖ 黑市${dark ? ' · 暗市夜' : ''}</div>`;
+  h += `<div class="market-cards">`;
+  for (let i = 0; i < market.length; i++) {
+    const c = market[i];
+    if (dark) {
+      h += `<div class="cd cd-sm cd-back market-card"><span class="lt">？</span></div>`;
+    } else {
+      h += cardHTML(c, {small:true, extraClass:'market-card'});
+    }
+  }
+  h += `</div></div>`;
+  return h;
+}
+
+function renderLockdownBanner() {
+  const s = state;
+  let h = '';
+  if (s.opp_lockdown) {
+    h += `<div class="lockdown-banner lockdown-against">🔒 对手封锁了 [${s.opp_lockdown}] — 含此等级的组合本回合被禁`;
+    if (s.opp_lockdown_debt > 0) h += `（对手魔力债 ${s.opp_lockdown_debt}）`;
+    h += `</div>`;
+  }
+  if (s.my_lockdown) {
+    h += `<div class="lockdown-banner lockdown-mine">🔒 我已布置封锁牌 [${s.my_lockdown}]（对手下回合受限）</div>`;
+  }
+  if (s.my_lockdown_debt > 0) {
+    h += `<div class="lockdown-banner lockdown-debt">⚠ 我背负魔力债 ${s.my_lockdown_debt} — 下次计分优先扣除</div>`;
+  }
+  return h;
+}
+
+/* ── V5: Market Phase ──────────────────────────────── */
+function renderMarketPhase() {
+  const s = state;
+  if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在交易黑市...</div>';
+  if (s.market_buy_done_me) {
+    // already bought, just show skip
+    return `<div class="text-center"><p class="text-muted">本回合已购买 · 进入下一阶段</p>
+      <div class="action-bar"><button class="btn btn-success" onclick="sendAction('MARKET_SKIP')">继续</button></div></div>`;
+  }
+  if (uiMode === 'market') return renderMarketBuy();
+
+  let h = '<div class="text-center">';
+  h += `<p style="color:#D4AF37">壹 · 黑市${s.market_dark ? '（暗市夜 · 盲买）' : ''}</p>`;
+  h += `<p class="text-muted" style="font-size:.85rem">点击商品开始购买，或跳过进入下一阶段。</p>`;
+  if ((s.market || []).length === 0) {
+    h += `<p class="text-muted">黑市无商品 · </p>`;
+    h += `<div class="action-bar"><button class="btn btn-success" onclick="sendAction('MARKET_SKIP')">跳过</button></div>`;
+    return h + '</div>';
+  }
+  h += '<div class="market-buy-grid">';
+  for (let i = 0; i < s.market.length; i++) {
+    const c = s.market[i];
+    const v = (c === '瞬' ? 5 : CARD_BV[c]);
+    if (s.market_dark) {
+      h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})"><div class="cd cd-back"><span class="lt">？</span></div><div class="market-price">价 ?</div></div>`;
+    } else {
+      h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})">${cardHTML(c)}<div class="market-price">价 ${v}</div></div>`;
+    }
+  }
+  h += '</div>';
+  h += '<div class="action-bar"><button class="btn" onclick="sendAction(\'MARKET_SKIP\')">跳过黑市</button></div>';
+  return h + '</div>';
+}
+
+function enterMarketBuy(idx) {
+  uiMode = 'market';
+  marketState = {selectedMarketIdx: idx};
+  selectedCards = [];
+  renderArena();
+  renderMyZone(false);
+}
+
+function renderMarketBuy() {
+  const s = state;
+  const idx = marketState.selectedMarketIdx;
+  const target = s.market[idx];
+  const targetV = (target === '瞬' ? 5 : CARD_BV[target]);
+  const sumVal = selectedCards.reduce((acc, i) => {
+    const c = s.my_hand[i];
+    return acc + (c === '瞬' ? 5 : CARD_BV[c]);
+  }, 0);
+  let h = `<div class="market-buy-confirm">`;
+  if (s.market_dark) {
+    h += `<p style="color:#D4AF37">暗市夜盲买 · 选择支付牌（按估值挑选）</p>`;
+    h += `<p class="text-muted">已付 ${sumVal} 总值（暗市无显价）</p>`;
+  } else {
+    h += `<p style="color:#D4AF37">购买 ${target} · 需 ≥ ${targetV} 总基础值</p>`;
+    h += `<p class="text-muted">已选 ${selectedCards.length} 张 · 总值 ${sumVal}/${targetV}</p>`;
+  }
+  h += '<div class="action-bar">';
+  if (s.market_dark ? selectedCards.length > 0 : sumVal >= targetV) {
+    const payment = selectedCards.map(i => s.my_hand[i]);
+    h += `<button class="btn btn-success" onclick="confirmMarketBuy(${JSON.stringify(payment).replace(/"/g,'&quot;')})">确认购买</button>`;
+  }
+  h += `<button class="btn" onclick="exitUIMode()">取消</button>`;
+  return h + '</div></div>';
+}
+
+function confirmMarketBuy(payment) {
+  const idx = marketState.selectedMarketIdx;
+  uiMode = null; marketState = null; selectedCards = [];
+  sendAction('MARKET_BUY', {market_idx: idx, payment: payment});
+}
+
+/* ── V5: Lockdown Place ────────────────────────────── */
+function renderLockdownPlace() {
+  const s = state;
+  if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在布置封锁...</div>';
+  let h = '<div class="text-center">';
+  h += `<p style="color:#9B0000;font-size:1.05rem">肆 · 明牌封锁（可选）</p>`;
+  h += `<p class="text-muted" style="font-size:.85rem">选 1 张牌摆在自己场上 → 对手下回合任何含该等级的组合都被禁。<br>对手可花 ${s.lockdown_break_cost} 分（鲜血破拆）或 1 枚破法者标记解除。下回合开始时该牌入弃牌堆。</p>`;
+  h += '<div class="action-bar">';
+  if (selectedCards.length === 1) {
+    const card = state.my_hand[selectedCards[0]];
+    h += `<button class="btn btn-danger" onclick="sendAction('LOCKDOWN_PLACE',{card:'${card}'})">封锁 [${card}]</button>`;
+  }
+  h += `<button class="btn" onclick="sendAction('LOCKDOWN_SKIP')">跳过封锁</button>`;
+  return h + '</div></div>';
 }
 
 /* ── Phase: Draw (auto-animation) ──────────────────── */
@@ -735,7 +882,51 @@ function tryScore() {
     if (detected) match = detected;
   }
   if (!match) { showToast('所选牌无法构成有效组合'); return; }
+
+  // V5: Check lockdown
+  const lock = state.opp_lockdown;
+  if (lock && lock !== '瞬' && cards.includes(lock)) {
+    pendingLockedCombo = {cards, combo_key: match.key, score: match.score || 0, lock_card: lock};
+    showLockdownBreakDialog();
+    return;
+  }
   sendAction('SPELL_SCORE', {cards, combo_key: match.key});
+}
+
+function showLockdownBreakDialog() {
+  const c = pendingLockedCombo;
+  const cost = state.lockdown_break_cost;
+  const myMarks = state.my_breaker || 0;
+  let h = `<div id="lockdownDialog" class="modal-backdrop" onclick="closeLockdownDialog()">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3 style="color:#9B0000">⚠ 组合被封锁</h3>
+      <p>所选 [${c.cards.join(',')}] 含被封锁等级 [${c.lock_card}]<br>
+      请选择破拆方式：</p>
+      <div class="action-bar" style="flex-direction:column;gap:.4rem">`;
+  if (myMarks > 0) {
+    h += `<button class="btn btn-success" onclick="doBreakLockdown('marker')">使用 1 枚破法者标记（免费解除）</button>`;
+  }
+  h += `<button class="btn btn-danger" onclick="doBreakLockdown('pay')">鲜血破拆 — 支付 ${cost} 分${myBreakDebtPreview()}</button>`;
+  h += `<button class="btn" onclick="closeLockdownDialog()">取消（不计分）</button>`;
+  h += `</div></div></div>`;
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+function myBreakDebtPreview() {
+  const cur = state.my_score;
+  const cost = state.lockdown_break_cost;
+  if (cur >= cost) return '';
+  const debt = cost - Math.max(0, cur);
+  return `<br><small style="color:#FFB58A">分数不足 → 背负 ${debt} 魔力债</small>`;
+}
+function closeLockdownDialog() {
+  pendingLockedCombo = null;
+  const el = document.getElementById('lockdownDialog');
+  if (el) el.remove();
+}
+function doBreakLockdown(method) {
+  const c = pendingLockedCombo;
+  closeLockdownDialog();
+  sendAction('SPELL_SCORE', {cards: c.cards, combo_key: c.combo_key, break_lockdown: method});
 }
 
 function clientFindCombo(cards) {

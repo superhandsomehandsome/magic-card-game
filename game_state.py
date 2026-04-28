@@ -1,4 +1,4 @@
-"""Game state management for 秘术对决：禁忌魔典 (V3.0)."""
+"""Game state management for 秘术对决：禁忌魔典 (V5.0 · 黑市博弈版)."""
 from enum import Enum, auto
 
 
@@ -33,23 +33,23 @@ CARD_CONFIG = {
 CARD_ORDER = ['A', 'B', 'C', 'D', 'E', 'F', '瞬']
 
 # ══════════════════════════════════════════════════════════════════════
-# V3.0 BALANCE PARAMETERS (verified with 20000-game Monte Carlo:
-#   P0 49.84% / P1 50.17% — diff 0.33%
-#   Race 48.9% / Collision 51.1%)
+# V5.0 BALANCE PARAMETERS · 黑市博弈版
+# Verified with Monte Carlo simulation (see balance_sim_v5.py)
 # ══════════════════════════════════════════════════════════════════════
 
-WIN_SCORE = 145
+WIN_SCORE = 115
 HAND_LIMIT = 8
 INITIAL_HAND_P0 = 5
 INITIAL_HAND_P1 = 6
-FIRST_PLAYER_BONUS = 0
+FIRST_PLAYER_BONUS = -5
+P1_FIRST_TURN_OVERDRAFT = True
 NO_AMBUSH_BEFORE_TURN = 3
-SCORE_MULT = 1.2
+SCORE_MULT = 2.0
 
 AMBUSH_MAX_PER_TURN = 2
-AMBUSH_SECOND_COST = 2
+AMBUSH_SECOND_COST = 1
 AMBUSH_STEAL_COUNT = 1
-AMBUSH_A_WIN_BONUS = 8
+AMBUSH_A_WIN_BONUS = 10
 AMBUSH_A_LOSE_BONUS = 3
 
 ANT_COLONY_MIN_F = 3
@@ -58,7 +58,7 @@ BLUE_REWARD_DRAW = 1
 GREEN_REWARD_DRAW = 1
 
 SACRIFICE_MAX_X = 3
-SACRIFICE_WINDOW = 3
+SACRIFICE_WINDOW = 5
 
 INSTANT_PER_TURN = 1
 SEAL_LIMIT = 3
@@ -68,6 +68,24 @@ DECK_LOW_THRESHOLD = 10
 
 SCAVENGE_LIMIT = 0
 SACRIFICE_DRAW = 0
+
+MARKET_SIZE = 3
+MARKET_BUY_PER_TURN = 1
+MARKET_DECK_GUARD = 8
+MARKET_DARK_INTERVAL = 5
+
+LOCKDOWN_BREAK_COST = 15
+LOCKDOWN_DEBT_ENABLE = True
+LOCKDOWN_BAN_INSTANT = True
+
+FIVE_KIND_BASE = 40
+FIVE_KIND_PER_BV = 5
+ARCANE_SEQUENCE_BASE = 45
+ELEMENTAL_SURGE_BASE = 30
+CHAOS_ALCHEMY_BASE = 20
+TRIPLE_RESONANCE_BASE = 10
+TRIPLE_RESONANCE_PER_BV = 3
+ANT_COLONY_PER_F = 5
 
 SCOREPAD_CONFIG = [
     {'key': 'dragon_breath',    'name': '龙之吐息 (五条)', 'max_slots': 1, 'tier': 1},
@@ -122,6 +140,9 @@ def _make_player(name):
         'overdraft': False,
         'scorepad': _make_scorepad(),
         'curse_active': False,
+        'lockdown_card': None,
+        'lockdown_debt': 0,
+        'market_purchased': False,
     }
 
 

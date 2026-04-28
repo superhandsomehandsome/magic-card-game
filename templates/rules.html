@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>秘术对决 — 快速入门 V3.0</title>
+<title>秘术对决 — 快速入门 V5.0 黑市博弈版</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#1a120b;color:#d4c5a0;font-family:'Georgia',serif;line-height:1.7;padding:20px}
@@ -42,10 +42,10 @@ a{color:#D4AF37}
 <div class="wrap">
 
 <h1>秘术对决：禁忌魔典</h1>
-<p class="subtitle">V3.0 · 快速入门</p>
+<p class="subtitle">V5.0 · 黑市博弈版 · 快速入门</p>
 
 <h2>一句话概括</h2>
-<p>两位巫师用 A～F 六种魔力牌互相 <strong>突袭 · 拼组合 · 心理博弈</strong>，率先 <span class="gold">145 分</span> 或在牌库耗尽后的【魔力对撞】中胜出获胜。</p>
+<p>两位巫师用 A～F 六种魔力牌互相 <strong>突袭 · 拼组合 · 黑市交易 · 明牌封锁</strong>，率先 <span class="gold">115 分</span> 或在牌库耗尽后的【魔力对撞】中胜出获胜。</p>
 
 <h2>卡牌一览</h2>
 <div class="card-row">
@@ -64,11 +64,39 @@ a{color:#D4AF37}
 <table>
   <tr><th>阶段</th><th>内容</th></tr>
   <tr><td>① 汲取</td><td><span class="gold">自动</span>抽 2 张（透支时抽 1）</td></tr>
-  <tr><td>② 突袭</td><td>最多 2 次；第 2 次需明弃 2 张</td></tr>
+  <tr><td>① 黑市</td><td><span class="gold">每回合限购 1 次</span>：弃总值 ≥ 目标价的牌买商品</td></tr>
+  <tr><td>② 突袭</td><td>最多 2 次；第 2 次需明弃 1 张</td></tr>
   <tr><td>③ 咏唱</td><td>组合计分 · 使用瞬 · 破法者 · 献祭</td></tr>
   <tr><td>④ 整理</td><td>手牌超 8 弃牌</td></tr>
+  <tr><td>④ 封锁</td><td><span class="red">可选</span>：放 1 张牌锁住对手下回合的某等级组合</td></tr>
 </table>
-<div class="tip">⚠ 前 <strong>2 个回合是蓄力期</strong>：双方都不能发起突袭。</div>
+<div class="tip">⚠ 前 <strong>2 个回合是蓄力期</strong>：双方都不能发起突袭。<br>⚫ 每 <strong>5 回合</strong>会触发一次 <strong>暗市夜</strong>：黑市商品翻面盲买。</div>
+
+<h2>⚖ 黑市（NEW）</h2>
+<p>桌面中央始终保持 3 张明牌商品。每回合可花手牌买 1 张：</p>
+<ul style="margin:6px 0 6px 20px">
+  <li>支付的手牌总<strong>基础值 ≥ 商品价</strong>（例：弃 D(3)+F(1)=4 买 C(4)）。</li>
+  <li>支付牌进弃牌堆，目标牌入手；黑市立即从牌库顶补 1 张。</li>
+  <li><strong>无找零</strong>：弃 5 总值买 4 价的 C，多出来的 1 浪费。</li>
+  <li>「瞬」黑市价 = 5（购入或支付时均按此计）。</li>
+  <li>牌库 ≤ 8 张时停止补市，最后几张是清仓。</li>
+  <li><strong>暗市夜</strong>：每 5 回合 1 次，3 张全翻面，盲买（看不到内容）。</li>
+</ul>
+
+<h2>🔒 明牌封锁（NEW）</h2>
+<p>整理阶段（弃牌后）可选择：从手牌选 1 张<strong>非瞬</strong>牌摆在自己场上。</p>
+<ul style="margin:6px 0 6px 20px">
+  <li>对手下回合的咏唱阶段：<strong>任何包含该等级</strong>的组合都被禁止（含红区！）。</li>
+  <li>对手下一回合开始时该牌进入弃牌堆（即生效一回合）。</li>
+</ul>
+<h3>鲜血破拆（解锁机制）</h3>
+<table>
+  <tr><th>方式</th><th>代价</th><th>适用</th></tr>
+  <tr><td><span class="gold">破法者标记</span></td><td>消耗 1 枚</td><td>有标记时优先</td></tr>
+  <tr><td><span class="red">鲜血破拆</span></td><td>支付 <strong>15 分</strong></td><td>分数充裕时</td></tr>
+  <tr><td><span class="red">赊账破拆</span></td><td>当前分清零 + 缺额记入「魔力债」</td><td>分数 &lt; 15 时仍可破</td></tr>
+</table>
+<div class="note">🔴 魔力债下次计分时优先扣除（先还债再得分）。</div>
 
 <h2>突袭（核心交互）</h2>
 <p>攻击方暗扣一张非瞬牌 → 防守方选择：</p>
@@ -81,7 +109,7 @@ a{color:#D4AF37}
 <h3>特殊加分</h3>
 <table>
   <tr><th>情形</th><th>奖励</th></tr>
-  <tr><td>A 胜非 F</td><td>胜者 +8 分（圣物威压）</td></tr>
+  <tr><td>A 胜非 F</td><td>胜者 <strong>+10 分</strong>（圣物威压）</td></tr>
   <tr><td>非 F 胜 A</td><td>败者 +3 分（圣物陨落·安慰）</td></tr>
   <tr><td>F 弑神 A</td><td>胜者获 <strong>破法者标记 ×1</strong>，A 方无安慰</td></tr>
   <tr><td>A vs A</td><td>平局，无加分</td></tr>
@@ -98,8 +126,8 @@ a{color:#D4AF37}
 
 <h2>特殊能力</h2>
 <p><span class="gold">瞬 · 换牌</span>：弃 1～3 张（连同瞬），从牌库抽等量。下回合透支只抽 1。每回合 1 次。</p>
-<p><span class="gold">破法者</span>：用标记可封印对手 1 个格位，或施加诅咒（下次计分 −10）。</p>
-<p><span class="red">黑暗献祭</span>：选一个<strong>已计分</strong>的格子 → 扣掉其分数并永久封印 → 从手牌弃 X 张 → 从<strong>近 3 回合弃牌堆</strong>精准挑 X 张加入手牌 → <strong>强制结束本回合</strong>。</p>
+<p><span class="gold">破法者</span>：用标记可封印对手 1 个格位、施加诅咒（下次计分 −10），或<strong>免费解除对手的明牌封锁</strong>（V5 新用途）。</p>
+<p><span class="red">黑暗献祭</span>：选一个<strong>已计分</strong>的格子 → 扣掉其分数并永久封印 → 从手牌弃 X 张 → 从<strong>近 5 回合弃牌堆</strong>精准挑 X 张加入手牌 → <strong>强制结束本回合（不进入封锁）</strong>。</p>
 
 <h2>终局 · 魔力对撞</h2>
 <p>牌库耗尽后进入对撞：</p>
@@ -113,15 +141,19 @@ a{color:#D4AF37}
 <h2>数值概览</h2>
 <table>
   <tr><th>参数</th><th>值</th></tr>
-  <tr><td>胜利分</td><td>145</td></tr>
-  <tr><td>开局手牌</td><td>先手 5 张 / 后手 6 张</td></tr>
+  <tr><td>胜利分</td><td>115（×SCORE_MULT 2.0）</td></tr>
+  <tr><td>开局手牌</td><td>先手 5 张（−5 起始分）/ 后手 6 张（首回合透支抽 1）</td></tr>
   <tr><td>手牌上限</td><td>8</td></tr>
   <tr><td>蓄力期</td><td>前 2 回合</td></tr>
-  <tr><td>突袭次数/回合</td><td>最多 2（第 2 次代价 2 张）</td></tr>
+  <tr><td>突袭次数/回合</td><td>最多 2（第 2 次代价 1 张）</td></tr>
+  <tr><td>A 突袭赢非 F</td><td>+10 分</td></tr>
   <tr><td>红区共享</td><td>龙之吐息 / 奥术序列各全局 1 格</td></tr>
   <tr><td>蚁群最少</td><td>3 张 F</td></tr>
+  <tr><td>黑市</td><td>3 张商品 · 每回合限购 1 · 牌库 ≤ 8 时停补 · 每 5 回合暗市夜</td></tr>
+  <tr><td>明牌封锁</td><td>整理后可选 · 鲜血破拆 15 分（可赊账）· 标记可免费解</td></tr>
+  <tr><td>献祭弃牌堆窗口</td><td>近 5 回合</td></tr>
 </table>
-<div class="tip">20 000 局模拟验证：先手 49.84% / 后手 50.17%（差距 0.33%），竞速/对撞胜利近 50/50。</div>
+<div class="tip">5000 局模拟验证：先手 50.04% / 后手 49.96%（差距 0.08%），竞速胜 49.5% / 对撞胜 50.5%。</div>
 
 <div class="back"><a href="/">← 返回大厅</a></div>
 

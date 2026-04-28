@@ -92,6 +92,10 @@ def _on_turn_timeout(room_id):
                 room.handle_action(sid_d, 'AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
             else:
                 room.handle_action(sid_d, 'AMBUSH_DEFEND', {'choice': 'fold'})
+        elif phase == 'MARKET':
+            room.handle_action(_sid_for(room, cp), 'MARKET_SKIP', {})
+        elif phase == 'LOCKDOWN_PLACE':
+            room.handle_action(_sid_for(room, cp), 'LOCKDOWN_SKIP', {})
         elif phase == 'SPELL':
             room.handle_action(_sid_for(room, cp), 'SPELL_SKIP', {})
         elif phase == 'END_DISCARD':
