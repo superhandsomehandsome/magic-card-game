@@ -670,7 +670,8 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   text-align:center;font-size:.85rem;max-width:520px;
 }
 .lockdown-against{
-  background:rgba(155,0,0,.15);border:1px solid #9B0000;color:#FF8080;
+  background:rgba(155,0,0,.2);border:1.5px solid #FF4444;color:#FF9090;
+  font-size:.9rem;
 }
 .lockdown-mine{
   background:rgba(0,100,50,.12);border:1px solid #2A8B5F;color:#7DD3A0;
@@ -679,6 +680,36 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
   background:rgba(200,100,0,.12);border:1px solid #C36B00;color:#FFB58A;
   font-weight:700;
 }
+
+/* 封锁弹窗（对手放封锁时） */
+#lockdown-alert{
+  position:fixed;top:50%;left:50%;
+  transform:translate(-50%,-50%) scale(1);
+  z-index:9999;pointer-events:none;
+  transition:opacity .35s ease, transform .35s ease;
+}
+#lockdown-alert.lockdown-alert-hidden{
+  opacity:0;transform:translate(-50%,-50%) scale(.85);
+}
+.lockdown-alert-inner{
+  background:linear-gradient(135deg,#3a0000,#1a0000);
+  border:2px solid #FF4444;border-radius:12px;
+  padding:20px 32px;text-align:center;
+  box-shadow:0 0 40px rgba(255,60,60,.5);
+  animation:lockdown-pulse 0.5s ease-out;
+}
+@keyframes lockdown-pulse{
+  0%{box-shadow:0 0 10px rgba(255,60,60,.3);}
+  50%{box-shadow:0 0 60px rgba(255,60,60,.8);}
+  100%{box-shadow:0 0 40px rgba(255,60,60,.5);}
+}
+.lockdown-alert-icon{font-size:2.5rem;line-height:1;}
+.lockdown-alert-title{
+  color:#FF5555;font-size:1.3rem;font-weight:700;
+  margin:6px 0 4px;letter-spacing:.08em;
+}
+.lockdown-alert-body{color:#FFB0B0;font-size:1.05rem;margin:2px 0;}
+.lockdown-alert-hint{color:#FF8888;font-size:.85rem;margin-top:6px;opacity:.85;}
 
 /* Lockdown break / Prophet / Pass-device modal */
 .modal-backdrop, .modal-overlay{

@@ -17,10 +17,38 @@ const TIER_CLS = {1:'t1',2:'t2',3:'t3'};
 const RED_KEYS = new Set(['dragon_breath','arcane_sequence']);
 
 /* ══════════════════════════════════════════════
-   音效系统 (Web Audio API 合成，无需音效文件)
+   音效系统
+   优先加载 static/sfx/ 下的真实音效文件，
+   文件不存在时自动回退到 Web Audio API 合成音。
+
+   ★ 自定义音效：把你的 .mp3/.ogg 文件放到
+     static/sfx/ 文件夹，按下方列表命名即可。
+   ══════════════════════════════════════════════
+   文件名对照表：
+     draw.mp3        — 摸牌
+     select.mp3      — 选中手牌
+     deselect.mp3    — 取消选中
+     score.mp3       — 普通得分
+     score_big.mp3   — 高级组合得分（红区/五条/大顺）
+     buy.mp3         — 黑市购买
+     dark_market.mp3 — 暗市夜免费拿牌
+     ambush.mp3      — 突袭发动
+     ambush_win.mp3  — 突袭胜利
+     ambush_lose.mp3 — 突袭失败
+     lockdown.mp3    — 封锁放置
+     lockdown_break.mp3 — 封锁破拆
+     col_flip.mp3    — 对撞翻牌
+     col_win.mp3     — 对撞胜一局
+     col_tie.mp3     — 对撞平局/过载
+     col_start.mp3   — 对撞开始
+     col_arrange.mp3 — 进入排阵阶段
+     victory.mp3     — 游戏胜利
+     defeat.mp3      — 游戏失败
+     click.mp3       — 通用按钮点击
    ══════════════════════════════════════════════ */
 let _sfxCtx = null;
 let sfxEnabled = true;
+const _sfxCache = {};
 
 function _getAudioCtx() {
   if (!_sfxCtx) {
@@ -28,6 +56,20 @@ function _getAudioCtx() {
   }
   if (_sfxCtx && _sfxCtx.state === 'suspended') _sfxCtx.resume().catch(()=>{});
   return _sfxCtx;
+}
+
+// 尝试播放真实音效文件，不存在则回退合成音
+function _playFile(name, volume = 1.0) {
+  if (!sfxEnabled) return false;
+  const url = `/static/sfx/${name}.mp3`;
+  if (_sfxCache[name] === false) return false; // 已知不存在
+  try {
+    const audio = new Audio(url);
+    audio.volume = Math.min(1, volume);
+    const p = audio.play();
+    if (p) p.catch(() => { _sfxCache[name] = false; });
+    return true;
+  } catch(e) { _sfxCache[name] = false; return false; }
 }
 
 function _playTone(freq, type, duration, volume, opts = {}) {
@@ -72,124 +114,111 @@ function _playNoise(duration, volume) {
 }
 
 const SFX = {
-  // 摸牌：轻柔纸张感
-  draw() {
-    _playNoise(0.06, 0.15);
-    _playTone(900, 'sine', 0.08, 0.06);
-  },
-  // 选中一张牌：清脆点击
-  select() {
-    _playTone(1200, 'sine', 0.07, 0.12);
-    _playTone(1600, 'sine', 0.05, 0.06);
-  },
-  // 取消选中
-  deselect() {
-    _playTone(900, 'sine', 0.06, 0.08);
-  },
-  // 普通出牌/施法得分
+  draw()        { if (!_playFile('draw'))        { _playNoise(0.06, 0.15); _playTone(900, 'sine', 0.08, 0.06); } },
+  select()      { if (!_playFile('select'))      { _playTone(1200, 'sine', 0.07, 0.12); _playTone(1600, 'sine', 0.05, 0.06); } },
+  deselect()    { if (!_playFile('deselect'))    { _playTone(900, 'sine', 0.06, 0.08); } },
   score() {
-    _playTone(440, 'triangle', 0.06, 0.15);
-    setTimeout(() => _playTone(660, 'triangle', 0.08, 0.15), 60);
-    setTimeout(() => _playTone(880, 'sine', 0.15, 0.2), 130);
+    if (!_playFile('score')) {
+      _playTone(440, 'triangle', 0.06, 0.15);
+      setTimeout(() => _playTone(660, 'triangle', 0.08, 0.15), 60);
+      setTimeout(() => _playTone(880, 'sine', 0.15, 0.2), 130);
+    }
   },
-  // 高级组合得分（红区/五条/大顺）
   scoreBig() {
-    [0, 60, 120, 200].forEach((t, i) => {
-      const freqs = [330, 440, 550, 880];
-      setTimeout(() => _playTone(freqs[i], 'triangle', 0.25, 0.25), t);
-    });
-    setTimeout(() => {
-      _playTone(1100, 'sine', 0.4, 0.3);
-      _playNoise(0.15, 0.05);
-    }, 280);
+    if (!_playFile('score_big')) {
+      [0, 60, 120, 200].forEach((t, i) => {
+        const freqs = [330, 440, 550, 880];
+        setTimeout(() => _playTone(freqs[i], 'triangle', 0.25, 0.25), t);
+      });
+      setTimeout(() => { _playTone(1100, 'sine', 0.4, 0.3); _playNoise(0.15, 0.05); }, 280);
+    }
   },
-  // 黑市购买
   buy() {
-    _playTone(350, 'sawtooth', 0.04, 0.1);
-    setTimeout(() => _playTone(500, 'triangle', 0.1, 0.2), 50);
-    setTimeout(() => _playTone(700, 'sine', 0.12, 0.15), 130);
+    if (!_playFile('buy')) {
+      _playTone(350, 'sawtooth', 0.04, 0.1);
+      setTimeout(() => _playTone(500, 'triangle', 0.1, 0.2), 50);
+      setTimeout(() => _playTone(700, 'sine', 0.12, 0.15), 130);
+    }
   },
-  // 暗市夜免费拿牌（神秘感）
   darkMarket() {
-    _playTone(200, 'sine', 0.3, 0.12, {slide: 600});
-    setTimeout(() => _playTone(800, 'sine', 0.2, 0.15), 150);
-    setTimeout(() => _playNoise(0.1, 0.04), 200);
+    if (!_playFile('dark_market')) {
+      _playTone(200, 'sine', 0.3, 0.12, {slide: 600});
+      setTimeout(() => _playTone(800, 'sine', 0.2, 0.15), 150);
+      setTimeout(() => _playNoise(0.1, 0.04), 200);
+    }
   },
-  // 突袭发动（紧张）
   ambush() {
-    _playTone(150, 'sawtooth', 0.08, 0.2, {slide: 80});
-    setTimeout(() => _playNoise(0.12, 0.2), 60);
+    if (!_playFile('ambush')) {
+      _playTone(150, 'sawtooth', 0.08, 0.2, {slide: 80});
+      setTimeout(() => _playNoise(0.12, 0.2), 60);
+    }
   },
-  // 突袭胜利
   ambushWin() {
-    _playTone(330, 'square', 0.06, 0.18);
-    setTimeout(() => _playTone(500, 'square', 0.06, 0.18), 70);
-    setTimeout(() => _playTone(660, 'sine', 0.2, 0.25), 140);
+    if (!_playFile('ambush_win')) {
+      _playTone(330, 'square', 0.06, 0.18);
+      setTimeout(() => _playTone(500, 'square', 0.06, 0.18), 70);
+      setTimeout(() => _playTone(660, 'sine', 0.2, 0.25), 140);
+    }
   },
-  // 突袭失败/被偷牌
   ambushLose() {
-    _playTone(400, 'sawtooth', 0.08, 0.15, {slide: 180});
-    setTimeout(() => _playNoise(0.08, 0.12), 80);
+    if (!_playFile('ambush_lose')) {
+      _playTone(400, 'sawtooth', 0.08, 0.15, {slide: 180});
+      setTimeout(() => _playNoise(0.08, 0.12), 80);
+    }
   },
-  // 封锁放置
   lockdown() {
-    _playTone(220, 'square', 0.05, 0.15);
-    setTimeout(() => _playTone(180, 'square', 0.15, 0.2), 80);
+    if (!_playFile('lockdown')) {
+      _playTone(220, 'square', 0.05, 0.15);
+      setTimeout(() => _playTone(180, 'square', 0.15, 0.2), 80);
+    }
   },
-  // 封锁破拆
   lockdownBreak() {
-    _playNoise(0.06, 0.3);
-    setTimeout(() => _playTone(600, 'sawtooth', 0.1, 0.2, {slide: 200}), 60);
+    if (!_playFile('lockdown_break')) {
+      _playNoise(0.06, 0.3);
+      setTimeout(() => _playTone(600, 'sawtooth', 0.1, 0.2, {slide: 200}), 60);
+    }
   },
-  // 对撞翻牌
-  colFlip() {
-    _playNoise(0.04, 0.1);
-    _playTone(500 + Math.random() * 200, 'sine', 0.1, 0.1);
-  },
-  // 对撞胜一局
+  colFlip()   { if (!_playFile('col_flip'))    { _playNoise(0.04, 0.1); _playTone(500 + Math.random() * 200, 'sine', 0.1, 0.1); } },
   colWin() {
-    _playTone(440, 'triangle', 0.08, 0.2);
-    setTimeout(() => _playTone(660, 'triangle', 0.12, 0.2), 90);
+    if (!_playFile('col_win')) {
+      _playTone(440, 'triangle', 0.08, 0.2);
+      setTimeout(() => _playTone(660, 'triangle', 0.12, 0.2), 90);
+    }
   },
-  // 对撞平局/过载
   colTie() {
-    _playTone(300, 'sine', 0.15, 0.1);
-    setTimeout(() => _playTone(300, 'sine', 0.15, 0.08), 180);
+    if (!_playFile('col_tie')) {
+      _playTone(300, 'sine', 0.15, 0.1);
+      setTimeout(() => _playTone(300, 'sine', 0.15, 0.08), 180);
+    }
   },
-  // 游戏胜利
   victory() {
-    const melody = [523, 659, 784, 1047];
-    melody.forEach((f, i) => setTimeout(() => _playTone(f, 'triangle', 0.3, 0.3), i * 120));
-    setTimeout(() => {
-      _playTone(1047, 'sine', 0.6, 0.4);
-      _playNoise(0.1, 0.05);
-    }, 520);
+    if (!_playFile('victory', 0.8)) {
+      const melody = [523, 659, 784, 1047];
+      melody.forEach((f, i) => setTimeout(() => _playTone(f, 'triangle', 0.3, 0.3), i * 120));
+      setTimeout(() => { _playTone(1047, 'sine', 0.6, 0.4); _playNoise(0.1, 0.05); }, 520);
+    }
   },
-  // 游戏失败
   defeat() {
-    _playTone(400, 'sawtooth', 0.1, 0.2, {slide: 200});
-    setTimeout(() => _playTone(250, 'sawtooth', 0.2, 0.35, {slide: 150}), 180);
+    if (!_playFile('defeat', 0.8)) {
+      _playTone(400, 'sawtooth', 0.1, 0.2, {slide: 200});
+      setTimeout(() => _playTone(250, 'sawtooth', 0.2, 0.35, {slide: 150}), 180);
+    }
   },
-  // 按钮点击（通用）
-  click() {
-    _playTone(800, 'sine', 0.05, 0.08);
-  },
-  // 错误/不可用
-  error() {
-    _playTone(200, 'square', 0.05, 0.1);
-    setTimeout(() => _playTone(160, 'square', 0.1, 0.12), 80);
-  },
-  // 进入对撞前摆阵
+  click()     { if (!_playFile('click', 0.5))  { _playTone(800, 'sine', 0.05, 0.08); } },
+  error()     { if (!_playFile('error'))        { _playTone(200, 'square', 0.05, 0.1); setTimeout(() => _playTone(160, 'square', 0.1, 0.12), 80); } },
   colArrange() {
-    _playTone(300, 'sine', 0.05, 0.1);
-    setTimeout(() => _playTone(450, 'triangle', 0.1, 0.15), 80);
-    setTimeout(() => _playTone(600, 'sine', 0.08, 0.2), 180);
+    if (!_playFile('col_arrange')) {
+      _playTone(300, 'sine', 0.05, 0.1);
+      setTimeout(() => _playTone(450, 'triangle', 0.1, 0.15), 80);
+      setTimeout(() => _playTone(600, 'sine', 0.08, 0.2), 180);
+    }
   },
-  // 对撞开始（史诗感）
   colStart() {
-    _playNoise(0.2, 0.25);
-    setTimeout(() => _playTone(110, 'sawtooth', 0.4, 0.3), 100);
-    setTimeout(() => _playTone(220, 'sawtooth', 0.3, 0.25), 250);
+    if (!_playFile('col_start')) {
+      _playNoise(0.2, 0.25);
+      setTimeout(() => _playTone(110, 'sawtooth', 0.4, 0.3), 100);
+      setTimeout(() => _playTone(220, 'sawtooth', 0.3, 0.25), 250);
+    }
   },
 };
 
@@ -197,7 +226,7 @@ function toggleSFX() {
   sfxEnabled = !sfxEnabled;
   const btn = document.getElementById('sfxControl');
   if (btn) btn.textContent = sfxEnabled ? '🔔' : '🔕';
-  SFX.click();
+  if (sfxEnabled) SFX.click();
 }
 
 // 状态变化时触发音效
@@ -206,23 +235,13 @@ function _triggerSFX(newS, oldS) {
   const newPhase = newS.phase;
   const oldPhase = oldS ? oldS.phase : null;
 
-  // 摸牌
-  if (newPhase === 'DRAW' && oldPhase !== 'DRAW') {
-    setTimeout(() => SFX.draw(), 100);
-  }
-  // 对撞开始
-  if (newPhase === 'COLLISION_ARRANGE' && oldPhase !== 'COLLISION_ARRANGE') {
-    SFX.colArrange();
-  }
-  if (newPhase === 'COLLISION_FLIP' && oldPhase === 'COLLISION_ARRANGE') {
-    SFX.colStart();
-  }
-  // 游戏结束
+  if (newPhase === 'DRAW' && oldPhase !== 'DRAW') setTimeout(() => SFX.draw(), 100);
+  if (newPhase === 'COLLISION_ARRANGE' && oldPhase !== 'COLLISION_ARRANGE') SFX.colArrange();
+  if (newPhase === 'COLLISION_FLIP' && oldPhase === 'COLLISION_ARRANGE') SFX.colStart();
   if (newPhase === 'GAME_OVER' && oldPhase !== 'GAME_OVER') {
     if (newS.winner === newS.my_idx) SFX.victory();
     else if (newS.winner >= 0) SFX.defeat();
   }
-  // 对撞翻牌（检测 col_round 推进）
   if (newPhase === 'COLLISION_FLIP' && oldS && oldS.phase === 'COLLISION_FLIP') {
     const oldRound = (oldS.col_round || 0);
     const newRound = (newS.col_round || 0);
@@ -232,31 +251,34 @@ function _triggerSFX(newS, oldS) {
         if (lastLog.msg.includes('获胜')) SFX.colWin();
         else if (lastLog.msg.includes('过载') || lastLog.msg.includes('平局')) SFX.colTie();
         else SFX.colFlip();
-      } else {
-        SFX.colFlip();
-      }
+      } else { SFX.colFlip(); }
     }
   }
-  // 得分（检测 log 中最新的 score 条目）
   if (oldS && newS.log && oldS.log) {
     const newLogs = newS.log.slice(oldS.log.length || 0);
     for (const entry of newLogs) {
       if (entry.type === 'score') {
         const score = parseInt((entry.msg.match(/= (\d+) 分/) || [])[1] || '0');
-        if (score >= 30) SFX.scoreBig();
-        else SFX.score();
+        if (score >= 30) SFX.scoreBig(); else SFX.score();
       }
       if (entry.type === 'red_bid_result') SFX.scoreBig();
       if (entry.type === 'market_buy') {
-        if (entry.msg.includes('暗市夜')) SFX.darkMarket();
-        else SFX.buy();
+        if (entry.msg.includes('暗市夜')) SFX.darkMarket(); else SFX.buy();
       }
       if (entry.type === 'ambush_reveal') {
         if (entry.msg.includes('攻击方胜') || entry.msg.includes('自动胜利')) SFX.ambushWin();
         else if (entry.msg.includes('防守方胜') || entry.msg.includes('怯战')) SFX.ambushLose();
         else SFX.colTie();
       }
-      if (entry.type === 'lockdown_place') SFX.lockdown();
+      if (entry.type === 'lockdown_place') {
+        SFX.lockdown();
+        // 如果是对手放的封锁，弹出醒目提示
+        if (newS.opp_lockdown && (!oldS || oldS.opp_lockdown !== newS.opp_lockdown)) {
+          const card = newS.opp_lockdown;
+          const cardName = {'A':'圣物','B':'元素','C':'中坚','D':'基础','E':'低阶','F':'杂鱼','瞬':'瞬'}[card] || card;
+          showLockdownAlert(card, cardName);
+        }
+      }
       if (entry.type === 'lockdown_break') SFX.lockdownBreak();
       if (entry.type === 'ambush_atk') SFX.ambush();
     }
@@ -754,12 +776,17 @@ function renderLockdownBanner() {
   const s = state;
   let h = '';
   if (s.opp_lockdown) {
-    h += `<div class="lockdown-banner lockdown-against">🔒 对手封锁了 [${s.opp_lockdown}] — 含此等级的组合本回合被禁`;
-    if (s.opp_lockdown_debt > 0) h += `（对手魔力债 ${s.opp_lockdown_debt}）`;
+    const cardName = {'A':'圣物','B':'元素','C':'中坚','D':'基础','E':'低阶','F':'杂鱼','瞬':'瞬'}[s.opp_lockdown] || s.opp_lockdown;
+    h += `<div class="lockdown-banner lockdown-against">`;
+    h += `🔒 <strong>对手封锁了 ${s.opp_lockdown}（${cardName}）</strong>`;
+    h += ` — 你的手牌中含 <strong>${s.opp_lockdown}</strong> 的组合本回合<strong>无法施放</strong>`;
+    if (s.lockdown_break_cost) h += `（可花 ${s.lockdown_break_cost} 分/破法者标记强行破拆）`;
+    if (s.opp_lockdown_debt > 0) h += `；对手魔力债 ${s.opp_lockdown_debt}`;
     h += `</div>`;
   }
   if (s.my_lockdown) {
-    h += `<div class="lockdown-banner lockdown-mine">🔒 我已布置封锁牌 [${s.my_lockdown}]（对手下回合受限）</div>`;
+    const cardName = {'A':'圣物','B':'元素','C':'中坚','D':'基础','E':'低阶','F':'杂鱼','瞬':'瞬'}[s.my_lockdown] || s.my_lockdown;
+    h += `<div class="lockdown-banner lockdown-mine">🔒 我已封锁对手 ${s.my_lockdown}（${cardName}）— 对手含此等级的组合被禁</div>`;
   }
   if (s.my_lockdown_debt > 0) {
     h += `<div class="lockdown-banner lockdown-debt">⚠ 我背负魔力债 ${s.my_lockdown_debt} — 下次计分优先扣除</div>`;
@@ -1564,6 +1591,26 @@ function showToast(msg) {
   el.classList.remove('hidden');
   clearTimeout(el._timer);
   el._timer = setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// 封锁警告弹窗（对手放封锁时用，比 Toast 更醒目）
+function showLockdownAlert(card, cardName) {
+  let el = document.getElementById('lockdown-alert');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'lockdown-alert';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="lockdown-alert-inner">
+      <div class="lockdown-alert-icon">🔒</div>
+      <div class="lockdown-alert-title">对手发动封锁！</div>
+      <div class="lockdown-alert-body">封锁等级：<strong>${card}（${cardName}）</strong></div>
+      <div class="lockdown-alert-hint">你含 <strong>${card}</strong> 的组合本回合无法施放</div>
+    </div>`;
+  el.classList.remove('lockdown-alert-hidden');
+  clearTimeout(el._lt);
+  el._lt = setTimeout(() => el.classList.add('lockdown-alert-hidden'), 4500);
 }
 
 /* Ping */
