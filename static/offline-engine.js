@@ -1752,31 +1752,38 @@ class ZeroBrain {
 const _brain = new ZeroBrain();
 
 function cardValue(card, hand, room, pidx){
-  if (card === '瞬') return 50;
+  if (card === '瞬') return 55;
   const ct = counter(hand.filter(c => c !== '瞬'));
-  let score = BV[card] * 2;
+  let score = BV[card] * 2.5;
   const have = ct[card] || 0;
   const slots = (k) => room._slotsLeft(pidx, k);
-  if (have >= 4 && slots('dragon_breath') > 0) score += 40;
-  else if (have >= 3){
-    if (slots('triple_resonance') > 0) score += 20;
-    if (slots('dragon_breath') > 0) score += 15;
-  }
+  if (have >= 4 && slots('dragon_breath') > 0) score += 50;
+  else if (have >= 3 && slots('dragon_breath') > 0) score += 25;
+  else if (have >= 3 && slots('triple_resonance') > 0) score += 22;
   if ('ABCDE'.includes(card) && slots('arcane_sequence') > 0){
-    let need = 0; for (const c of 'ABCDE') if (!ct[c] || (c === card && ct[c] === 1)) need++;
-    if (need <= 2) score += 25 - need * 5;
+    let present = 0; for (const c of 'ABCDE') if (ct[c]) present++;
+    if (present >= 3) score += 30 - (5 - present) * 5;
+    else if (present >= 2) score += 12;
   }
   if ('BCDEF'.includes(card) && slots('elemental_surge') > 0){
-    let need = 0; for (const c of 'BCDEF') if (!ct[c] || (c === card && ct[c] === 1)) need++;
-    if (need <= 2) score += 18 - need * 5;
+    let present = 0; for (const c of 'BCDEF') if (ct[c]) present++;
+    if (present >= 3) score += 22 - (5 - present) * 4;
+    else if (present >= 2) score += 8;
   }
   if (have >= 2 && slots('chaos_alchemy') > 0){
-    for (const o in ct) if (o !== card && ct[o] >= 2){ score += 12; break; }
+    for (const o in ct){ if (o !== card && ct[o] >= 2){ score += 15; break; } }
+    if (have >= 3){
+      for (const o in ct){ if (o !== card && ct[o] >= 1){ score += 12; break; } }
+    }
   }
   if (card === 'F'){
     const f = ct['F'] || 0;
-    if (f >= C.ANT_COLONY_MIN_F - 1 && slots('ant_colony') > 0) score += f * 3;
+    if (f >= C.ANT_COLONY_MIN_F - 1 && slots('ant_colony') > 0) score += f * 4;
   }
+  if (card === 'A') score += 10;
+  else if (card === 'B') score += 5;
+  const deckLeft = room.deck ? room.deck.length : 20;
+  if (deckLeft <= 12) score += BV[card] * 2;
   return score;
 }
 
@@ -1829,18 +1836,33 @@ function detectPlayableForRoom(room, pidx){
 }
 
 function estimateOppMaxCombo(oppDist, room){
-  let score = 0;
+  let best = 0;
   for (const c in oppDist){
     if (c === '瞬') continue;
     const cnt = oppDist[c];
-    if (cnt >= 3) score = Math.max(score, _scaled(10 + BV[c] * 3));
-    if (cnt >= 5) score = Math.max(score, _scaled(40 + BV[c] * 5));
+    if (cnt >= 4.5) best = Math.max(best, _scaled(40 + (BV[c]||1) * 5));
+    else if (cnt >= 3.5) best = Math.max(best, Math.floor(_scaled(40 + (BV[c]||1) * 5) * 0.6));
+    if (cnt >= 2.5) best = Math.max(best, _scaled(10 + (BV[c]||1) * 3));
   }
-  if ('ABCDE'.split('').every(c => (oppDist[c] || 0) >= 0.5))
-    score = Math.max(score, _scaled(45));
-  if ('BCDEF'.split('').every(c => (oppDist[c] || 0) >= 0.5))
-    score = Math.max(score, _scaled(30));
-  return score;
+  const arcProb = Math.min(...'ABCDE'.split('').map(c => oppDist[c] || 0));
+  if (arcProb >= 0.4) best = Math.max(best, Math.floor(_scaled(45) * Math.min(1.0, arcProb)));
+  const eleProb = Math.min(...'BCDEF'.split('').map(c => oppDist[c] || 0));
+  if (eleProb >= 0.4) best = Math.max(best, Math.floor(_scaled(30) * Math.min(1.0, eleProb)));
+  for (const c1 in oppDist){
+    if (c1 === '瞬') continue;
+    if (oppDist[c1] >= 2.5){
+      for (const c2 in oppDist){
+        if (c2 === '瞬' || c2 === c1) continue;
+        if (oppDist[c2] >= 1.5){
+          const cardsBV = (BV[c1]||1) * 3 + (BV[c2]||1) * 2;
+          best = Math.max(best, Math.floor(_scaled(20 + cardsBV) * 0.7));
+        }
+      }
+    }
+  }
+  const fCnt = oppDist['F'] || 0;
+  if (fCnt >= C.ANT_COLONY_MIN_F - 0.5) best = Math.max(best, _scaled(Math.floor(fCnt) * 5));
+  return best;
 }
 
 // ── Main decide() function ───────────────────────────────
@@ -1873,26 +1895,44 @@ function decide(room){
 function decideBluffDeclare(ai, opp, room){
   const trueCard = room.atk_card;
   if (!trueCard) return ['BLUFF_DECLARE', {declared_rank:'none'}];
-  if (Math.random() < 0.30){
-    const fakes = [...'ABCDEF'].filter(c => c !== trueCard);
-    const pool = ['A','A','B',...fakes];
-    const declared = pool[Math.floor(Math.random()*pool.length)];
-    return ['BLUFF_DECLARE', {declared_rank: declared}];
+  if (trueCard === 'A' || trueCard === 'B'){
+    if (Math.random() < 0.70) return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+    return ['BLUFF_DECLARE', {declared_rank:'none'}];
   }
-  if (['A','B'].includes(trueCard) && Math.random() < 0.50)
+  if (trueCard === 'C' || trueCard === 'D'){
+    if (Math.random() < 0.40){
+      const declared = ['A','A','B'][Math.floor(Math.random()*3)];
+      return ['BLUFF_DECLARE', {declared_rank: declared}];
+    }
+    if (Math.random() < 0.30) return ['BLUFF_DECLARE', {declared_rank:'none'}];
     return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+  }
+  if (trueCard === 'E' || trueCard === 'F'){
+    if (Math.random() < 0.60){
+      const pool = ['A','B','B','C'];
+      const declared = pool[Math.floor(Math.random()*pool.length)];
+      return ['BLUFF_DECLARE', {declared_rank: declared}];
+    }
+    return ['BLUFF_DECLARE', {declared_rank:'none'}];
+  }
   return ['BLUFF_DECLARE', {declared_rank:'none'}];
 }
 
 function decideBluffRespond(ai, opp, room){
   const declared = room.bluff_declared_rank;
   if (!declared) return ['BLUFF_RESPOND', {choice:'believe'}];
-  const oppHand = opp.hand;
-  const oppFreq = {};
-  for (const c of oppHand) oppFreq[c] = (oppFreq[c]||0)+1;
-  const pTrue = (oppFreq[declared]||0) / Math.max(1, oppHand.length);
+  const unseen = _brain.unseenDistribution(room, AI_IDX);
+  const atkDist = _brain.oppHandDistribution(room, AI_IDX);
+  let nonShunTotal = 0;
+  for (const k in atkDist) if (k !== '瞬') nonShunTotal += atkDist[k];
+  const pTrue = (atkDist[declared] || 0) / Math.max(1, nonShunTotal);
   const myScore = totalScore(ai);
-  const callThreshold = myScore >= 20 ? 0.35 : 0.25;
+  const oppScore = totalScore(opp);
+  if ((declared === 'A' || declared === 'B') && pTrue < 0.25){
+    if (myScore >= C.BLUFF_TRUE_PENALTY) return ['BLUFF_RESPOND', {choice:'call'}];
+  }
+  if (myScore - oppScore > 20 && pTrue < 0.40) return ['BLUFF_RESPOND', {choice:'call'}];
+  const callThreshold = myScore >= 25 ? 0.30 : 0.22;
   if (pTrue < callThreshold) return ['BLUFF_RESPOND', {choice:'call'}];
   return ['BLUFF_RESPOND', {choice:'believe'}];
 }
@@ -1904,14 +1944,16 @@ function decideRedBid(ai, opp, room, aiIdx){
   const oppScore = totalScore(opp);
   const diff = myScore - oppScore;
   const trigScore = room.red_bid_trigger_score;
-  let nBid = C.RED_BID_MIN;
-  if (diff < -20 || trigScore >= 50) nBid = C.RED_BID_MAX;
-  else if (diff < 0 || trigScore >= 30) nBid = 2;
+  let nBid;
+  if (myScore + trigScore >= C.WIN_SCORE) nBid = C.RED_BID_MAX;
+  else if (oppScore + trigScore >= C.WIN_SCORE * 0.85) nBid = C.RED_BID_MAX;
+  else if (diff < -15 || trigScore >= 40) nBid = C.RED_BID_MAX;
+  else if (diff < 0 || trigScore >= 25) nBid = Math.min(C.RED_BID_MAX, 2);
+  else nBid = C.RED_BID_MIN;
   nBid = Math.min(nBid, hand.length, C.RED_BID_MAX);
   nBid = Math.max(nBid, C.RED_BID_MIN);
-  const cardVal = c => (CARD_CONFIG[c]||{base_value:0}).base_value;
-  const sorted = [...hand].sort((a,b) => cardVal(a)-cardVal(b));
-  const bidCards = sorted.slice(0, nBid);
+  const eligible = [...hand].sort((a,b) => cardValue(a, hand, room, aiIdx) - cardValue(b, hand, room, aiIdx));
+  const bidCards = eligible.slice(0, nBid);
   return ['RED_BID', {cards: bidCards}];
 }
 
@@ -1920,84 +1962,114 @@ function decideMarket(ai, opp, room){
   if (!market.length || room.market_buy_done[AI_IDX]) return ['MARKET_SKIP', {}];
   const hand = ai.hand;
   const ct = counter(hand.filter(c => c !== '瞬'));
+  const isDark = room._isDarkMarketTurn();
+  const myScore = totalScore(ai);
+  const oppScore = totalScore(opp);
   const slots = (k) => room._slotsLeft(AI_IDX, k);
   const needs = {};
-  if (slots('arcane_sequence') > 0)
-    for (const c of 'ABCDE') if (!ct[c]) needs[c] = Math.max(needs[c]||0, 100 - 5 * 'ABCDE'.split('').filter(x => !ct[x]).length);
-  if (slots('elemental_surge') > 0)
-    for (const c of 'BCDEF') if (!ct[c]) needs[c] = Math.max(needs[c]||0, 80 - 5 * 'BCDEF'.split('').filter(x => !ct[x]).length);
+  if (slots('arcane_sequence') > 0){
+    const missing = 'ABCDE'.split('').filter(c => !ct[c]);
+    const arcHeat = Math.max(0, 100 - 10 * missing.length);
+    for (const c of 'ABCDE') if (!ct[c]) needs[c] = Math.max(needs[c]||0, arcHeat);
+  }
+  if (slots('elemental_surge') > 0){
+    const missing = 'BCDEF'.split('').filter(c => !ct[c]);
+    const eleHeat = Math.max(0, 85 - 10 * missing.length);
+    for (const c of 'BCDEF') if (!ct[c]) needs[c] = Math.max(needs[c]||0, eleHeat);
+  }
   for (const c in ct){
     if (c === '瞬') continue;
-    if (ct[c] === 4 && slots('dragon_breath') > 0) needs[c] = Math.max(needs[c]||0, 120);
-    if (ct[c] === 2 && slots('triple_resonance') > 0) needs[c] = Math.max(needs[c]||0, 70);
+    if (ct[c] >= 3 && slots('dragon_breath') > 0) needs[c] = Math.max(needs[c]||0, 60 + ct[c] * 25);
+    if (ct[c] === 2 && slots('triple_resonance') > 0) needs[c] = Math.max(needs[c]||0, 65);
   }
-  const isDark = room._isDarkMarketTurn();
-  let bestIdx = -1, bestPri = -1;
-  for (let i=0;i<market.length;i++){
-    const mc = market[i];
-    let pri = 0;
-    if (isDark){
-      // 黑市：按未见牌池期望完成度估算，比纯随机更理性
-      const unseen = _brain.unseenDistribution(room, AI_IDX);
-      let tot = 0; for (const c in unseen) tot += unseen[c];
-      let evSlot = 0;
-      if (tot > 0) for (const c in unseen){
-        if (c === '瞬') continue;
-        evSlot += unseen[c] / tot * ((needs[c]||0) + (BV[c]||1) * 4);
-      }
-      if (evSlot === 0) evSlot = 18;
-      pri = Math.round(evSlot * 0.55 + 6 + Math.random() * 22);
-    } else {
-      pri = needs[mc] || 0;
-      if (pri === 0){
-        if (mc === 'A') pri = 50;
-        else if (mc === 'B') pri = 25;
-        else if (mc === '瞬') pri = 15;
-      }
+  if (slots('chaos_alchemy') > 0){
+    for (const c in ct){
+      if (c === '瞬') continue;
+      if (ct[c] >= 2) needs[c] = Math.max(needs[c]||0, 55 + ct[c] * 8);
     }
+  }
+  if (slots('ant_colony') > 0){
+    const fCnt = ct['F'] || 0;
+    if (fCnt >= 1) needs['F'] = Math.max(needs['F']||0, 40 + fCnt * 12);
+  }
+  needs['A'] = Math.max(needs['A']||0, 55);
+  needs['B'] = Math.max(needs['B']||0, 30);
+  needs['瞬'] = Math.max(needs['瞬']||0, 40);
+
+  if (isDark){
+    const unseen = _brain.unseenDistribution(room, AI_IDX);
+    let tot = 0; for (const c in unseen) tot += unseen[c];
+    let bestDarkIdx = -1, bestEV = -1;
+    for (let i = 0; i < market.length; i++){
+      let ev;
+      if (tot > 0){
+        ev = 0;
+        for (const c in unseen){
+          if (c === '瞬') continue;
+          ev += unseen[c] / tot * ((needs[c]||0) + (BV[c]||1) * 5);
+        }
+      } else { ev = 25; }
+      ev += Math.random() * 10;
+      if (ev > bestEV){ bestEV = ev; bestDarkIdx = i; }
+    }
+    if (bestDarkIdx >= 0) return ['MARKET_BUY', {market_idx: bestDarkIdx, payment: []}];
+    return ['MARKET_BUY', {market_idx: 0, payment: []}];
+  }
+
+  let bestIdx = -1, bestPri = -1;
+  for (let i = 0; i < market.length; i++){
+    const mc = market[i];
+    let pri = needs[mc] || (BV[mc]||1) * 3;
+    if (oppScore - myScore > 20) pri += 15;
+    if (room.deck.length <= 15) pri += 10;
     if (pri > bestPri){ bestPri = pri; bestIdx = i; }
   }
-  if (bestIdx < 0 || bestPri < (isDark ? 14 : 20)) return ['MARKET_SKIP', {}];
-
-  if (isDark) {
-    return ['MARKET_BUY', {market_idx: bestIdx, payment: []}];
-  }
+  if (bestIdx < 0 || bestPri < 15) return ['MARKET_SKIP', {}];
 
   const target = market[bestIdx];
   const targetV = _bvMarket(target);
-  const sortedHand = [...hand].sort((a,b) => (a==='瞬'?1:0) - (b==='瞬'?1:0) || _bvMarket(a) - _bvMarket(b));
+  const sortedHand = [...hand].sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
   const payment = []; let total = 0;
   for (const c of sortedHand){
     if (total >= targetV) break;
     const cv = cardValue(c, hand, room, AI_IDX);
-    if (cv >= 60 && total + _bvMarket(c) > targetV + 4) continue;
+    if (cv >= 55 && bestPri < 90) continue;
     payment.push(c); total += _bvMarket(c);
   }
   if (total < targetV) return ['MARKET_SKIP', {}];
-  const maxPremium = bestPri >= 100 ? 2.0 : 1.4;
-  if (total > targetV * maxPremium) return ['MARKET_SKIP', {}];
-  if (hand.length - payment.length + 1 < 3) return ['MARKET_SKIP', {}];
+  if (total > targetV * 1.6 && bestPri < 60) return ['MARKET_SKIP', {}];
+  if (hand.length - payment.length + 1 < 2) return ['MARKET_SKIP', {}];
   return ['MARKET_BUY', {market_idx: bestIdx, payment}];
 }
 
 function decideLockdownPlace(ai, opp, room){
   const hand = ai.hand;
-  if (hand.length <= 3) return ['LOCKDOWN_SKIP', {}];
-  const myT = totalScore(ai), oppT = totalScore(opp);
-  const diff = myT - oppT;
-  if (diff < -30) return ['LOCKDOWN_SKIP', {}];
+  if (hand.length <= 2) return ['LOCKDOWN_SKIP', {}];
+  const myTotal = totalScore(ai), oppTotal = totalScore(opp);
+  const diff = myTotal - oppTotal;
+  if (diff < -40 && hand.length <= 3) return ['LOCKDOWN_SKIP', {}];
   const targetRank = _brain.bestLockdownRank(room, AI_IDX);
   const ct = counter(hand.filter(c => c !== '瞬'));
-  if (ct[targetRank] >= 1){
-    if (ct[targetRank] >= 2) return ['LOCKDOWN_PLACE', {card: targetRank}];
-    if (cardValue(targetRank, hand, room, AI_IDX) < 30) return ['LOCKDOWN_PLACE', {card: targetRank}];
+  if ((ct[targetRank] || 0) >= 1){
+    if ((ct[targetRank] || 0) >= 2) return ['LOCKDOWN_PLACE', {card: targetRank}];
+    if (cardValue(targetRank, hand, room, AI_IDX) < 35) return ['LOCKDOWN_PLACE', {card: targetRank}];
   }
-  if (hand.length >= 6){
+  if (diff >= -10 && hand.length >= 4){
     const eligible = hand.filter(c => c !== '瞬');
     if (eligible.length){
       const sorted = [...eligible].sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
       const cheapest = sorted[0];
-      if (cardValue(cheapest, hand, room, AI_IDX) < 25) return ['LOCKDOWN_PLACE', {card: cheapest}];
+      if (cardValue(cheapest, hand, room, AI_IDX) < 30) return ['LOCKDOWN_PLACE', {card: cheapest}];
+    }
+  }
+  const oppDist = _brain.oppHandDistribution(room, AI_IDX);
+  const oppMax = estimateOppMaxCombo(oppDist, room);
+  if (oppMax >= 25 && hand.length >= 4){
+    const eligible = hand.filter(c => c !== '瞬');
+    if (eligible.length){
+      const sorted = [...eligible].sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
+      const cheapest = sorted[0];
+      if (cardValue(cheapest, hand, room, AI_IDX) < 35) return ['LOCKDOWN_PLACE', {card: cheapest}];
     }
   }
   return ['LOCKDOWN_SKIP', {}];
@@ -2012,17 +2084,20 @@ function decideAmbush(ai, opp, room){
   const isSecond = room.ambush_count_this_turn >= 1;
   if (isSecond){
     if (hand.length <= C.AMBUSH_SECOND_COST + 2) return ['AMBUSH_DECIDE', {choice:'skip'}];
-    if (opp.hand.length < 3) return ['AMBUSH_DECIDE', {choice:'skip'}];
+    if (opp.hand.length < 2) return ['AMBUSH_DECIDE', {choice:'skip'}];
   }
   const myScore = totalScore(ai), oppScore = totalScore(opp);
   const diff = myScore - oppScore;
   const playable = detectPlayableForRoom(room, AI_IDX);
-  if (playable.length && playable[0][3] >= 25) return ['AMBUSH_DECIDE', {choice:'skip'}];
-  if (diff > 35 && hand.length <= 5) return ['AMBUSH_DECIDE', {choice:'skip'}];
-  // EV check (avoid attack-cancel loop)
+  if (playable.length && playable[0][3] >= 35) return ['AMBUSH_DECIDE', {choice:'skip'}];
+  if (diff > 45 && hand.length <= 4) return ['AMBUSH_DECIDE', {choice:'skip'}];
   const bestAtk = _brain.bestAttackCard(room, AI_IDX);
-  if (bestAtk === null) return ['AMBUSH_DECIDE', {choice:'skip'}];
-  return ['AMBUSH_DECIDE', {choice:'attack'}];
+  if (bestAtk !== null) return ['AMBUSH_DECIDE', {choice:'attack'}];
+  const oppDist = _brain.oppHandDistribution(room, AI_IDX);
+  const oppMax = estimateOppMaxCombo(oppDist, room);
+  if (oppMax >= 30 && eligible.length >= 3 && !isSecond) return ['AMBUSH_DECIDE', {choice:'attack'}];
+  if (diff < -15 && eligible.length >= 3 && opp.hand.length >= 4 && !isSecond) return ['AMBUSH_DECIDE', {choice:'attack'}];
+  return ['AMBUSH_DECIDE', {choice:'skip'}];
 }
 
 function decidePayCost(ai, room){
@@ -2050,39 +2125,63 @@ function decideAtkSelect(ai, opp, room){
 function decideDefend(ai, opp, room){
   const hand = ai.hand;
   const eligible = hand.filter(c => c !== '瞬');
-  const hasShun = hand.includes('瞬');
-  if (!eligible.length && !hasShun) return ['AMBUSH_DEFEND', {choice:'fold'}];
+  const hasInstant = hand.includes('瞬');
+  if (!eligible.length && !hasInstant) return ['AMBUSH_DEFEND', {choice:'fold'}];
+  const atkKnown = room.atk_card || null;
+  if (hasInstant && (atkKnown === 'A' || atkKnown === 'B'))
+    return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
   const near = nearCombos(hand, room, AI_IDX);
-  const highValueNear = near.filter(c => c[2] >= 80 && c[1] <= 1);
-  if (highValueNear.length && hand.length <= 5){
-    if (hasShun) return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
-    return ['AMBUSH_DEFEND', {choice:'fold'}];
+  const highValueNear = near.filter(c => c[2] >= 70 && c[1] <= 1);
+  if (atkKnown && eligible.length){
+    const winners = [...new Set(eligible)].filter(c => compareDuel(atkKnown, c) === -1);
+    if (winners.length){
+      winners.sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
+      return ['AMBUSH_DEFEND', {choice:'defend', card: winners[0]}];
+    }
+    if (hasInstant && (BV[atkKnown]||0) >= 4)
+      return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
+    if (highValueNear.length && hand.length <= 4){
+      if (hasInstant) return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
+      return ['AMBUSH_DEFEND', {choice:'fold'}];
+    }
+    const tieCards = [...new Set(eligible)].filter(c => compareDuel(atkKnown, c) === 0);
+    if (tieCards.length){
+      tieCards.sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
+      return ['AMBUSH_DEFEND', {choice:'defend', card: tieCards[0]}];
+    }
   }
   const decision = _brain.bestDefenseCard(room, AI_IDX, true);
   if (!decision) return ['AMBUSH_DEFEND', {choice:'fold'}];
   const [choice, card] = decision;
-  if (choice === 'fold') return ['AMBUSH_DEFEND', {choice:'fold'}];
+  if (choice === 'fold'){
+    if (hasInstant && opp.hand.length >= 3)
+      return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
+    return ['AMBUSH_DEFEND', {choice:'fold'}];
+  }
   return ['AMBUSH_DEFEND', {choice:'defend', card}];
 }
 
 function decideSpell(ai, opp, room){
+  const hand = ai.hand;
   const myScore = totalScore(ai), oppScore = totalScore(opp);
   const oppDist0 = _brain.oppHandDistribution(room, AI_IDX);
-  const oppPressure = oppScore + estimateOppMaxCombo(oppDist0, room) >= C.WIN_SCORE;
+  const oppMax = estimateOppMaxCombo(oppDist0, room);
+  const oppPressure = oppScore + oppMax >= C.WIN_SCORE;
+  const deckLeft = room.deck.length;
   if (ai.breaker_marks > 0){
     const a = decideBreaker(room, ai, opp);
     if (a) return a;
   }
   const playable = detectPlayableForRoom(room, AI_IDX);
   if (playable.length){
-    const best = pickBestCombo(playable, ai.hand, room, ai, opp);
+    const best = pickBestCombo(playable, hand, room, ai, opp);
     if (best){
       const [key, name, cards, score] = best;
       const oppLock = opp.lockdown_card;
       if (oppLock && oppLock !== '瞬' && cards.includes(oppLock)){
         if (ai.breaker_marks > 0)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'marker'}];
-        const breakThreshold = (myScore + 30 >= C.WIN_SCORE || oppPressure) ? 18 : 22;
+        const breakThreshold = (oppPressure || myScore + score >= C.WIN_SCORE) ? 15 : 20;
         if (score >= breakThreshold)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'pay'}];
         for (const e of playable){
@@ -2092,18 +2191,24 @@ function decideSpell(ai, opp, room){
       } else return ['SPELL_SCORE', {cards, combo_key:key}];
     }
   }
-  if (ai.hand.includes('瞬') && room.instant_count < C.INSTANT_PER_TURN){
-    const ia = decideInstant(ai.hand, room, ai, opp);
+  if (hand.includes('瞬') && room.instant_count < C.INSTANT_PER_TURN){
+    const ia = decideInstant(hand, room, ai, opp);
     if (ia) return ia;
   }
   const sac = decideSacrifice(ai, opp, room);
   if (sac) return sac;
-  // 先知低语: use when behind by 15+ and haven't used it
-  if (!ai.prophet_used && myScore >= C.PROPHET_COST && oppScore - myScore >= 15) {
-    if (room.deck.length > C.PROPHET_PEEK_HAND_MIN_DECK)
-      return ['PROPHET_WHISPER', {choice:'peek_hand'}];
-    else
-      return ['PROPHET_WHISPER', {choice:'peek_deck'}];
+  if (!ai.prophet_used && myScore >= C.PROPHET_COST){
+    let shouldPeek = false;
+    if (oppScore - myScore >= 10) shouldPeek = true;
+    if (deckLeft >= 15 && deckLeft <= 35 && myScore >= 15) shouldPeek = true;
+    if (opp.hand.length >= 6) shouldPeek = true;
+    if (deckLeft <= 20 && !shouldPeek && oppScore >= myScore) shouldPeek = true;
+    if (shouldPeek){
+      if (room.deck.length > C.PROPHET_PEEK_HAND_MIN_DECK)
+        return ['PROPHET_WHISPER', {choice:'peek_hand'}];
+      else if (room.deck.length > 0)
+        return ['PROPHET_WHISPER', {choice:'peek_deck'}];
+    }
   }
   return ['SPELL_SKIP', {}];
 }
@@ -2126,6 +2231,7 @@ function decideBreaker(room, ai, opp){
 
 function pickBestCombo(playable, hand, room, ai, opp){
   const myScore = totalScore(ai), oppScore = totalScore(opp);
+  const deckLeft = room.deck.length;
   const winning = playable.filter(p => myScore + p[3] >= C.WIN_SCORE);
   if (winning.length){
     let best = winning[0];
@@ -2135,9 +2241,11 @@ function pickBestCombo(playable, hand, room, ai, opp){
   const oppDist = _brain.oppHandDistribution(room, AI_IDX);
   const oppMaxCombo = estimateOppMaxCombo(oppDist, room);
   const oppPressure = oppScore + oppMaxCombo >= C.WIN_SCORE;
+  const oppClose = oppScore >= C.WIN_SCORE * 0.7;
   const reds = playable.filter(p => RED_KEYS.has(p[0]));
-  if (reds.length && (oppPressure || myScore >= C.WIN_SCORE * 0.4)){
-    let best = reds[0]; for (const r of reds) if (r[3] > best[3]) best = r; return best;
+  if (reds.length){
+    let bestRed = reds[0]; for (const r of reds) if (r[3] > bestRed[3]) bestRed = r;
+    if (oppPressure || myScore >= C.WIN_SCORE * 0.3 || bestRed[3] >= 30) return bestRed;
   }
   const scored = [];
   for (const [key, name, cards, base] of playable){
@@ -2148,46 +2256,59 @@ function pickBestCombo(playable, hand, room, ai, opp){
     const futurePot = future.length ? future[0][3] : 0;
     let effective = base;
     if (ai.curse_active) effective -= 10;
-    if (RED_KEYS.has(key)) effective += 18;
-    else if (BLUE_KEYS.has(key) || GREEN_KEYS.has(key)) effective += 6;
-    if (key === 'ant_colony' && cards.length <= C.ANT_COLONY_MIN_F && room.deck.length > 12) effective -= 12;
+    if (RED_KEYS.has(key)) effective += 22;
+    else if (BLUE_KEYS.has(key)) effective += 8;
+    else if (GREEN_KEYS.has(key)) effective += 6;
+    if (myScore < oppScore) effective += Math.min(12, (oppScore - myScore) * 0.3);
+    if (deckLeft <= 12) effective += 10;
+    if (deckLeft <= 6) effective += 15;
+    if (base >= 40) effective += 8;
+    if (key === 'ant_colony' && cards.length <= C.ANT_COLONY_MIN_F && deckLeft > 12) effective -= 8;
     const oppLock = opp.lockdown_card;
     if (oppLock && oppLock !== '瞬' && cards.includes(oppLock)){
       if (ai.breaker_marks > 0) effective -= 2;
-      else effective -= 16;
+      else effective -= 14;
     }
-    if (oppPressure) effective += 8;
-    const total = effective + futurePot * 0.35;
+    if (oppPressure) effective += 12;
+    else if (oppClose) effective += 6;
+    const futureWeight = remaining.length >= 4 ? 0.4 : 0.2;
+    const total = effective + futurePot * futureWeight;
     scored.push([key, name, cards, base, total]);
   }
   scored.sort((a,b) => b[4] - a[4]);
   const best = scored[0];
-  if (best[3] < 14 && room.deck.length > 18 && !oppPressure) return null;
+  const minThreshold = (deckLeft <= 15 || oppPressure || oppClose) ? 10 : 12;
+  if (best[3] < minThreshold && deckLeft > 18 && !oppPressure) return null;
   return [best[0], best[1], best[2], best[3]];
 }
 
 function decideInstant(hand, room, ai, opp){
   const nonInstant = hand.filter(c => c !== '瞬');
   if (!nonInstant.length) return null;
+  const myScore = totalScore(ai);
+  const oppScore = totalScore(opp);
+  const deckLeft = room.deck.length;
   const playable = detectPlayableForRoom(room, AI_IDX);
-  if (playable.length && playable[0][3] >= 25) return null;
+  if (playable.length && playable[0][3] >= 30) return null;
   const rated = nonInstant.map(c => [c, expendability(c, hand, room, AI_IDX)]);
   rated.sort((a,b) => b[1] - a[1]);
-  const trash = rated.filter(x => x[1] >= 65).map(x => x[0]);
-  if (trash.length < 2 && room.deck.length > 10) return null;
-  let dCount = trash.length ? Math.min(trash.length, 3) : 0;
-  let toDiscard = trash.slice(0, dCount);
-  if (!dCount){
-    if (hand.length >= 7){ dCount = 2; toDiscard = rated.slice(0, 2).map(x => x[0]); }
-    else return null;
+  const trash = rated.filter(x => x[1] >= 60).map(x => x[0]);
+  const mediocre = rated.filter(x => x[1] >= 50).map(x => x[0]);
+  if (trash.length){
+    const dCount = Math.min(trash.length, 3);
+    return ['SPELL_INSTANT', {discard_cards: trash.slice(0, dCount)}];
   }
-  return ['SPELL_INSTANT', {discard_cards: toDiscard}];
+  if (hand.length >= 6 && mediocre.length >= 2 && deckLeft > 5)
+    return ['SPELL_INSTANT', {discard_cards: mediocre.slice(0, 2)}];
+  if (oppScore - myScore > 15 && mediocre.length >= 1 && deckLeft > 3)
+    return ['SPELL_INSTANT', {discard_cards: mediocre.slice(0, Math.min(2, mediocre.length))}];
+  return null;
 }
 
 function decideSacrifice(ai, opp, room){
   const pad = ai.scorepad;
   const myS = totalScore(ai), oppS = totalScore(opp);
-  if (oppS - myS < 20) return null;
+  if (oppS - myS < 12) return null;
   const candidates = [];
   for (const cfg of SCOREPAD_CONFIG){
     const info = pad[cfg.key];
@@ -2201,15 +2322,15 @@ function decideSacrifice(ai, opp, room){
   const hand = ai.hand;
   const ratedRecovery = window.map(([idx,c]) => [idx, c, cardValue(c, hand.concat([c]), room, AI_IDX)]);
   ratedRecovery.sort((a,b) => b[2] - a[2]);
-  if (ratedRecovery[0][2] < 20) return null;
-  const lowValHand = hand.filter(c => cardValue(c, hand, room, AI_IDX) < 15).length;
+  if (ratedRecovery[0][2] < 15) return null;
+  const lowValHand = hand.filter(c => cardValue(c, hand, room, AI_IDX) < 20).length;
   const x = Math.min(C.SACRIFICE_MAX_X, ratedRecovery.length, lowValHand);
   if (x < 1) return null;
   const recoverIndices = ratedRecovery.slice(0, x).map(r => r[0]);
   const ratedDiscard = [...hand].sort((a,b) => cardValue(a, hand, room, AI_IDX) - cardValue(b, hand, room, AI_IDX));
   const discardCards = ratedDiscard.slice(0, x);
   const recoveryValue = ratedRecovery.slice(0, x).reduce((a,b) => a + b[2], 0);
-  if (recoveryValue < lost + 20) return null;
+  if (recoveryValue < lost + 12) return null;
   return ['SPELL_SACRIFICE', {slot_key: slotKey, score_idx: scoreIdx, discard_cards: discardCards, recover_indices: recoverIndices}];
 }
 
@@ -2229,7 +2350,12 @@ function decideColPreDiscard(ai, opp, room){
     return ['COLLISION_PRE_DISCARD', {cards: rated.slice(0, must)}];
   }
   const ct = counter(hand.filter(c => c !== '瞬'));
-  const orphan = hand.filter(c => (c === 'E' || c === 'F') && c !== '瞬' && ct[c] === 1 && BV[c] <= 2);
+  const weak = hand.filter(c => (c === 'E' || c === 'F') && c !== '瞬');
+  const orphan = weak.filter(c => ct[c] === 1 && BV[c] <= 2);
+  if (hand.length >= 6){
+    const dOrphans = hand.filter(c => c === 'D' && (ct['D']||0) === 1);
+    for (const d of dOrphans) orphan.push(d);
+  }
   if (orphan.length >= 2) return ['COLLISION_PRE_DISCARD', {cards: orphan.slice(0, 2)}];
   if (orphan.length === 1) return ['COLLISION_PRE_DISCARD', {cards: orphan.slice(0, 1)}];
   return ['COLLISION_PRE_DISCARD', {cards: []}];
@@ -2237,35 +2363,85 @@ function decideColPreDiscard(ai, opp, room){
 
 function decideColArrange(ai){
   const hand = [...ai.hand];
-  shuffle(hand);
-  return ['COLLISION_ARRANGE', {order: hand}];
+  if (hand.length <= 1) return ['COLLISION_ARRANGE', {order: hand}];
+  const shunCards = hand.filter(c => c === '瞬');
+  const nonShun = hand.filter(c => c !== '瞬');
+  nonShun.sort((a,b) => RANK[a] - RANK[b]);
+  const n = hand.length;
+  if (n <= 2){
+    nonShun.sort((a,b) => RANK[b] - RANK[a]);
+    const order = shunCards.concat(nonShun);
+    if (order.sort().join('') !== [...hand].sort().join('')) return ['COLLISION_ARRANGE', {order: hand}];
+    return ['COLLISION_ARRANGE', {order: shunCards.concat(nonShun)}];
+  }
+  const strong = [], weak = [];
+  for (const c of nonShun){
+    if (BV[c] >= 4) strong.push(c);
+    else weak.push(c);
+  }
+  strong.sort((a,b) => RANK[a] - RANK[b]);
+  weak.sort((a,b) => RANK[b] - RANK[a]);
+  let order;
+  if (shunCards.length >= 2){
+    order = [...shunCards, ...strong, ...weak];
+  } else if (shunCards.length === 1){
+    order = [...shunCards, ...strong, ...weak];
+  } else {
+    order = [];
+    let si = 0, wi = 0;
+    for (let pos = 0; pos < n; pos++){
+      if (pos % 2 === 0 && wi < weak.length) order.push(weak[wi++]);
+      else if (si < strong.length) order.push(strong[si++]);
+      else if (wi < weak.length) order.push(weak[wi++]);
+      else if (si < strong.length) order.push(strong[si++]);
+    }
+    const remainS = strong.slice(si);
+    const remainW = weak.slice(wi);
+    order = order.concat(remainS, remainW);
+  }
+  const sortedOrder = [...order].sort().join('');
+  const sortedHand = [...hand].sort().join('');
+  if (sortedOrder !== sortedHand) order = [...hand];
+  return ['COLLISION_ARRANGE', {order}];
 }
 
 function decideColBet(ai, opp, room){
   if (room.col_bet_phase === 'CALLER' && room.col_bet_caller !== AI_IDX) return null;
   if (room.col_bet_phase === 'RESPONDER' && room.col_bet_caller === AI_IDX) return null;
-  const myS = totalScore(ai), oppS = totalScore(opp);
-  const diff = myS - oppS;
+  const myScore = totalScore(ai), oppScore = totalScore(opp);
+  const diff = myScore - oppScore;
   let myStrength = 0;
   for (const c of ai.hand) if (c !== '瞬') myStrength += BV[c];
-  const shunBonus = ai.hand.filter(c => c === '瞬').length * 5;
-  const momentum = myStrength + shunBonus;
+  const myHandCount = Math.max(1, ai.hand.length);
   const oppHandCount = Math.max(1, opp.hand.length);
+  const shunCount = ai.hand.filter(c => c === '瞬').length;
+  const highCards = ai.hand.filter(c => c === 'A' || c === 'B' || c === 'C').length;
+  const avgMyBV = myStrength / myHandCount;
+  const oppDist = _brain.oppHandDistribution(room, AI_IDX);
+  let oppExpectedStrength = 0;
+  for (const c in oppDist) oppExpectedStrength += oppDist[c] * (BV[c]||0);
+  const oppAvgBV = oppHandCount > 0 ? oppExpectedStrength / oppHandCount : 2.5;
+  const strengthAdv = avgMyBV - oppAvgBV;
+  const cardAdv = myHandCount - oppHandCount;
   if (room.col_bet_phase === 'CALLER'){
-    if (diff < -25 && momentum >= oppHandCount * 2.2) return ['COLLISION_BET', {amount: 20}];
-    if (diff < -12) return ['COLLISION_BET', {amount: 10}];
-    if (diff < 5 && momentum >= oppHandCount * 2.7) return ['COLLISION_BET', {amount: 10}];
+    if (strengthAdv > 1.0 && highCards >= 2) return ['COLLISION_BET', {amount: 20}];
+    if (diff < -20 && (strengthAdv > 0.5 || shunCount >= 2)) return ['COLLISION_BET', {amount: 20}];
+    if (strengthAdv > 0.3 || cardAdv >= 2) return ['COLLISION_BET', {amount: 10}];
+    if (diff < -10) return ['COLLISION_BET', {amount: 10}];
+    if (shunCount >= 1 && highCards >= 1) return ['COLLISION_BET', {amount: 10}];
     return ['COLLISION_BET', {amount: 0}];
   }
   const bet = room.col_bet_amount;
-  if (diff > bet + 8) return ['COLLISION_BET', {choice: 'fold'}];
-  if (momentum >= oppHandCount * 2.2) return ['COLLISION_BET', {choice: 'follow'}];
-  if (diff < -12) return ['COLLISION_BET', {choice: 'follow'}];
-  if (bet === 10 && diff >= -8) return ['COLLISION_BET', {choice: 'follow'}];
-  return ['COLLISION_BET', {choice: 'fold'}];
+  if (strengthAdv > 0.5 || highCards >= 2) return ['COLLISION_BET', {choice: 'follow'}];
+  if (diff < -15) return ['COLLISION_BET', {choice: 'follow'}];
+  if (bet <= 10 && (strengthAdv > -0.5 || shunCount >= 1)) return ['COLLISION_BET', {choice: 'follow'}];
+  if (strengthAdv < -1.0 && diff > 10) return ['COLLISION_BET', {choice: 'fold'}];
+  return ['COLLISION_BET', {choice: 'follow'}];
 }
 
 const DELAY = {
+  BLUFF_DECLARE:[400,800], BLUFF_RESPOND:[400,800],
+  PROPHET_WHISPER:[500,900], PROPHET_DECK:[300,500], RED_BID:[600,1000],
   DRAW_ACK:[150,300], MARKET_BUY:[400,700], MARKET_SKIP:[150,300],
   AMBUSH_DECIDE:[300,500], AMBUSH_PAY_COST:[250,400], AMBUSH_ATK_SELECT:[300,500],
   AMBUSH_DEFEND:[300,550], AMBUSH_CANCEL:[150,250],

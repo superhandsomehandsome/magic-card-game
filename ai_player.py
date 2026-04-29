@@ -364,42 +364,68 @@ def _near_combos(hand, room, pidx):
 
 
 def _card_value(card, hand, room, pidx):
-    """Value of keeping a card; higher = more important."""
+    """Enhanced value estimation of keeping a card.
+    Considers combo potential, ambush utility, collision strength, and synergy."""
     if card == '瞬':
-        return 50
+        return 55  # Very valuable: ambush absorb + collision tie-forcing
     ct = Counter(c for c in hand if c != '瞬')
-    score = BV[card] * 2
+    score = BV[card] * 2.5  # Base value slightly higher
     have = ct.get(card, 0)
 
     def slots(k): return room._slots_left(pidx, k)
 
+    # Dragon breath potential
     if have >= 4 and slots('dragon_breath') > 0:
-        score += 40
-    elif have >= 3:
-        if slots('triple_resonance') > 0:
-            score += 20
-        if slots('dragon_breath') > 0:
-            score += 15
+        score += 50
+    elif have >= 3 and slots('dragon_breath') > 0:
+        score += 25
+    elif have >= 3 and slots('triple_resonance') > 0:
+        score += 22
 
+    # Arcane sequence (ABCDE)
     if card in 'ABCDE' and slots('arcane_sequence') > 0:
-        needed = sum(1 for c in 'ABCDE' if c not in ct or (c == card and ct[c] == 1))
-        if needed <= 2:
-            score += 25 - needed * 5
-    if card in 'BCDEF' and slots('elemental_surge') > 0:
-        needed = sum(1 for c in 'BCDEF' if c not in ct or (c == card and ct[c] == 1))
-        if needed <= 2:
-            score += 18 - needed * 5
+        present = sum(1 for c in 'ABCDE' if c in ct)
+        if present >= 3:
+            score += 30 - (5 - present) * 5
+        elif present >= 2:
+            score += 12
 
+    # Elemental surge (BCDEF)
+    if card in 'BCDEF' and slots('elemental_surge') > 0:
+        present = sum(1 for c in 'BCDEF' if c in ct)
+        if present >= 3:
+            score += 22 - (5 - present) * 4
+        elif present >= 2:
+            score += 8
+
+    # Chaos alchemy (3+2)
     if have >= 2 and slots('chaos_alchemy') > 0:
         for other in ct:
             if other != card and ct[other] >= 2:
-                score += 12
+                score += 15
                 break
+        if have >= 3:
+            for other in ct:
+                if other != card and ct[other] >= 1:
+                    score += 12
+                    break
 
+    # Ant colony
     if card == 'F':
         f_cnt = ct.get('F', 0)
         if f_cnt >= ANT_COLONY_MIN_F - 1 and slots('ant_colony') > 0:
-            score += f_cnt * 3
+            score += f_cnt * 4
+
+    # Ambush utility: A is great for attacking, high-rank cards are strong
+    if card == 'A':
+        score += 10  # Top ambush card
+    elif card == 'B':
+        score += 5
+
+    # Collision value: high BV cards win collision rounds
+    deck_left = len(room.deck) if hasattr(room, 'deck') else 20
+    if deck_left <= 12:
+        score += BV[card] * 2  # Cards become more valuable near endgame
 
     return score
 
@@ -509,92 +535,122 @@ def decide(room):
 
 # ── Market (V5) ──────────────────────────────────────────
 def _decide_market(ai, opp, room):
-    """Buy a card from market if it completes a near combo or is high-tempo."""
+    """Aggressive market strategy. Dark market = always take (it's free).
+    Regular market = buy if it completes combos or is high-tempo."""
     market = room.market
     if not market or room.market_buy_done[AI_IDX]:
         return ('MARKET_SKIP', {})
 
     hand = ai['hand']
     ct = Counter(c for c in hand if c != '瞬')
+    is_dark = room._is_dark_market_turn()
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
 
-    # Determine needs
     def slots(k): return room._slots_left(AI_IDX, k)
+
+    # Build priority map for each card type
     needs_priority = {}
+    # Arcane sequence (ABCDE) — highest value combo
     if slots('arcane_sequence') > 0:
+        missing = [c for c in 'ABCDE' if c not in ct]
+        arc_heat = max(0, 100 - 10 * len(missing))
         for c in 'ABCDE':
             if c not in ct:
-                needs_priority[c] = max(needs_priority.get(c, 0), 100 - 5 * sum(1 for x in 'ABCDE' if x not in ct))
+                needs_priority[c] = max(needs_priority.get(c, 0), arc_heat)
+    # Elemental surge (BCDEF)
     if slots('elemental_surge') > 0:
+        missing = [c for c in 'BCDEF' if c not in ct]
+        ele_heat = max(0, 85 - 10 * len(missing))
         for c in 'BCDEF':
             if c not in ct:
-                needs_priority[c] = max(needs_priority.get(c, 0), 80 - 5 * sum(1 for x in 'BCDEF' if x not in ct))
+                needs_priority[c] = max(needs_priority.get(c, 0), ele_heat)
+    # Dragon breath (5 of a kind)
     for c, n in ct.items():
-        if c == '瞬':
-            continue
-        if n == 4 and slots('dragon_breath') > 0:
-            needs_priority[c] = max(needs_priority.get(c, 0), 120)
+        if c == '瞬': continue
+        if n >= 3 and slots('dragon_breath') > 0:
+            needs_priority[c] = max(needs_priority.get(c, 0), 60 + n * 25)
         if n == 2 and slots('triple_resonance') > 0:
-            needs_priority[c] = max(needs_priority.get(c, 0), 70)
+            needs_priority[c] = max(needs_priority.get(c, 0), 65)
+    # Chaos alchemy (3+2) — need more of existing pairs/triples
+    if slots('chaos_alchemy') > 0:
+        for c, n in ct.items():
+            if c == '瞬': continue
+            if n >= 2:
+                needs_priority[c] = max(needs_priority.get(c, 0), 55 + n * 8)
+    # Ant colony (need F)
+    if slots('ant_colony') > 0:
+        f_cnt = ct.get('F', 0)
+        if f_cnt >= 1:
+            needs_priority['F'] = max(needs_priority.get('F', 0), 40 + f_cnt * 12)
+    # General card value: A/B always useful for ambush
+    needs_priority['A'] = max(needs_priority.get('A', 0), 55)
+    needs_priority['B'] = max(needs_priority.get('B', 0), 30)
+    needs_priority['瞬'] = max(needs_priority.get('瞬', 0), 40)
 
-    # Dark market: blind buy with reduced enthusiasm
-    is_dark = room._is_dark_market_turn()
-
-    best_idx = -1
-    best_pri = -1
-    for i, mc in enumerate(market):
-        if is_dark:
-            # 黑市：按未见牌池估计「随机一位」的期望完成度，比纯随机更敢买关键节奏
-            unseen = _brain.unseen_distribution(room, AI_IDX)
-            tot = sum(unseen.values())
+    # Dark market: FREE pick — always take the best expected value
+    if is_dark:
+        unseen = _brain.unseen_distribution(room, AI_IDX)
+        tot = sum(unseen.values())
+        best_idx = -1
+        best_ev = -1
+        for i in range(len(market)):
             if tot > 0:
-                ev_slot = sum(
-                    unseen[c] / tot * (needs_priority.get(c, 0) + BV.get(c, 1) * 4)
+                ev = sum(
+                    unseen[c] / tot * (needs_priority.get(c, 0) + BV.get(c, 1) * 5)
                     for c in unseen if c != '瞬'
                 )
             else:
-                ev_slot = 18
-            pri = int(ev_slot * 0.55 + random.uniform(6, 28))
-        else:
-            pri = needs_priority.get(mc, 0)
-            if pri == 0:
-                # Tempo bonuses: A/B for ambush leverage
-                if mc == 'A':
-                    pri = 50
-                elif mc == 'B':
-                    pri = 25
-                elif mc == '瞬':
-                    pri = 15
+                ev = 25
+            ev += random.uniform(0, 10)
+            if ev > best_ev:
+                best_ev = ev
+                best_idx = i
+        if best_idx >= 0:
+            return ('MARKET_BUY', {'market_idx': best_idx, 'payment': []})
+        return ('MARKET_BUY', {'market_idx': 0, 'payment': []})
+
+    # Regular market: evaluate each card
+    best_idx = -1
+    best_pri = -1
+    for i, mc in enumerate(market):
+        pri = needs_priority.get(mc, BV.get(mc, 1) * 3)
+        # Urgency bonus when behind
+        if opp_score - my_score > 20:
+            pri += 15
+        # Late game bonus — need combos NOW
+        if len(room.deck) <= 15:
+            pri += 10
         if pri > best_pri:
             best_pri = pri
             best_idx = i
 
-    if best_idx < 0 or best_pri < (14 if is_dark else 20):
+    if best_idx < 0 or best_pri < 15:
         return ('MARKET_SKIP', {})
-
-    if is_dark:
-        return ('MARKET_BUY', {'market_idx': best_idx, 'payment': []})
 
     target = market[best_idx]
     target_v = _bv(target)
 
-    sorted_hand = sorted(hand, key=lambda c: (c == '瞬', _bv(c)))
+    # Choose payment: sacrifice least valuable cards
+    sorted_hand = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
     payment = []
     total = 0
     for c in sorted_hand:
         if total >= target_v:
             break
         cv = _card_value(c, hand, room, AI_IDX)
-        if cv >= 60 and total + _bv(c) > target_v + 4:
+        if cv >= 55 and best_pri < 90:
             continue
         payment.append(c)
         total += _bv(c)
     if total < target_v:
         return ('MARKET_SKIP', {})
 
-    if total > target_v * 1.5 and best_pri < 70:
+    # Don't overpay unless the card is critical
+    if total > target_v * 1.6 and best_pri < 60:
         return ('MARKET_SKIP', {})
-
-    if len(hand) - len(payment) + 1 < 3:
+    # Keep at least 2 cards after buying
+    if len(hand) - len(payment) + 1 < 2:
         return ('MARKET_SKIP', {})
 
     return ('MARKET_BUY', {'market_idx': best_idx, 'payment': payment})
@@ -602,43 +658,48 @@ def _decide_market(ai, opp, room):
 
 # ── Lockdown Placement (V5) ──────────────────────────────
 def _decide_lockdown_place(ai, opp, room):
-    """Predictive lockdown using ZeroBrain — lock the rank that maximally
-    disrupts opponent's projected combo."""
+    """Aggressive predictive lockdown. Uses ZeroBrain to identify the rank
+    that will most disrupt opponent's combo potential."""
     hand = ai['hand']
-    if len(hand) <= 3:
+    if len(hand) <= 2:
         return ('LOCKDOWN_SKIP', {})
 
     my_total = _total_score(ai)
     opp_total = _total_score(opp)
     diff = my_total - opp_total
 
-    # Don't lockdown when far behind (waste of card)
-    if diff < -30:
+    # Don't lockdown when very far behind AND hand is tiny (every card matters)
+    if diff < -40 and len(hand) <= 3:
         return ('LOCKDOWN_SKIP', {})
 
-    # Use brain to find optimal target rank
     target_rank = _brain.best_lockdown_rank(room, AI_IDX)
     ct = Counter(c for c in hand if c != '瞬')
 
-    # If we have the target rank, sacrifice 1 of it
+    # Try to place the target rank card
     if ct.get(target_rank, 0) >= 1:
-        # But protect combo-key cards
-        # Only lock if we have spare of the rank (have ≥2) OR
-        # we have low expendability cost
         if ct.get(target_rank, 0) >= 2:
             return ('LOCKDOWN_PLACE', {'card': target_rank})
-        # Have only 1, check value
-        if _card_value(target_rank, hand, room, AI_IDX) < 30:
+        if _card_value(target_rank, hand, room, AI_IDX) < 35:
             return ('LOCKDOWN_PLACE', {'card': target_rank})
 
-    # Fall back: pick least valuable non-瞬 card if we have plenty of cards
-    if len(hand) >= 6:
+    # If we're ahead or even, proactively lock with a cheap card
+    if diff >= -10 and len(hand) >= 4:
         eligible = [c for c in hand if c != '瞬']
         if eligible:
             rated = sorted(eligible, key=lambda c: _card_value(c, hand, room, AI_IDX))
-            # Only place if expendability is high (low value loss)
             cheapest = rated[0]
-            if _card_value(cheapest, hand, room, AI_IDX) < 25:
+            if _card_value(cheapest, hand, room, AI_IDX) < 30:
+                return ('LOCKDOWN_PLACE', {'card': cheapest})
+
+    # Behind but opponent is building big combos — disrupt
+    opp_dist = _brain.opp_hand_distribution(room, AI_IDX)
+    opp_max = _estimate_opp_max_combo(opp_dist, room)
+    if opp_max >= 25 and len(hand) >= 4:
+        eligible = [c for c in hand if c != '瞬']
+        if eligible:
+            rated = sorted(eligible, key=lambda c: _card_value(c, hand, room, AI_IDX))
+            cheapest = rated[0]
+            if _card_value(cheapest, hand, room, AI_IDX) < 35:
                 return ('LOCKDOWN_PLACE', {'card': cheapest})
 
     return ('LOCKDOWN_SKIP', {})
@@ -646,7 +707,8 @@ def _decide_lockdown_place(ai, opp, room):
 
 # ── Ambush ───────────────────────────────────────────────
 def _decide_ambush(ai, opp, room):
-    """Decide to skip or attack (1st or 2nd ambush)."""
+    """Aggressive ambush strategy. Attack whenever EV is positive,
+    and also when we need tempo or to disrupt opponent's combo building."""
     hand = ai['hand']
     eligible = [c for c in hand if c != '瞬']
 
@@ -659,34 +721,42 @@ def _decide_ambush(ai, opp, room):
     if not opp['hand']:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
-    # 2nd ambush cost gate
     is_second = room.ambush_count_this_turn >= 1
     if is_second:
         if len(hand) <= AMBUSH_SECOND_COST + 2:
             return ('AMBUSH_DECIDE', {'choice': 'skip'})
-        # Only do 2nd if opp still has cards to steal
-        if len(opp['hand']) < 3:
+        if len(opp['hand']) < 2:
             return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
     diff = my_score - opp_score
 
+    # Check if we have a big combo ready — if so, score it instead
     playable = _detect_playable(room, AI_IDX)
-    if playable and playable[0][3] >= 25:
-        # Would rather score
+    if playable and playable[0][3] >= 35:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
-    if diff > 35 and len(hand) <= 5:
+    # Very far ahead with small hand — no need to risk
+    if diff > 45 and len(hand) <= 4:
         return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
-    # ZeroBrain EV check: only attack if we have positive-EV card
+    # ZeroBrain EV check
     best_atk = _brain.best_attack_card(room, AI_IDX)
-    if best_atk is None:
-        # No positive-EV attack available — skip
-        return ('AMBUSH_DECIDE', {'choice': 'skip'})
+    if best_atk is not None:
+        return ('AMBUSH_DECIDE', {'choice': 'attack'})
 
-    return ('AMBUSH_DECIDE', {'choice': 'attack'})
+    # Even without positive EV, attack to disrupt if opponent is building something big
+    opp_dist = _brain.opp_hand_distribution(room, AI_IDX)
+    opp_max = _estimate_opp_max_combo(opp_dist, room)
+    if opp_max >= 30 and len(eligible) >= 3 and not is_second:
+        return ('AMBUSH_DECIDE', {'choice': 'attack'})
+
+    # Attack when behind to disrupt opponent's tempo
+    if diff < -15 and len(eligible) >= 3 and len(opp['hand']) >= 4 and not is_second:
+        return ('AMBUSH_DECIDE', {'choice': 'attack'})
+
+    return ('AMBUSH_DECIDE', {'choice': 'skip'})
 
 
 def _decide_pay_cost(ai, room):
@@ -717,31 +787,61 @@ def _decide_atk_select(ai, opp, room):
 
 
 def _decide_defend(ai, opp, room):
-    """AI defender — uses ZeroBrain EV calculation over attack distribution."""
+    """Aggressive AI defender — fights back instead of folding.
+    Uses ZeroBrain EV calculation and considers combo preservation."""
     hand = ai['hand']
     eligible = [c for c in hand if c != '瞬']
     has_instant = '瞬' in hand
 
-    # Fold when hand is very weak
     if not eligible and not has_instant:
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
 
-    # Check for combo emergency: if our hand has a near-completed big combo,
-    # don't risk our cards
-    near = _near_combos(hand, room, AI_IDX)
-    high_value_near = [c for c in near if c[2] >= 80 and c[1] <= 1]
-    if high_value_near and len(hand) <= 5:
-        # Use 瞬 if available; else just fold to preserve combo
-        if has_instant:
-            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
-        return ('AMBUSH_DEFEND', {'choice': 'fold'})
+    # Known attack card (server has it)
+    atk_known = getattr(room, 'atk_card', None)
 
-    # Brain-based optimal decision
+    # If we have 瞬 and the attack is A/B (high value), always absorb
+    if has_instant and atk_known in ('A', 'B'):
+        return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
+
+    # Check for combo emergency: near-completed big combo
+    near = _near_combos(hand, room, AI_IDX)
+    high_value_near = [c for c in near if c[2] >= 70 and c[1] <= 1]
+
+    # If we know the attack card, pick the optimal counter
+    if atk_known and eligible:
+        from game_logic import compare_duel
+        # Find cards that beat the attack
+        winners = [c for c in set(eligible) if compare_duel(atk_known, c) == -1]
+        if winners:
+            # Pick the cheapest winner (preserve valuable cards)
+            winners.sort(key=lambda c: _card_value(c, hand, room, AI_IDX))
+            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': winners[0]})
+
+        # No winner available — use 瞬 if attack is valuable
+        if has_instant and BV.get(atk_known, 0) >= 4:
+            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
+
+        # If near-combo and hand is small, fold to preserve
+        if high_value_near and len(hand) <= 4:
+            if has_instant:
+                return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
+            return ('AMBUSH_DEFEND', {'choice': 'fold'})
+
+        # Tie cards (same rank) — use expendable one to force tie
+        tie_cards = [c for c in set(eligible) if compare_duel(atk_known, c) == 0]
+        if tie_cards:
+            tie_cards.sort(key=lambda c: _card_value(c, hand, room, AI_IDX))
+            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': tie_cards[0]})
+
+    # Brain-based optimal decision (when attack card is uncertain)
     decision = _brain.best_defense_card(room, AI_IDX, can_fold=True)
     if decision is None:
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
     choice, card = decision
     if choice == 'fold':
+        # Even when brain says fold, fight back if we have 瞬
+        if has_instant and len(opp['hand']) >= 3:
+            return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
     return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': card})
 
@@ -780,63 +880,80 @@ def _decide_defend_legacy(ai, opp, room):
 
 # ── Spell ────────────────────────────────────────────────
 def _decide_spell(ai, opp, room):
+    """Enhanced spell phase: smarter combo selection, more aggressive prophet/instant use."""
     hand = ai['hand']
     pad = ai['scorepad']
     opp_pad = opp['scorepad']
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
     opp_dist0 = _brain.opp_hand_distribution(room, AI_IDX)
-    opp_pressure = opp_score + _estimate_opp_max_combo(opp_dist0, room) >= WIN_SCORE
+    opp_max = _estimate_opp_max_combo(opp_dist0, room)
+    opp_pressure = opp_score + opp_max >= WIN_SCORE
+    deck_left = len(room.deck)
 
+    # Breaker marks: use them first
     if ai['breaker_marks'] > 0:
         action = _decide_breaker(room, ai, opp)
         if action:
             return action
 
+    # Try to play combos
     playable = _detect_playable(room, AI_IDX)
     if playable:
         best = _pick_best_combo(playable, hand, room, ai, opp)
         if best:
             key, name, cards, score = best
-            # V5: Check if this combo is lockdown'd by opponent
             opp_lock = opp.get('lockdown_card')
             if opp_lock and opp_lock != '瞬' and opp_lock in cards:
-                # Decide break method
                 if ai['breaker_marks'] > 0:
                     return ('SPELL_SCORE', {
                         'cards': cards, 'combo_key': key, 'break_lockdown': 'marker'
                     })
-                # 强势 AI：更值得为中等分连招付 15 破锁
-                if score >= (18 if (my_score + 30 >= WIN_SCORE or opp_pressure) else 22):
+                # More aggressive lockdown breaking: pay if combo is worth it
+                break_threshold = 15 if (opp_pressure or my_score + score >= WIN_SCORE) else 20
+                if score >= break_threshold:
                     return ('SPELL_SCORE', {
                         'cards': cards, 'combo_key': key, 'break_lockdown': 'pay'
                     })
-                # Else skip this combo, try next
-                # Re-iterate to find one not blocked
+                # Try alternatives
                 for entry in playable:
                     k2, n2, c2, s2 = entry
-                    if not opp_lock in c2:
+                    if opp_lock not in c2:
                         return ('SPELL_SCORE', {'cards': c2, 'combo_key': k2})
-                # No alternative — fall through to other actions
             else:
                 return ('SPELL_SCORE', {'cards': cards, 'combo_key': key})
 
+    # Instant usage: more aggressive hand cycling
     if '瞬' in hand and room.instant_count < INSTANT_PER_TURN:
         instant_action = _decide_instant(hand, room, ai, opp)
         if instant_action:
             return instant_action
 
-    # Sacrifice only as late-game comeback
+    # Sacrifice for comeback
     sac = _decide_sacrifice(ai, opp, room)
     if sac:
         return sac
 
-    # 先知低语: use late-game if not used, behind, and can afford
-    if not ai.get('prophet_used', False):
-        if my_score >= PROPHET_COST and opp_score - my_score >= 15:
+    # Prophet's Whisper: use proactively, not just when behind
+    if not ai.get('prophet_used', False) and my_score >= PROPHET_COST:
+        should_peek = False
+        # Use when behind
+        if opp_score - my_score >= 10:
+            should_peek = True
+        # Use proactively in mid-game to gain info advantage
+        if deck_left >= 15 and deck_left <= 35 and my_score >= 15:
+            should_peek = True
+        # Use when opponent has big hand (they're building something)
+        if len(opp['hand']) >= 6:
+            should_peek = True
+        # Use when we need info for ambush/lockdown decisions
+        if deck_left <= 20 and not should_peek and opp_score >= my_score:
+            should_peek = True
+
+        if should_peek:
             if len(room.deck) > PROPHET_PEEK_HAND_MIN_DECK:
                 return ('PROPHET_WHISPER', {'choice': 'peek_hand'})
-            else:
+            elif len(room.deck) > 0:
                 return ('PROPHET_WHISPER', {'choice': 'peek_deck'})
 
     return ('SPELL_SKIP', {})
@@ -859,27 +976,30 @@ def _decide_breaker(room, ai, opp):
 
 
 def _pick_best_combo(playable, hand, room, ai, opp):
-    """Multi-turn lookahead combo selection.
+    """Advanced multi-turn lookahead combo selection with opponent modeling.
     Considers: winning shot, red contention pressure, future combo potential,
-    opponent's likely next combo, and lockdown risk."""
+    opponent's likely next combo, lockdown risk, and tempo advantage."""
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
+    deck_left = len(room.deck)
 
-    # 1) Immediate winning move = always take it
+    # 1) Immediate winning move = always take it (pick cheapest card cost)
     winning = [p for p in playable if my_score + p[3] >= WIN_SCORE]
     if winning:
         return min(winning, key=lambda p: len(p[2]))
 
-    # 2) Check opponent's potential winning combo from belief — if they could
-    # win next turn, we MUST score now (even at cost) to gain ground first
+    # 2) Opponent threat analysis
     opp_dist = _brain.opp_hand_distribution(room, AI_IDX)
     opp_max_combo_estimate = _estimate_opp_max_combo(opp_dist, room)
     opp_pressure = opp_score + opp_max_combo_estimate >= WIN_SCORE
+    opp_close = opp_score >= WIN_SCORE * 0.7
 
-    # 3) Red contention — if opp could fill red and we have it, prioritize
+    # 3) Red zone priority — if we have red combos, ALWAYS prioritize them
     reds = [p for p in playable if p[0] in RED_KEYS]
-    if reds and (opp_pressure or my_score >= WIN_SCORE * 0.4):
-        return max(reds, key=lambda p: p[3])
+    if reds:
+        best_red = max(reds, key=lambda p: p[3])
+        if opp_pressure or my_score >= WIN_SCORE * 0.3 or best_red[3] >= 30:
+            return best_red
 
     scored = []
     from scoring import detect_playable
@@ -898,94 +1018,153 @@ def _pick_best_combo(playable, hand, room, ai, opp):
         if ai['curse_active']:
             effective -= 10
 
-        # Reward bonuses
+        # === Reward multipliers ===
         if key in RED_KEYS:
-            effective += 18  # red punish opp = ~2 stolen cards from opp = ~10 BV value
-        elif key in BLUE_KEYS or key in GREEN_KEYS:
-            effective += 6  # +1 draw value
+            effective += 22  # red zone punishes opponent AND gives big score
+        elif key in BLUE_KEYS:
+            effective += 8
+        elif key in GREEN_KEYS:
+            effective += 6
 
-        # Penalty: playing tiny ant_colony when better is brewing
-        if key == 'ant_colony' and len(cards) <= ANT_COLONY_MIN_F and len(room.deck) > 12:
-            effective -= 12
+        # Tempo bonus for scoring early (score differential advantage)
+        if my_score < opp_score:
+            effective += min(12, (opp_score - my_score) * 0.3)
 
-        # Penalty: locked combo (opp's lockdown will charge us 15 to break)
+        # Late-game urgency: score NOW
+        if deck_left <= 12:
+            effective += 10
+        if deck_left <= 6:
+            effective += 15
+
+        # High-value combo bonus (dragon/arcane are game-changers)
+        if base >= 40:
+            effective += 8
+
+        # Penalty: ant_colony too small early
+        if key == 'ant_colony' and len(cards) <= ANT_COLONY_MIN_F and deck_left > 12:
+            effective -= 8
+
+        # Penalty: locked combo (opp's lockdown)
         opp_lock = opp.get('lockdown_card')
         if opp_lock and opp_lock != '瞬' and opp_lock in cards:
             if ai['breaker_marks'] > 0:
-                effective -= 2  # marker is cheap
+                effective -= 2
             else:
-                effective -= 16  # 15 score break + tempo loss
+                effective -= 14
 
-        # Bonus: opponent pressure — we need score NOW
+        # Opponent pressure — we MUST score NOW or they win
         if opp_pressure:
-            effective += 8
+            effective += 12
+        elif opp_close:
+            effective += 6
 
-        total = effective + future_pot * 0.35
+        # Future value weighting: more weight if we have many cards left
+        future_weight = 0.4 if len(remaining) >= 4 else 0.2
+        total = effective + future_pot * future_weight
         scored.append((key, name, cards, base, total))
 
     scored.sort(key=lambda x: x[4], reverse=True)
     best = scored[0]
-    # Don't waste tiny combo unless deck running out
-    if best[3] < 14 and len(room.deck) > 18 and not opp_pressure:
+    # Lower threshold for scoring: even small combos help maintain tempo
+    min_score_threshold = 10 if (deck_left <= 15 or opp_pressure or opp_close) else 12
+    if best[3] < min_score_threshold and deck_left > 18 and not opp_pressure:
         return None
     return (best[0], best[1], best[2], best[3])
 
 
 def _estimate_opp_max_combo(opp_dist, room):
-    """Quick estimate of biggest combo opp could form with their hand."""
-    # Heuristic: take expected count and check biggest probable combo
-    score = 0
-    # Triple resonance: max(opp_dist[c] * 3) per c with count >= 3
+    """Comprehensive estimate of biggest combo opponent could form.
+    Uses expected card counts to assess multiple combo types."""
+    best = 0
+    # Dragon breath (5 of a kind)
     for c, cnt in opp_dist.items():
-        if c == '瞬':
-            continue
-        if cnt >= 3:
-            score = max(score, _scaled(10 + BV.get(c, 1) * 3))
-        if cnt >= 5:
-            score = max(score, _scaled(40 + BV.get(c, 1) * 5))
-    # Arcane sequence
-    if all(opp_dist.get(c, 0) >= 0.5 for c in 'ABCDE'):
-        score = max(score, _scaled(45))
-    # Elemental surge
-    if all(opp_dist.get(c, 0) >= 0.5 for c in 'BCDEF'):
-        score = max(score, _scaled(30))
-    return score
+        if c == '瞬': continue
+        if cnt >= 4.5:
+            best = max(best, _scaled(40 + BV.get(c, 1) * 5))
+        elif cnt >= 3.5:
+            best = max(best, _scaled(40 + BV.get(c, 1) * 5) * 0.6)
+        # Triple resonance
+        if cnt >= 2.5:
+            best = max(best, _scaled(10 + BV.get(c, 1) * 3))
+
+    # Arcane sequence (ABCDE)
+    arc_prob = min(opp_dist.get(c, 0) for c in 'ABCDE')
+    if arc_prob >= 0.4:
+        best = max(best, _scaled(45) * min(1.0, arc_prob))
+    # Elemental surge (BCDEF)
+    ele_prob = min(opp_dist.get(c, 0) for c in 'BCDEF')
+    if ele_prob >= 0.4:
+        best = max(best, _scaled(30) * min(1.0, ele_prob))
+
+    # Chaos alchemy (3+2)
+    for c1, n1 in opp_dist.items():
+        if c1 == '瞬': continue
+        if n1 >= 2.5:
+            for c2, n2 in opp_dist.items():
+                if c2 == '瞬' or c2 == c1: continue
+                if n2 >= 1.5:
+                    cards_bv = BV.get(c1, 1) * 3 + BV.get(c2, 1) * 2
+                    best = max(best, _scaled(20 + cards_bv) * 0.7)
+
+    # Ant colony
+    f_cnt = opp_dist.get('F', 0)
+    if f_cnt >= ANT_COLONY_MIN_F - 0.5:
+        best = max(best, _scaled(int(f_cnt) * 5))
+
+    return int(best)
 
 
 def _decide_instant(hand, room, ai, opp):
+    """More aggressive instant usage — cycle weak cards for better draws.
+    Use when we have trash cards OR when hand is large and unfocused."""
     non_instant = [c for c in hand if c != '瞬']
     if not non_instant:
         return None
+
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
+    deck_left = len(room.deck)
+
+    # Don't use instant if we already have a great combo
     playable = _detect_playable(room, AI_IDX)
-    if playable and playable[0][3] >= 25:
+    if playable and playable[0][3] >= 30:
         return None
 
     rated = [(c, _expendability(c, hand, room, AI_IDX)) for c in non_instant]
     rated.sort(key=lambda x: x[1], reverse=True)
-    trash = [c for c, exp in rated if exp >= 65]
+    trash = [c for c, exp in rated if exp >= 60]
 
-    if len(trash) < 2 and len(room.deck) > 10:
-        return None
-    discard_count = min(len(trash), 3) if trash else 0
-    if discard_count == 0:
-        if len(hand) >= 7:
-            discard_count = 2
-            trash = [c for c, _ in rated[:2]]
-        else:
-            return None
-    to_discard = trash[:discard_count]
-    return ('SPELL_INSTANT', {'discard_cards': to_discard})
+    # More aggressive: also count "mediocre" cards as discardable
+    mediocre = [c for c, exp in rated if exp >= 50]
+
+    if trash:
+        discard_count = min(len(trash), 3)
+        to_discard = trash[:discard_count]
+        return ('SPELL_INSTANT', {'discard_cards': to_discard})
+
+    # Use instant for hand cycling when hand is large and unfocused
+    if len(hand) >= 6 and len(mediocre) >= 2 and deck_left > 5:
+        to_discard = mediocre[:2]
+        return ('SPELL_INSTANT', {'discard_cards': to_discard})
+
+    # When behind, aggressively cycle even with fewer trash cards
+    if opp_score - my_score > 15 and len(mediocre) >= 1 and deck_left > 3:
+        to_discard = mediocre[:min(2, len(mediocre))]
+        return ('SPELL_INSTANT', {'discard_cards': to_discard})
+
+    return None
 
 
 def _decide_sacrifice(ai, opp, room):
-    """V3.0 sacrifice: only use if we're losing AND have a low-score slot to sac + good recovery targets."""
+    """Enhanced sacrifice strategy: use it as a powerful comeback tool.
+    Sacrifice low-value scored combos to recover high-value cards from discard."""
     pad = ai['scorepad']
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
-    if opp_score - my_score < 20:
-        return None  # Not desperate enough
+    # Use sacrifice more aggressively — even when slightly behind
+    if opp_score - my_score < 12:
+        return None
 
-    # Find a sacrificed slot: the *lowest* scoring one
     candidates = []
     for cfg in SCOREPAD_CONFIG:
         info = pad[cfg['key']]
@@ -993,38 +1172,33 @@ def _decide_sacrifice(ai, opp, room):
             candidates.append((cfg['key'], i, sc))
     if not candidates:
         return None
-    # Sacrifice the lowest scoring slot (least loss)
     candidates.sort(key=lambda x: x[2])
     slot_key, score_idx, lost = candidates[0]
 
-    # Find window discards worth picking
     window = room._sacrifice_window()
     if len(window) < 2:
         return None
-    # Rate each card by value if added to our hand
+
     hand = ai['hand']
     rated_recovery = sorted(
         [(idx, c, _card_value(c, hand + [c], room, AI_IDX)) for idx, c in window],
         key=lambda x: x[2], reverse=True
     )
-    # Only worth it if top recovery value >= 20
-    if rated_recovery[0][2] < 20:
+    # Lower threshold for recovery value
+    if rated_recovery[0][2] < 15:
         return None
 
     x = min(SACRIFICE_MAX_X, len(rated_recovery),
-            len([c for c in hand if _card_value(c, hand, room, AI_IDX) < 15]))
+            len([c for c in hand if _card_value(c, hand, room, AI_IDX) < 20]))
     if x < 1:
         return None
 
     recover_indices = [r[0] for r in rated_recovery[:x]]
-
-    # Pick x cards from hand to discard (lowest value)
     rated_discard = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
     discard_cards = rated_discard[:x]
 
-    # Only worth it if net value gain > lost score
     recovery_value = sum(r[2] for r in rated_recovery[:x])
-    if recovery_value < lost + 20:
+    if recovery_value < lost + 12:
         return None
 
     return ('SPELL_SACRIFICE', {
@@ -1048,15 +1222,23 @@ def _decide_end_discard(ai, room):
 
 # ── Collision ─────────────────────────────────────────────
 def _decide_col_pre_discard(ai, opp, room):
+    """Strategic pre-collision discard: keep strong cards, discard weak orphans."""
     hand = ai['hand']
     must = room._col_must_discard(AI_IDX)
     if must > 0:
         rated = sorted(hand, key=lambda c: _card_value(c, hand, room, AI_IDX))
         return ('COLLISION_PRE_DISCARD', {'cards': rated[:must]})
 
-    weak = [c for c in hand if c in ('E', 'F') and c != '瞬']
     ct = Counter(c for c in hand if c != '瞬')
+    # Discard orphan weak cards that won't help in collision
+    weak = [c for c in hand if c in ('E', 'F') and c != '瞬']
     orphan = [c for c in weak if ct[c] == 1 and BV[c] <= 2]
+
+    # Also consider discarding D orphans if hand is large
+    if len(hand) >= 6:
+        d_orphans = [c for c in hand if c == 'D' and ct.get('D', 0) == 1]
+        orphan.extend(d_orphans)
+
     if len(orphan) >= 2:
         return ('COLLISION_PRE_DISCARD', {'cards': orphan[:2]})
     if len(orphan) == 1:
@@ -1065,6 +1247,7 @@ def _decide_col_pre_discard(ai, opp, room):
 
 
 def _decide_col_bet(ai, opp, room):
+    """Smart collision betting based on hand quality comparison."""
     if room.col_bet_phase == 'CALLER' and room.col_bet_caller != AI_IDX:
         return None
     if room.col_bet_phase == 'RESPONDER' and room.col_bet_caller == AI_IDX:
@@ -1075,34 +1258,135 @@ def _decide_col_bet(ai, opp, room):
     diff = my_score - opp_score
     my_strength = _hand_strength(ai['hand'])
     opp_hand_count = max(1, len(opp['hand']))
-    shun_bonus = ai['hand'].count('瞬') * 5
-    momentum = my_strength + shun_bonus
+    my_hand_count = max(1, len(ai['hand']))
+    shun_count = ai['hand'].count('瞬')
+    # Count high-value cards (A, B, C)
+    high_cards = sum(1 for c in ai['hand'] if c in ('A', 'B', 'C'))
+
+    # Estimate hand quality relative to opponent
+    avg_my_bv = my_strength / my_hand_count
+    # Opponent's average expected BV
+    opp_dist = _brain.opp_hand_distribution(room, AI_IDX)
+    opp_expected_strength = sum(prob * BV.get(c, 0) for c, prob in opp_dist.items())
+    opp_avg_bv = opp_expected_strength / opp_hand_count if opp_hand_count > 0 else 2.5
+
+    strength_advantage = avg_my_bv - opp_avg_bv
+    card_advantage = my_hand_count - opp_hand_count
 
     if room.col_bet_phase == 'CALLER':
-        if diff < -25 and momentum >= opp_hand_count * 2.2:
+        # Bet big when we have clear advantage
+        if strength_advantage > 1.0 and high_cards >= 2:
             return ('COLLISION_BET', {'amount': 20})
-        if diff < -12:
+        if diff < -20 and (strength_advantage > 0.5 or shun_count >= 2):
+            return ('COLLISION_BET', {'amount': 20})
+        if strength_advantage > 0.3 or card_advantage >= 2:
             return ('COLLISION_BET', {'amount': 10})
-        if diff < 5 and momentum >= opp_hand_count * 2.7:
+        if diff < -10:
+            return ('COLLISION_BET', {'amount': 10})
+        # Even when even, bet 10 if we have shuns (tie-forcing is strong)
+        if shun_count >= 1 and high_cards >= 1:
             return ('COLLISION_BET', {'amount': 10})
         return ('COLLISION_BET', {'amount': 0})
+
+    # Responder phase
     bet = room.col_bet_amount
-    if diff > bet + 8:
+    # Always follow if we have strong hand
+    if strength_advantage > 0.5 or high_cards >= 2:
+        return ('COLLISION_BET', {'choice': 'follow'})
+    # Follow when behind (need the risk)
+    if diff < -15:
+        return ('COLLISION_BET', {'choice': 'follow'})
+    # Follow small bets more readily
+    if bet <= 10 and (strength_advantage > -0.5 or shun_count >= 1):
+        return ('COLLISION_BET', {'choice': 'follow'})
+    # Fold if clearly outmatched
+    if strength_advantage < -1.0 and diff > 10:
         return ('COLLISION_BET', {'choice': 'fold'})
-    if momentum >= opp_hand_count * 2.2:
-        return ('COLLISION_BET', {'choice': 'follow'})
-    if diff < -12:
-        return ('COLLISION_BET', {'choice': 'follow'})
-    if bet == 10 and diff >= -8:
-        return ('COLLISION_BET', {'choice': 'follow'})
-    return ('COLLISION_BET', {'choice': 'fold'})
+    return ('COLLISION_BET', {'choice': 'follow'})
 
 
 def _decide_col_arrange(ai):
-    """AI arranges cards for collision — shuffle randomly."""
+    """Strategic collision arrangement using game-theoretic optimal ordering.
+    Key insight: ties accumulate pot (+10 each), so we want to WIN rounds
+    where the pot is largest. Place 瞬 early to force ties and build pot,
+    then place strongest cards to win the accumulated pot."""
     hand = list(ai['hand'])
-    random.shuffle(hand)
-    return ('COLLISION_ARRANGE', {'order': hand})
+    if len(hand) <= 1:
+        return ('COLLISION_ARRANGE', {'order': hand})
+
+    shun_cards = [c for c in hand if c == '瞬']
+    non_shun = [c for c in hand if c != '瞬']
+    non_shun.sort(key=lambda c: RANK[c])  # A, B, C, D, E, F (strongest first)
+
+    n = len(hand)
+    if n <= 2:
+        # With 2 cards: put stronger card last (higher pot round)
+        non_shun.sort(key=lambda c: RANK[c], reverse=True)  # weakest first
+        order = shun_cards + non_shun
+        return ('COLLISION_ARRANGE', {'order': order})
+
+    # Strategy: front-load 瞬 cards to force ties and build pot,
+    # then place strongest cards at positions where pot will be largest.
+    # Also sprinkle some weak cards as "bait" rounds we're okay to lose.
+    #
+    # Optimal pattern for N cards with S shuns:
+    #   Positions 0..S-1: 瞬 (forces tie, pot grows)
+    #   Position S: strongest card (wins the big accumulated pot)
+    #   Position S+1: 2nd strongest (wins base pot)
+    #   ...remaining: weakest cards (expendable)
+    #
+    # But also consider: if we have many strong cards, alternate
+    # weak-strong to maximize wins across rounds.
+
+    strong = []  # cards we want to win with
+    weak = []    # cards we're okay losing
+
+    for c in non_shun:
+        if BV[c] >= 4:  # A, B, C
+            strong.append(c)
+        else:
+            weak.append(c)
+
+    # Sort strong by power (highest first), weak by power (lowest first)
+    strong.sort(key=lambda c: RANK[c])      # A first
+    weak.sort(key=lambda c: RANK[c], reverse=True)  # F first
+
+    if len(shun_cards) >= 2:
+        # Many 瞬: front-load them, then deploy strongest at the pot peak
+        order = list(shun_cards)
+        order += strong + weak
+    elif len(shun_cards) == 1:
+        # One 瞬: put it first to build pot, then strongest wins it
+        order = shun_cards + strong + weak
+    else:
+        # No 瞬: alternate weak-strong pattern
+        # Put a weak card round 0 (only 10 pot), strongest at round 1+
+        # Interleave: W S W S W ... or if we have more strong than weak,
+        # lead with weakest then all strong
+        order = []
+        si, wi = 0, 0
+        for pos in range(n):
+            if pos % 2 == 0 and wi < len(weak):
+                order.append(weak[wi]); wi += 1
+            elif si < len(strong):
+                order.append(strong[si]); si += 1
+            elif wi < len(weak):
+                order.append(weak[wi]); wi += 1
+            elif si < len(strong):
+                order.append(strong[si]); si += 1
+
+        # Ensure we don't accidentally leave cards out
+        placed = set()
+        for i, c in enumerate(order):
+            placed.add(id(c))
+        remaining_s = strong[si:]
+        remaining_w = weak[wi:]
+        order += remaining_s + remaining_w
+
+    # Final validation: must have exactly the same cards
+    if sorted(order) != sorted(hand):
+        order = hand[:]  # fallback
+    return ('COLLISION_ARRANGE', {'order': order})
 
 
 # ── Delay ────────────────────────────────────────────────
@@ -1142,66 +1426,105 @@ def get_delay(action):
 
 # ── Bluff Call (虚实之言) ─────────────────────────────
 def _decide_bluff_declare(ai, opp, room):
-    """AI rarely bluffs; when it does, picks a high-impact fake rank."""
+    """Strategic bluffing: AI bluffs when it benefits from intimidation,
+    and tells truth when the true card is already scary."""
     hand = ai['hand']
     true_card = room.atk_card
     if not true_card:
         return ('BLUFF_DECLARE', {'declared_rank': 'none'})
-    # Bluff ~30% of the time — declare a high-rank card to intimidate
-    if random.random() < 0.30:
-        # Pick a rank other than true (most threatening = A)
-        fakes = [c for c in 'ABCDEF' if c != true_card]
-        # Bias toward A/B for intimidation
-        weighted = ['A', 'A', 'B'] + fakes
-        declared = random.choice(weighted)
-        return ('BLUFF_DECLARE', {'declared_rank': declared})
-    # Sometimes tell truth (to build credibility or if true card is strong)
-    if true_card in ('A', 'B') and random.random() < 0.50:
+
+    true_rank = RANK.get(true_card, 6)
+
+    # Strong cards (A, B): usually tell truth to trigger fold
+    if true_card in ('A', 'B'):
+        # 70% truth (intimidation), 30% declare nothing (hide info)
+        if random.random() < 0.70:
+            return ('BLUFF_DECLARE', {'declared_rank': true_card})
+        return ('BLUFF_DECLARE', {'declared_rank': 'none'})
+
+    # Mid cards (C, D): bluff as A/B to intimidate ~40%
+    if true_card in ('C', 'D'):
+        if random.random() < 0.40:
+            declared = random.choice(['A', 'A', 'B'])
+            return ('BLUFF_DECLARE', {'declared_rank': declared})
+        if random.random() < 0.30:
+            return ('BLUFF_DECLARE', {'declared_rank': 'none'})
         return ('BLUFF_DECLARE', {'declared_rank': true_card})
+
+    # Weak cards (E, F): bluff aggressively 60%
+    if true_card in ('E', 'F'):
+        if random.random() < 0.60:
+            declared = random.choice(['A', 'B', 'B', 'C'])
+            return ('BLUFF_DECLARE', {'declared_rank': declared})
+        return ('BLUFF_DECLARE', {'declared_rank': 'none'})
+
     return ('BLUFF_DECLARE', {'declared_rank': 'none'})
 
 
 def _decide_bluff_respond(ai, opp, room):
-    """AI decides whether to call bluff based on declared rank vs expected distribution."""
+    """Smarter bluff calling using Bayesian reasoning and game context."""
     declared = room.bluff_declared_rank
     if declared is None:
         return ('BLUFF_RESPOND', {'choice': 'believe'})
-    # Use belief distribution to estimate P(declaration is true)
+
     unseen = _brain.unseen_distribution(room, AI_IDX)
-    total = max(1, sum(unseen.values()))
     atk_dist = _brain.opp_hand_distribution(room, AI_IDX)
-    # Probability that the declared rank was the real attack card
-    p_true = (atk_dist.get(declared, 0) / max(1, sum(v for k, v in atk_dist.items() if k != '瞬')))
-    # Call when we're fairly confident it's a bluff (p_true < 0.35)
-    # and the penalty for being wrong (BLUFF_CALL_PENALTY = 10) is acceptable
+    non_shun_total = sum(v for k, v in atk_dist.items() if k != '瞬')
+
+    # P(declared was the actual attack card)
+    p_true = (atk_dist.get(declared, 0) / max(1, non_shun_total))
+
     my_score = _total_score(ai)
-    call_threshold = 0.35 if my_score >= 20 else 0.25  # more cautious when losing
+    opp_score = _total_score(opp)
+
+    # If declared is A/B but opp has few of them in expected distribution → likely bluff
+    if declared in ('A', 'B') and p_true < 0.25:
+        # High confidence it's a bluff — call it
+        if my_score >= BLUFF_TRUE_PENALTY:
+            return ('BLUFF_RESPOND', {'choice': 'call'})
+
+    # If we're ahead, we can afford to call more aggressively
+    if my_score - opp_score > 20 and p_true < 0.40:
+        return ('BLUFF_RESPOND', {'choice': 'call'})
+
+    # General threshold
+    call_threshold = 0.30 if my_score >= 25 else 0.22
     if p_true < call_threshold:
         return ('BLUFF_RESPOND', {'choice': 'call'})
+
     return ('BLUFF_RESPOND', {'choice': 'believe'})
 
 
 # ── Red Zone Bid (红区暗标拍卖) ────────────────────────
 def _decide_red_bid(ai, opp, room, ai_idx):
+    """Strategic red zone bidding. Bid higher when the combo score is significant
+    or when we need to deny it from opponent."""
     if room.red_bid_done[ai_idx]:
         return None
     hand = ai['hand']
     my_score = _total_score(ai)
     opp_score = _total_score(opp)
-    # Bid more when behind or the red zone score is critical
     trigger_score = room.red_bid_trigger_score
     diff = my_score - opp_score
-    # Estimate how many cards to bid (1-3)
-    # Bid aggressively if behind or if red zone is worth a lot
-    if diff < -20 or trigger_score >= 50:
+
+    # Calculate how much winning this bid matters
+    # If this could win us the game, bid max
+    if my_score + trigger_score >= WIN_SCORE:
         n_bid = RED_BID_MAX
-    elif diff < 0 or trigger_score >= 30:
-        n_bid = 2
+    # If opponent winning this would put them close to victory, bid max to deny
+    elif opp_score + trigger_score >= WIN_SCORE * 0.85:
+        n_bid = RED_BID_MAX
+    # Big combo or behind: bid aggressively
+    elif diff < -15 or trigger_score >= 40:
+        n_bid = RED_BID_MAX
+    elif diff < 0 or trigger_score >= 25:
+        n_bid = min(RED_BID_MAX, 2)
     else:
         n_bid = RED_BID_MIN
+
     n_bid = min(n_bid, len(hand), RED_BID_MAX)
     n_bid = max(n_bid, RED_BID_MIN)
-    # Bid lowest-value cards first (preserve combo pieces)
-    eligible = sorted(hand, key=lambda c: BV.get(c, 1))
+    # Bid lowest-BV cards first, but consider card value for combo potential
+    eligible = sorted(hand, key=lambda c: _card_value(c, hand, room, ai_idx))
     bid_cards = eligible[:n_bid]
     return ('RED_BID', {'cards': bid_cards})
