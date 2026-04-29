@@ -16,6 +16,254 @@ const SCOREPAD_CFG = [
 const TIER_CLS = {1:'t1',2:'t2',3:'t3'};
 const RED_KEYS = new Set(['dragon_breath','arcane_sequence']);
 
+/* ══════════════════════════════════════════════
+   音效系统 (Web Audio API 合成，无需音效文件)
+   ══════════════════════════════════════════════ */
+let _sfxCtx = null;
+let sfxEnabled = true;
+
+function _getAudioCtx() {
+  if (!_sfxCtx) {
+    try { _sfxCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  if (_sfxCtx && _sfxCtx.state === 'suspended') _sfxCtx.resume().catch(()=>{});
+  return _sfxCtx;
+}
+
+function _playTone(freq, type, duration, volume, opts = {}) {
+  const ctx = _getAudioCtx();
+  if (!ctx || !sfxEnabled) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (opts.slide) osc.frequency.linearRampToValueAtTime(opts.slide, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+function _playNoise(duration, volume) {
+  const ctx = _getAudioCtx();
+  if (!ctx || !sfxEnabled) return;
+  try {
+    const bufLen = ctx.sampleRate * duration;
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 800;
+    src.buffer = buf;
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    src.start();
+  } catch(e) {}
+}
+
+const SFX = {
+  // 摸牌：轻柔纸张感
+  draw() {
+    _playNoise(0.06, 0.15);
+    _playTone(900, 'sine', 0.08, 0.06);
+  },
+  // 选中一张牌：清脆点击
+  select() {
+    _playTone(1200, 'sine', 0.07, 0.12);
+    _playTone(1600, 'sine', 0.05, 0.06);
+  },
+  // 取消选中
+  deselect() {
+    _playTone(900, 'sine', 0.06, 0.08);
+  },
+  // 普通出牌/施法得分
+  score() {
+    _playTone(440, 'triangle', 0.06, 0.15);
+    setTimeout(() => _playTone(660, 'triangle', 0.08, 0.15), 60);
+    setTimeout(() => _playTone(880, 'sine', 0.15, 0.2), 130);
+  },
+  // 高级组合得分（红区/五条/大顺）
+  scoreBig() {
+    [0, 60, 120, 200].forEach((t, i) => {
+      const freqs = [330, 440, 550, 880];
+      setTimeout(() => _playTone(freqs[i], 'triangle', 0.25, 0.25), t);
+    });
+    setTimeout(() => {
+      _playTone(1100, 'sine', 0.4, 0.3);
+      _playNoise(0.15, 0.05);
+    }, 280);
+  },
+  // 黑市购买
+  buy() {
+    _playTone(350, 'sawtooth', 0.04, 0.1);
+    setTimeout(() => _playTone(500, 'triangle', 0.1, 0.2), 50);
+    setTimeout(() => _playTone(700, 'sine', 0.12, 0.15), 130);
+  },
+  // 暗市夜免费拿牌（神秘感）
+  darkMarket() {
+    _playTone(200, 'sine', 0.3, 0.12, {slide: 600});
+    setTimeout(() => _playTone(800, 'sine', 0.2, 0.15), 150);
+    setTimeout(() => _playNoise(0.1, 0.04), 200);
+  },
+  // 突袭发动（紧张）
+  ambush() {
+    _playTone(150, 'sawtooth', 0.08, 0.2, {slide: 80});
+    setTimeout(() => _playNoise(0.12, 0.2), 60);
+  },
+  // 突袭胜利
+  ambushWin() {
+    _playTone(330, 'square', 0.06, 0.18);
+    setTimeout(() => _playTone(500, 'square', 0.06, 0.18), 70);
+    setTimeout(() => _playTone(660, 'sine', 0.2, 0.25), 140);
+  },
+  // 突袭失败/被偷牌
+  ambushLose() {
+    _playTone(400, 'sawtooth', 0.08, 0.15, {slide: 180});
+    setTimeout(() => _playNoise(0.08, 0.12), 80);
+  },
+  // 封锁放置
+  lockdown() {
+    _playTone(220, 'square', 0.05, 0.15);
+    setTimeout(() => _playTone(180, 'square', 0.15, 0.2), 80);
+  },
+  // 封锁破拆
+  lockdownBreak() {
+    _playNoise(0.06, 0.3);
+    setTimeout(() => _playTone(600, 'sawtooth', 0.1, 0.2, {slide: 200}), 60);
+  },
+  // 对撞翻牌
+  colFlip() {
+    _playNoise(0.04, 0.1);
+    _playTone(500 + Math.random() * 200, 'sine', 0.1, 0.1);
+  },
+  // 对撞胜一局
+  colWin() {
+    _playTone(440, 'triangle', 0.08, 0.2);
+    setTimeout(() => _playTone(660, 'triangle', 0.12, 0.2), 90);
+  },
+  // 对撞平局/过载
+  colTie() {
+    _playTone(300, 'sine', 0.15, 0.1);
+    setTimeout(() => _playTone(300, 'sine', 0.15, 0.08), 180);
+  },
+  // 游戏胜利
+  victory() {
+    const melody = [523, 659, 784, 1047];
+    melody.forEach((f, i) => setTimeout(() => _playTone(f, 'triangle', 0.3, 0.3), i * 120));
+    setTimeout(() => {
+      _playTone(1047, 'sine', 0.6, 0.4);
+      _playNoise(0.1, 0.05);
+    }, 520);
+  },
+  // 游戏失败
+  defeat() {
+    _playTone(400, 'sawtooth', 0.1, 0.2, {slide: 200});
+    setTimeout(() => _playTone(250, 'sawtooth', 0.2, 0.35, {slide: 150}), 180);
+  },
+  // 按钮点击（通用）
+  click() {
+    _playTone(800, 'sine', 0.05, 0.08);
+  },
+  // 错误/不可用
+  error() {
+    _playTone(200, 'square', 0.05, 0.1);
+    setTimeout(() => _playTone(160, 'square', 0.1, 0.12), 80);
+  },
+  // 进入对撞前摆阵
+  colArrange() {
+    _playTone(300, 'sine', 0.05, 0.1);
+    setTimeout(() => _playTone(450, 'triangle', 0.1, 0.15), 80);
+    setTimeout(() => _playTone(600, 'sine', 0.08, 0.2), 180);
+  },
+  // 对撞开始（史诗感）
+  colStart() {
+    _playNoise(0.2, 0.25);
+    setTimeout(() => _playTone(110, 'sawtooth', 0.4, 0.3), 100);
+    setTimeout(() => _playTone(220, 'sawtooth', 0.3, 0.25), 250);
+  },
+};
+
+function toggleSFX() {
+  sfxEnabled = !sfxEnabled;
+  const btn = document.getElementById('sfxControl');
+  if (btn) btn.textContent = sfxEnabled ? '🔔' : '🔕';
+  SFX.click();
+}
+
+// 状态变化时触发音效
+function _triggerSFX(newS, oldS) {
+  if (!newS || !sfxEnabled) return;
+  const newPhase = newS.phase;
+  const oldPhase = oldS ? oldS.phase : null;
+
+  // 摸牌
+  if (newPhase === 'DRAW' && oldPhase !== 'DRAW') {
+    setTimeout(() => SFX.draw(), 100);
+  }
+  // 对撞开始
+  if (newPhase === 'COLLISION_ARRANGE' && oldPhase !== 'COLLISION_ARRANGE') {
+    SFX.colArrange();
+  }
+  if (newPhase === 'COLLISION_FLIP' && oldPhase === 'COLLISION_ARRANGE') {
+    SFX.colStart();
+  }
+  // 游戏结束
+  if (newPhase === 'GAME_OVER' && oldPhase !== 'GAME_OVER') {
+    if (newS.winner === newS.my_idx) SFX.victory();
+    else if (newS.winner >= 0) SFX.defeat();
+  }
+  // 对撞翻牌（检测 col_round 推进）
+  if (newPhase === 'COLLISION_FLIP' && oldS && oldS.phase === 'COLLISION_FLIP') {
+    const oldRound = (oldS.col_round || 0);
+    const newRound = (newS.col_round || 0);
+    if (newRound > oldRound) {
+      const lastLog = (newS.log || []).slice().reverse().find(e => e.type === 'col_result');
+      if (lastLog) {
+        if (lastLog.msg.includes('获胜')) SFX.colWin();
+        else if (lastLog.msg.includes('过载') || lastLog.msg.includes('平局')) SFX.colTie();
+        else SFX.colFlip();
+      } else {
+        SFX.colFlip();
+      }
+    }
+  }
+  // 得分（检测 log 中最新的 score 条目）
+  if (oldS && newS.log && oldS.log) {
+    const newLogs = newS.log.slice(oldS.log.length || 0);
+    for (const entry of newLogs) {
+      if (entry.type === 'score') {
+        const score = parseInt((entry.msg.match(/= (\d+) 分/) || [])[1] || '0');
+        if (score >= 30) SFX.scoreBig();
+        else SFX.score();
+      }
+      if (entry.type === 'red_bid_result') SFX.scoreBig();
+      if (entry.type === 'market_buy') {
+        if (entry.msg.includes('暗市夜')) SFX.darkMarket();
+        else SFX.buy();
+      }
+      if (entry.type === 'ambush_reveal') {
+        if (entry.msg.includes('攻击方胜') || entry.msg.includes('自动胜利')) SFX.ambushWin();
+        else if (entry.msg.includes('防守方胜') || entry.msg.includes('怯战')) SFX.ambushLose();
+        else SFX.colTie();
+      }
+      if (entry.type === 'lockdown_place') SFX.lockdown();
+      if (entry.type === 'lockdown_break') SFX.lockdownBreak();
+      if (entry.type === 'ambush_atk') SFX.ambush();
+    }
+  }
+}
+/* ══════════════════════════════════════════════ */
+
 /* State */
 let socket = null;
 let roomId = null;
@@ -92,6 +340,7 @@ function joinRoom() {
   socket.emit('join_room', {room_id: rid, name});
 }
 function sendAction(action, data={}) {
+  SFX.click();
   socket.emit('action', {room_id: roomId, action, data});
 }
 
@@ -107,6 +356,7 @@ function showWaiting() {
 
 /* State handler */
 function onState(s) {
+  const oldState = state;
   prevState = state;
   state = s;
   selectedCards = [];
@@ -117,6 +367,8 @@ function onState(s) {
     marketState = null;
     pendingLockedCombo = null;
   }
+
+  _triggerSFX(s, oldState);
 
   hideOverlay();
   if (s.phase === 'GAME_OVER') { renderGameOver(); return; }
@@ -317,10 +569,17 @@ function toggleCard(idx) {
   const p = state.phase;
   const single = (p === 'AMBUSH_ATK_SELECT' || p === 'AMBUSH_DEF_CHOICE');
   if (single) {
-    selectedCards = selectedCards.includes(idx) ? [] : [idx];
+    const wasSelected = selectedCards.includes(idx);
+    selectedCards = wasSelected ? [] : [idx];
+    if (wasSelected) SFX.deselect(); else SFX.select();
   } else {
-    if (selectedCards.includes(idx)) selectedCards = selectedCards.filter(i => i !== idx);
-    else selectedCards.push(idx);
+    if (selectedCards.includes(idx)) {
+      selectedCards = selectedCards.filter(i => i !== idx);
+      SFX.deselect();
+    } else {
+      selectedCards.push(idx);
+      SFX.select();
+    }
   }
   renderMyZone(false);
   renderArena();
@@ -548,6 +807,7 @@ function renderMarketPhase() {
 }
 
 function darkMarketPick(idx) {
+  SFX.darkMarket();
   sendAction('MARKET_BUY', {market_idx: idx, payment: []});
 }
 
@@ -1215,11 +1475,13 @@ function arraysEqualUnordered(a, b) {
 function arrangeSwap(idx) {
   if (arrangeSwapIdx < 0) {
     arrangeSwapIdx = idx;
+    SFX.select();
     renderArena();
     return;
   }
   if (arrangeSwapIdx === idx) {
     arrangeSwapIdx = -1;
+    SFX.deselect();
     renderArena();
     return;
   }
@@ -1227,6 +1489,7 @@ function arrangeSwap(idx) {
   arrangeOrder[arrangeSwapIdx] = arrangeOrder[idx];
   arrangeOrder[idx] = tmp;
   arrangeSwapIdx = -1;
+  SFX.buy();
   renderArena();
 }
 
@@ -1331,5 +1594,8 @@ function toggleBGM() {
 /* Init */
 document.addEventListener('DOMContentLoaded', () => {
   initSocket();
-  document.addEventListener('click', tryAutoPlayBGM, {once: true});
+  document.addEventListener('click', () => {
+    tryAutoPlayBGM();
+    _getAudioCtx(); // 初始化 AudioContext（需用户交互）
+  }, {once: true});
 });
