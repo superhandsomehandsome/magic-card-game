@@ -35,6 +35,10 @@ class AIDriver:
                 actor = r.col_bet_caller
             else:
                 actor = 1 - r.col_bet_caller
+        elif r.phase == 'COLLISION_ARRANGE':
+            for i in (0, 1):
+                if not r.col_arrange_done[i]:
+                    actor = i; break
         elif r.phase == 'COLLISION_FLIP':
             actor = r._col_waiting_for()
 

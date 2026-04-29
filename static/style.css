@@ -305,6 +305,15 @@ input{font-family:'EB Garamond','Noto Serif SC',serif}
 .col-card:hover{transform:scale(1.05)}
 .col-scores{text-align:center;font-size:1rem;color:#D4AF37;padding:8px 0;
   font-family:'Cinzel',serif;letter-spacing:1px}
+.col-arrange-row{display:flex;gap:10px;justify-content:center;padding:10px 0;flex-wrap:wrap}
+.col-arrange-card{cursor:pointer;position:relative;transition:transform .2s,box-shadow .2s;
+  border:2px solid transparent;border-radius:8px;padding:2px}
+.col-arrange-card:hover{transform:translateY(-4px);box-shadow:0 4px 12px rgba(212,175,55,.3)}
+.col-arrange-card.col-arrange-selected{border-color:#D4AF37;box-shadow:0 0 12px rgba(212,175,55,.5)}
+.col-arrange-num{position:absolute;top:-8px;left:50%;transform:translateX(-50%);
+  background:#D4AF37;color:#1a1a2e;font-size:.7rem;font-weight:700;
+  width:18px;height:18px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;z-index:2}
 
 /* ══════════════════════════════════════════
    XIII. TIMER

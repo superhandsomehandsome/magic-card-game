@@ -49,6 +49,7 @@ const C = {
   MARKET_DECK_GUARD: 8,
   MARKET_DARK_INTERVAL: 5,
   PROPHET_COST: 5,
+  PROPHET_PEEK_HAND_MIN_DECK: 4,
   BLUFF_TRUE_PENALTY: 15,
   BLUFF_FALSE_PENALTY: 15,
   RED_BID_MIN: 1,
@@ -315,6 +316,8 @@ class GameRoom {
     this.col_bet_phase = 'CALLER';
     this.col_bet_response = null;
     this.col_bonus_pot = 0;
+    this.col_arrange_done = [false, false];
+    this.col_arrange_orders = [null, null];
     this.winner = -1;
     this.turn_log = [];
     this.game_log = [];
@@ -547,6 +550,7 @@ class GameRoom {
       'LOCKDOWN_SKIP': this._h_lockdown_skip,
       'COLLISION_PRE_DISCARD': this._h_col_pre_discard,
       'COLLISION_BET': this._h_col_bet,
+      'COLLISION_ARRANGE': this._h_col_arrange,
       'COLLISION_FLIP': this._h_col_flip,
     };
     const h = handlers[action];
@@ -565,12 +569,24 @@ class GameRoom {
     if (this.market_buy_done[pidx]) return [false, '本回合已购买'];
     if (!this.market.length) return [false, '黑市无商品'];
     const idx = data.market_idx;
-    const payment = data.payment || [];
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.market.length) return [false, '无效索引'];
-    if (!payment.length) return [false, '需支付至少 1 张'];
     const target = this.market[idx];
-    const targetV = _bvMarket(target);
     const p = this._cur();
+
+    if (this._isDarkMarketTurn()) {
+      this.market.splice(idx, 1);
+      p.hand.push(target);
+      p.hand = sortHand(p.hand);
+      this.market_buy_done[pidx] = true;
+      this._refillMarket();
+      this._log('market_buy', `${p.name} 暗市夜免费拿取 [${target}]`);
+      this._afterMarket();
+      return [true, null];
+    }
+
+    const payment = data.payment || [];
+    if (!payment.length) return [false, '需支付至少 1 张'];
+    const targetV = _bvMarket(target);
     const tmp = [...p.hand];
     for (const c of payment){
       const i = tmp.indexOf(c);
@@ -590,8 +606,7 @@ class GameRoom {
     p.hand = sortHand(p.hand);
     this.market_buy_done[pidx] = true;
     this._refillMarket();
-    const dark = this._isDarkMarketTurn() ? '（暗市夜）' : '';
-    this._log('market_buy', `${p.name} 黑市${dark}购入 [${target}]（支付 ${payment.length} 张 = ${payV}/${targetV}）`);
+    this._log('market_buy', `${p.name} 黑市购入 [${target}]（支付 ${payment.length} 张 = ${payV}/${targetV}）`);
     this._afterMarket();
     return [true, null];
   }
@@ -1032,10 +1047,12 @@ class GameRoom {
     if (p.prophet_used) return [false, '本局先知低语已用尽'];
     const choice = data.choice;
     if (!['peek_hand','peek_deck','peek_market'].includes(choice)) return [false, 'Invalid choice'];
-    p.score -= C.PROPHET_COST;
-    p.prophet_used = true;
     const opp = this.players[1 - pidx];
     if (choice === 'peek_hand'){
+      if (this.deck.length <= C.PROPHET_PEEK_HAND_MIN_DECK)
+        return [false, `终局将至（牌库 ≤ ${C.PROPHET_PEEK_HAND_MIN_DECK}），无法窥探对手手牌`];
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
       const sample = [];
       const tmp = [...opp.hand];
       for (let i=0; i<Math.min(3,tmp.length); i++){
@@ -1045,11 +1062,15 @@ class GameRoom {
       p.prophet_peek = sample;
       this._log('prophet', `${p.name} 低语先知 — 窥探对手 ${sample.length} 张手牌（-${C.PROPHET_COST}分）`);
     } else if (choice === 'peek_deck'){
-      p.prophet_peek = this.deck.slice(-3);  // deck is stored in reverse
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
+      p.prophet_peek = this.deck.slice(-3);
       this._log('prophet', `${p.name} 低语先知 — 窥视牌库顶 ${p.prophet_peek.length} 张（-${C.PROPHET_COST}分）`);
       this.phase = 'PROPHET_DECK';
       return [true, null];
     } else {
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
       if (this._isDarkMarketTurn() && this.market.length){
         p.prophet_peek = [this.market[this.market.length-1]];
         this._log('prophet', `${p.name} 低语先知 — 暗市夜窥见 [${p.prophet_peek[0]}]（-${C.PROPHET_COST}分）`);
@@ -1278,8 +1299,44 @@ class GameRoom {
     return [false, 'Unexpected'];
   }
   _startCollision(){
-    const p0 = shuffle([...this.players[0].hand]);
-    const p1 = shuffle([...this.players[1].hand]);
+    this.col_arrange_done = [false, false];
+    this.col_arrange_orders = [null, null];
+    if (!this.players[0].hand.length && !this.players[1].hand.length){
+      this.col_p0_cards = []; this.col_p1_cards = [];
+      this.col_p0_flipped = new Set(); this.col_p1_flipped = new Set();
+      this.col_round_pair = [null, null];
+      this.col_state = colInit([], []);
+      this.col_state.pot += this.col_bonus_pot;
+      this.col_state.done = true;
+      this.phase = 'COLLISION_FLIP';
+      this._log('collision_start', '双方均无手牌，对撞跳过');
+      this._finishCollision();
+      return;
+    }
+    this.phase = 'COLLISION_ARRANGE';
+    this._log('collision_arrange', '请双方排列对撞暗阵顺序！');
+  }
+
+  _h_col_arrange(pidx, data){
+    if (this.phase !== 'COLLISION_ARRANGE') return [false, 'Wrong phase'];
+    if (this.col_arrange_done[pidx]) return [false, '已提交排列'];
+    const order = data.order || [];
+    const hand = this.players[pidx].hand;
+    const sortedOrder = [...order].sort();
+    const sortedHand = [...hand].sort();
+    if (sortedOrder.length !== sortedHand.length || !sortedOrder.every((v,i) => v === sortedHand[i]))
+      return [false, '排列必须包含所有手牌'];
+    this.col_arrange_orders[pidx] = [...order];
+    this.col_arrange_done[pidx] = true;
+    this._log('col_arrange', `${this.players[pidx].name} 已排列暗阵`);
+    if (this.col_arrange_done[0] && this.col_arrange_done[1])
+      this._finalizeCollisionStart();
+    return [true, null];
+  }
+
+  _finalizeCollisionStart(){
+    const p0 = this.col_arrange_orders[0] || [];
+    const p1 = this.col_arrange_orders[1] || [];
     this.col_p0_cards = p0; this.col_p1_cards = p1;
     this.col_p0_flipped = new Set(); this.col_p1_flipped = new Set();
     this.col_round_pair = [null, null];
@@ -1288,10 +1345,6 @@ class GameRoom {
     this.phase = 'COLLISION_FLIP';
     const base = 10 + this.col_bonus_pot;
     this._log('collision_start', `对撞开始！初始底池 ${base} 分`);
-    if (!p0.length && !p1.length){
-      this.col_state.done = true;
-      this._finishCollision();
-    }
   }
   _h_col_flip(pidx, data){
     if (this.phase !== 'COLLISION_FLIP') return [false, 'Wrong phase'];
@@ -1430,6 +1483,7 @@ class GameRoom {
     // Prophet
     view.prophet_used_me = p.prophet_used || false;
     view.prophet_cost = C.PROPHET_COST;
+    view.prophet_peek_hand_blocked = this.deck.length <= C.PROPHET_PEEK_HAND_MIN_DECK;
     if (p.prophet_peek != null && ['SPELL','PROPHET_DECK'].includes(this.phase))
       view.prophet_peek = [...p.prophet_peek];
     if (this.phase === 'PROPHET_DECK' && pidx === this.current_player)
@@ -1475,6 +1529,10 @@ class GameRoom {
       view.col_bet_caller = this.col_bet_caller;
       view.col_bet_phase = this.col_bet_phase;
       view.col_bet_amount = this.col_bet_amount;
+    }
+    if (this.phase === 'COLLISION_ARRANGE'){
+      view.col_arrange_done = this.col_arrange_done[pidx];
+      view.col_arrange_hand = [...p.hand];
     }
     if (this.phase === 'COLLISION_FLIP'){
       const myCards = pidx === 0 ? this.col_p0_cards : this.col_p1_cards;
@@ -1807,6 +1865,7 @@ function decide(room){
   if (phase === 'END_DISCARD'){ if (cp !== AI_IDX) return null; return decideEndDiscard(ai, room); }
   if (phase === 'COLLISION_PRE_DISCARD'){ if (room.col_pre_discard_done[AI_IDX]) return null; return decideColPreDiscard(ai, opp, room); }
   if (phase === 'COLLISION_BET') return decideColBet(ai, opp, room);
+  if (phase === 'COLLISION_ARRANGE'){ if (room.col_arrange_done[AI_IDX]) return null; return decideColArrange(ai); }
   if (phase === 'COLLISION_FLIP'){ const wf = room._colWaitingFor(); if (wf !== AI_IDX) return null; return ['COLLISION_FLIP', {}]; }
   return null;
 }
@@ -1899,6 +1958,11 @@ function decideMarket(ai, opp, room){
     if (pri > bestPri){ bestPri = pri; bestIdx = i; }
   }
   if (bestIdx < 0 || bestPri < (isDark ? 14 : 20)) return ['MARKET_SKIP', {}];
+
+  if (isDark) {
+    return ['MARKET_BUY', {market_idx: bestIdx, payment: []}];
+  }
+
   const target = market[bestIdx];
   const targetV = _bvMarket(target);
   const sortedHand = [...hand].sort((a,b) => (a==='瞬'?1:0) - (b==='瞬'?1:0) || _bvMarket(a) - _bvMarket(b));
@@ -2035,8 +2099,12 @@ function decideSpell(ai, opp, room){
   const sac = decideSacrifice(ai, opp, room);
   if (sac) return sac;
   // 先知低语: use when behind by 15+ and haven't used it
-  if (!ai.prophet_used && myScore >= C.PROPHET_COST && oppScore - myScore >= 15)
-    return ['PROPHET_WHISPER', {choice:'peek_hand'}];
+  if (!ai.prophet_used && myScore >= C.PROPHET_COST && oppScore - myScore >= 15) {
+    if (room.deck.length > C.PROPHET_PEEK_HAND_MIN_DECK)
+      return ['PROPHET_WHISPER', {choice:'peek_hand'}];
+    else
+      return ['PROPHET_WHISPER', {choice:'peek_deck'}];
+  }
   return ['SPELL_SKIP', {}];
 }
 
@@ -2167,6 +2235,12 @@ function decideColPreDiscard(ai, opp, room){
   return ['COLLISION_PRE_DISCARD', {cards: []}];
 }
 
+function decideColArrange(ai){
+  const hand = [...ai.hand];
+  shuffle(hand);
+  return ['COLLISION_ARRANGE', {order: hand}];
+}
+
 function decideColBet(ai, opp, room){
   if (room.col_bet_phase === 'CALLER' && room.col_bet_caller !== AI_IDX) return null;
   if (room.col_bet_phase === 'RESPONDER' && room.col_bet_caller === AI_IDX) return null;
@@ -2198,7 +2272,7 @@ const DELAY = {
   SPELL_SCORE:[350,650], SPELL_INSTANT:[300,500], SPELL_SACRIFICE:[400,700],
   SPELL_BREAKER:[300,500], SPELL_SKIP:[150,300],
   END_DISCARD:[200,350], LOCKDOWN_PLACE:[350,600], LOCKDOWN_SKIP:[150,300],
-  COLLISION_PRE_DISCARD:[300,500], COLLISION_BET:[400,700], COLLISION_FLIP:[150,300],
+  COLLISION_PRE_DISCARD:[300,500], COLLISION_BET:[400,700], COLLISION_ARRANGE:[400,700], COLLISION_FLIP:[150,300],
 };
 function getDelay(action){
   const r = DELAY[action] || [300, 600];

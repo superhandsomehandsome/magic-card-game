@@ -413,6 +413,7 @@ function renderArena() {
     case 'LOCKDOWN_PLACE': h += renderLockdownPlace(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
     case 'COLLISION_BET': h += renderColBet(); break;
+    case 'COLLISION_ARRANGE': h += renderColArrange(); break;
     case 'COLLISION_FLIP': h += renderColFlip(); break;
     default: h += `<div class="text-center text-muted">等待中...</div>`;
   }
@@ -436,6 +437,7 @@ function phaseLabel(p) {
     LOCKDOWN_PLACE:'肆 · 明牌封锁',
     COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌',
     COLLISION_BET:'终局 · 对撞赌注',
+    COLLISION_ARRANGE:'终局 · 排列暗阵',
     COLLISION_FLIP:'终局 · 对撞翻牌',
   };
   return m[p] || p;
@@ -518,8 +520,13 @@ function renderMarketPhase() {
   if (uiMode === 'market') return renderMarketBuy();
 
   let h = '<div class="text-center">';
-  h += `<p style="color:#D4AF37">壹 · 黑市${s.market_dark ? '（暗市夜 · 盲买）' : ''}</p>`;
-  h += `<p class="text-muted" style="font-size:.85rem">点击商品开始购买，或跳过进入下一阶段。</p>`;
+  if (s.market_dark) {
+    h += `<p style="color:#D4AF37">壹 · 黑市（暗市夜 · 免费拿取）</p>`;
+    h += `<p class="text-muted" style="font-size:.85rem">点击商品免费拿取一张，或跳过进入下一阶段。</p>`;
+  } else {
+    h += `<p style="color:#D4AF37">壹 · 黑市</p>`;
+    h += `<p class="text-muted" style="font-size:.85rem">点击商品开始购买，或跳过进入下一阶段。</p>`;
+  }
   if ((s.market || []).length === 0) {
     h += `<p class="text-muted">黑市无商品 · </p>`;
     h += `<div class="action-bar"><button class="btn btn-success" onclick="sendAction('MARKET_SKIP')">跳过</button></div>`;
@@ -530,7 +537,7 @@ function renderMarketPhase() {
     const c = s.market[i];
     const v = (c === '瞬' ? 5 : CARD_BV[c]);
     if (s.market_dark) {
-      h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})"><div class="cd cd-back"><span class="lt">？</span></div><div class="market-price">价 ?</div></div>`;
+      h += `<div class="market-buy-slot" onclick="darkMarketPick(${i})"><div class="cd cd-back"><span class="lt">？</span></div><div class="market-price">免费</div></div>`;
     } else {
       h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})">${cardHTML(c)}<div class="market-price">价 ${v}</div></div>`;
     }
@@ -538,6 +545,10 @@ function renderMarketPhase() {
   h += '</div>';
   h += '<div class="action-bar"><button class="btn" onclick="sendAction(\'MARKET_SKIP\')">跳过黑市</button></div>';
   return h + '</div>';
+}
+
+function darkMarketPick(idx) {
+  sendAction('MARKET_BUY', {market_idx: idx, payment: []});
 }
 
 function enterMarketBuy(idx) {
@@ -558,15 +569,10 @@ function renderMarketBuy() {
     return acc + (c === '瞬' ? 5 : CARD_BV[c]);
   }, 0);
   let h = `<div class="market-buy-confirm">`;
-  if (s.market_dark) {
-    h += `<p style="color:#D4AF37">暗市夜盲买 · 选择支付牌（按估值挑选）</p>`;
-    h += `<p class="text-muted">已付 ${sumVal} 总值（暗市无显价）</p>`;
-  } else {
-    h += `<p style="color:#D4AF37">购买 ${target} · 需 ≥ ${targetV} 总基础值</p>`;
-    h += `<p class="text-muted">已选 ${selectedCards.length} 张 · 总值 ${sumVal}/${targetV}</p>`;
-  }
+  h += `<p style="color:#D4AF37">购买 ${target} · 需 ≥ ${targetV} 总基础值</p>`;
+  h += `<p class="text-muted">已选 ${selectedCards.length} 张 · 总值 ${sumVal}/${targetV}</p>`;
   h += '<div class="action-bar">';
-  if (s.market_dark ? selectedCards.length > 0 : sumVal >= targetV) {
+  if (sumVal >= targetV) {
     const payment = selectedCards.map(i => s.my_hand[i]);
     h += `<button class="btn btn-success" onclick="confirmMarketBuy(${JSON.stringify(payment).replace(/"/g,'&quot;')})">确认购买</button>`;
   }
@@ -1089,7 +1095,11 @@ function showProphetModal() {
   h += '<div class="modal-box" style="max-width:340px">';
   h += '<h3 style="color:#C792EA;text-align:center;margin-bottom:12px">先知低语</h3>';
   h += `<p style="font-size:.85rem;color:#aaa;text-align:center;margin-bottom:12px">消耗 ${state.prophet_cost||5} 分，获得以下任意一项信息</p>`;
-  h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_hand')">👁 窥视手牌 — 随机看对手3张手牌</button>`;
+  if (state.prophet_peek_hand_blocked) {
+    h += `<button class="btn" style="width:100%;margin-bottom:8px;opacity:0.4;cursor:not-allowed" disabled>👁 窥视手牌 — 终局将至，已封锁</button>`;
+  } else {
+    h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_hand')">👁 窥视手牌 — 随机看对手3张手牌</button>`;
+  }
   h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_deck')">📚 窥视牌库 — 看库顶3张（可弃1到底部）</button>`;
   h += `<button class="btn" style="width:100%;margin-bottom:8px" onclick="useProphet('peek_market')">🏪 窥视黑市 — 暗市夜提前看1张商品</button>`;
   h += `<button class="btn" style="width:100%;color:#aaa" onclick="closeProphetModal()">取消</button>`;
@@ -1156,6 +1166,83 @@ function renderColBet() {
     return h;
   }
   return '<div class="text-center text-muted">处理中...</div>';
+}
+
+/* ── Collision Arrange (player chooses card order) ─── */
+let arrangeOrder = null;
+
+function renderColArrange() {
+  const s = state;
+  if (s.col_arrange_done) {
+    return '<div class="text-center text-muted">已提交排列，等待对手...</div>';
+  }
+  const hand = s.col_arrange_hand || s.my_hand || [];
+  if (!hand.length) {
+    return `<div class="text-center"><p class="text-muted">无手牌</p>
+      <div class="action-bar"><button class="btn btn-success" onclick="submitArrange()">确认</button></div></div>`;
+  }
+  if (!arrangeOrder || arrangeOrder.length !== hand.length || !arraysEqualUnordered(arrangeOrder, hand)) {
+    arrangeOrder = [...hand];
+  }
+  let h = '<div class="text-center">';
+  h += '<p style="color:#D4AF37;font-size:1.1rem">排列你的对撞暗阵</p>';
+  h += '<p class="text-muted" style="font-size:.85rem">拖拽或点击交换牌的顺序，第1张将最先对撞。</p>';
+  h += '<div class="col-arrange-row">';
+  for (let i = 0; i < arrangeOrder.length; i++) {
+    const c = arrangeOrder[i];
+    const sel = (arrangeSwapIdx === i) ? ' col-arrange-selected' : '';
+    h += `<div class="col-arrange-card${sel}" onclick="arrangeSwap(${i})">`;
+    h += `<div class="col-arrange-num">${i + 1}</div>`;
+    h += cardHTML(c);
+    h += '</div>';
+  }
+  h += '</div>';
+  h += '<div class="action-bar" style="margin-top:12px">';
+  h += '<button class="btn btn-success" onclick="submitArrange()">确认排列</button>';
+  h += '<button class="btn" onclick="shuffleArrange()">随机打乱</button>';
+  h += '</div></div>';
+  return h;
+}
+
+let arrangeSwapIdx = -1;
+
+function arraysEqualUnordered(a, b) {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort(), sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
+function arrangeSwap(idx) {
+  if (arrangeSwapIdx < 0) {
+    arrangeSwapIdx = idx;
+    renderArena();
+    return;
+  }
+  if (arrangeSwapIdx === idx) {
+    arrangeSwapIdx = -1;
+    renderArena();
+    return;
+  }
+  const tmp = arrangeOrder[arrangeSwapIdx];
+  arrangeOrder[arrangeSwapIdx] = arrangeOrder[idx];
+  arrangeOrder[idx] = tmp;
+  arrangeSwapIdx = -1;
+  renderArena();
+}
+
+function shuffleArrange() {
+  for (let i = arrangeOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arrangeOrder[i], arrangeOrder[j]] = [arrangeOrder[j], arrangeOrder[i]];
+  }
+  arrangeSwapIdx = -1;
+  renderArena();
+}
+
+function submitArrange() {
+  const order = arrangeOrder ? [...arrangeOrder] : [...(state.col_arrange_hand || state.my_hand || [])];
+  arrangeSwapIdx = -1;
+  sendAction('COLLISION_ARRANGE', {order: order});
 }
 
 function renderColFlip() {

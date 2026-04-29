@@ -29,7 +29,8 @@ from game_state import (
     BREAKER_CURSE_PENALTY,
     MARKET_SIZE, MARKET_DECK_GUARD, MARKET_DARK_INTERVAL,
     LOCKDOWN_BREAK_COST, LOCKDOWN_DEBT_ENABLE, LOCKDOWN_BAN_INSTANT,
-    PROPHET_COST, BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
+    PROPHET_COST, PROPHET_PEEK_HAND_MIN_DECK,
+    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
     RED_BID_MIN, RED_BID_MAX, RED_BID_BONUS_MULT,
 )
 
@@ -120,6 +121,8 @@ class GameRoom:
         self.col_bet_phase = 'CALLER'
         self.col_bet_response = None
         self.col_bonus_pot = 0
+        self.col_arrange_done = [False, False]
+        self.col_arrange_orders = [None, None]
 
         self.winner = -1
         self.turn_log = []
@@ -441,6 +444,7 @@ class GameRoom:
             'LOCKDOWN_SKIP': self._h_lockdown_skip,
             'COLLISION_PRE_DISCARD': self._h_col_pre_discard,
             'COLLISION_BET': self._h_col_bet,
+            'COLLISION_ARRANGE': self._h_col_arrange,
             'COLLISION_FLIP': self._h_col_flip,
         }.get(action)
 
@@ -465,16 +469,30 @@ class GameRoom:
             return False, '黑市无商品'
 
         market_idx = data.get('market_idx')
-        payment = data.get('payment', [])
         if not isinstance(market_idx, int) or not (0 <= market_idx < len(self.market)):
             return False, '无效的商品索引'
+
+        target_card = self.market[market_idx]
+        p = self._cur()
+
+        if self._is_dark_market_turn():
+            # Dark market night: free pick, no payment required
+            self.market.pop(market_idx)
+            p['hand'].append(target_card)
+            p['hand'] = sort_hand(p['hand'])
+            self.market_buy_done[pidx] = True
+            self._refill_market()
+            self._log('market_buy',
+                      f'{p["name"]} 暗市夜免费拿取 [{target_card}]')
+            self._after_market()
+            return True, None
+
+        # Normal market: requires payment
+        payment = data.get('payment', [])
+        target_value = _card_value(target_card)
         if not payment:
             return False, '必须支付至少 1 张牌'
 
-        target_card = self.market[market_idx]
-        target_value = _card_value(target_card)
-
-        p = self._cur()
         tmp = list(p['hand'])
         for c in payment:
             if c not in tmp:
@@ -484,7 +502,6 @@ class GameRoom:
         if pay_value < target_value:
             return False, f'支付不足：需 ≥ {target_value}，实付 {pay_value}'
 
-        # Execute: remove payment cards, discard them, add target to hand
         for c in payment:
             p['hand'].remove(c)
         self._discard(payment)
@@ -493,12 +510,8 @@ class GameRoom:
         p['hand'] = sort_hand(p['hand'])
         self.market_buy_done[pidx] = True
         self._refill_market()
-        dark = '（暗市夜）' if self._is_dark_market_turn() else ''
         self._log('market_buy',
-                  f'{p["name"]} 黑市{dark}购入 [{target_card}]（支付 {len(payment)} 张 = {pay_value}/{target_value}）')
-
-        # No phase change — player can still choose to skip after buying or buy more (but buy_done blocks)
-        # Auto-advance after one buy.
+                  f'{p["name"]} 黑市购入 [{target_card}]（支付 {len(payment)} 张 = {pay_value}/{target_value}）')
         self._after_market()
         return True, None
 
@@ -1090,19 +1103,25 @@ class GameRoom:
         choice = data.get('choice')
         if choice not in ('peek_hand', 'peek_deck', 'peek_market'):
             return False, 'Invalid choice'
-        p['score'] -= PROPHET_COST
-        p['prophet_used'] = True
         opp = self.players[1 - pidx]
         if choice == 'peek_hand':
+            if len(self.deck) <= PROPHET_PEEK_HAND_MIN_DECK:
+                return False, f'终局将至（牌库 ≤ {PROPHET_PEEK_HAND_MIN_DECK}），无法窥探对手手牌'
+            p['score'] -= PROPHET_COST
+            p['prophet_used'] = True
             sample = random.sample(opp['hand'], min(3, len(opp['hand'])))
             p['prophet_peek'] = list(sample)
             self._log('prophet', f'{p["name"]} 低语先知 — 窥探对手 {len(sample)} 张手牌（-{PROPHET_COST}分）')
         elif choice == 'peek_deck':
+            p['score'] -= PROPHET_COST
+            p['prophet_used'] = True
             p['prophet_peek'] = list(self.deck[:3])
             self._log('prophet', f'{p["name"]} 低语先知 — 窥视牌库顶 {len(p["prophet_peek"])} 张（-{PROPHET_COST}分）')
             self.phase = 'PROPHET_DECK'
             return True, None
         elif choice == 'peek_market':
+            p['score'] -= PROPHET_COST
+            p['prophet_used'] = True
             if self._is_dark_market_turn() and self.market:
                 card = self.market[0]
                 p['prophet_peek'] = [card]
@@ -1392,10 +1411,45 @@ class GameRoom:
         return False, 'Unexpected bet phase'
 
     def _start_collision(self):
-        p0_cards = list(self.players[0]['hand'])
-        p1_cards = list(self.players[1]['hand'])
-        random.shuffle(p0_cards)
-        random.shuffle(p1_cards)
+        self.col_arrange_done = [False, False]
+        self.col_arrange_orders = [None, None]
+        p0_has = bool(self.players[0]['hand'])
+        p1_has = bool(self.players[1]['hand'])
+        if not p0_has and not p1_has:
+            self.col_p0_cards = []
+            self.col_p1_cards = []
+            self.col_p0_flipped = set()
+            self.col_p1_flipped = set()
+            self.col_round_pair = [None, None]
+            self.col_state = col_init([], [])
+            self.col_state['pot'] += self.col_bonus_pot
+            self.col_state['done'] = True
+            self.phase = 'COLLISION_FLIP'
+            self._log('collision_start', '双方均无手牌，对撞跳过')
+            self._finish_collision()
+            return
+        self.phase = 'COLLISION_ARRANGE'
+        self._log('collision_arrange', '请双方排列对撞暗阵顺序！')
+
+    def _h_col_arrange(self, pidx, data):
+        if self.phase != 'COLLISION_ARRANGE':
+            return False, 'Wrong phase'
+        if self.col_arrange_done[pidx]:
+            return False, '已提交排列'
+        order = data.get('order', [])
+        hand = self.players[pidx]['hand']
+        if sorted(order) != sorted(hand):
+            return False, '排列必须包含所有手牌'
+        self.col_arrange_orders[pidx] = list(order)
+        self.col_arrange_done[pidx] = True
+        self._log('col_arrange', f'{self.players[pidx]["name"]} 已排列暗阵')
+        if all(self.col_arrange_done):
+            self._finalize_collision_start()
+        return True, None
+
+    def _finalize_collision_start(self):
+        p0_cards = self.col_arrange_orders[0] or []
+        p1_cards = self.col_arrange_orders[1] or []
         self.col_p0_cards = p0_cards
         self.col_p1_cards = p1_cards
         self.col_p0_flipped = set()
@@ -1407,9 +1461,6 @@ class GameRoom:
         self.phase = 'COLLISION_FLIP'
         base = 10 + self.col_bonus_pot
         self._log('collision_start', f'对撞开始！初始底池 {base} 分')
-        if not p0_cards and not p1_cards:
-            self.col_state['done'] = True
-            self._finish_collision()
 
     def _h_col_flip(self, pidx, data):
         if self.phase != 'COLLISION_FLIP':
@@ -1596,6 +1647,7 @@ class GameRoom:
         # Prophet's Whisper
         view['prophet_used_me'] = p.get('prophet_used', False)
         view['prophet_cost'] = PROPHET_COST
+        view['prophet_peek_hand_blocked'] = len(self.deck) <= PROPHET_PEEK_HAND_MIN_DECK
         if p.get('prophet_peek') is not None and self.phase in ('SPELL', 'PROPHET_DECK'):
             view['prophet_peek'] = p['prophet_peek']
         if self.phase == 'PROPHET_DECK' and pidx == self.current_player:
@@ -1652,6 +1704,10 @@ class GameRoom:
             view['col_bet_caller'] = self.col_bet_caller
             view['col_bet_phase'] = self.col_bet_phase
             view['col_bet_amount'] = self.col_bet_amount
+
+        if self.phase == 'COLLISION_ARRANGE':
+            view['col_arrange_done'] = self.col_arrange_done[pidx]
+            view['col_arrange_hand'] = list(p['hand'])
 
         if self.phase == 'COLLISION_FLIP':
             my_cards_list = self.col_p0_cards if pidx == 0 else self.col_p1_cards

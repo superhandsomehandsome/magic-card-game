@@ -115,6 +115,12 @@ def _on_turn_timeout(room_id):
             elif room.col_bet_phase == 'RESPONDER':
                 responder = 1 - room.col_bet_caller
                 room.handle_action(_sid_for(room, responder), 'COLLISION_BET', {'choice': 'fold'})
+        elif phase == 'COLLISION_ARRANGE':
+            for i in range(2):
+                if not room.col_arrange_done[i]:
+                    hand = list(room.players[i]['hand'])
+                    random.shuffle(hand)
+                    room.handle_action(_sid_for(room, i), 'COLLISION_ARRANGE', {'order': hand})
         elif phase == 'COLLISION_FLIP':
             wf = room._col_waiting_for()
             if wf >= 0:

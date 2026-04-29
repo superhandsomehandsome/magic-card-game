@@ -80,6 +80,7 @@ LOCKDOWN_BAN_INSTANT = True
 
 # ── 先知低语 (Prophet's Whisper) ─────────────────────
 PROPHET_COST = 5           # Score deducted to activate
+PROPHET_PEEK_HAND_MIN_DECK = 4  # peek_hand blocked when deck ≤ this (prevents late-game abuse before collision)
 
 # ── 虚实之言 (Bluff Call) ────────────────────────────
 BLUFF_TRUE_PENALTY = 15    # Defender wrongly calls bluff on truthful declaration

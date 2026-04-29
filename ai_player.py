@@ -13,7 +13,8 @@ from game_state import (
     RED_KEYS, BLUE_KEYS, GREEN_KEYS,
     SACRIFICE_MAX_X, NO_AMBUSH_BEFORE_TURN,
     MARKET_DECK_GUARD, LOCKDOWN_BREAK_COST,
-    PROPHET_COST, BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
+    PROPHET_COST, PROPHET_PEEK_HAND_MIN_DECK,
+    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
     RED_BID_MIN, RED_BID_MAX,
 )
 
@@ -492,6 +493,11 @@ def decide(room):
     if phase == 'COLLISION_BET':
         return _decide_col_bet(ai, opp, room)
 
+    if phase == 'COLLISION_ARRANGE':
+        if room.col_arrange_done[AI_IDX]:
+            return None
+        return _decide_col_arrange(ai)
+
     if phase == 'COLLISION_FLIP':
         wf = room._col_waiting_for()
         if wf != AI_IDX:
@@ -565,17 +571,18 @@ def _decide_market(ai, opp, room):
     if best_idx < 0 or best_pri < (14 if is_dark else 20):
         return ('MARKET_SKIP', {})
 
+    if is_dark:
+        return ('MARKET_BUY', {'market_idx': best_idx, 'payment': []})
+
     target = market[best_idx]
     target_v = _bv(target)
 
-    # Build cheapest payment >= target_v from low-value cards
     sorted_hand = sorted(hand, key=lambda c: (c == '瞬', _bv(c)))
     payment = []
     total = 0
     for c in sorted_hand:
         if total >= target_v:
             break
-        # Don't pay with very valuable cards unless needed
         cv = _card_value(c, hand, room, AI_IDX)
         if cv >= 60 and total + _bv(c) > target_v + 4:
             continue
@@ -584,11 +591,9 @@ def _decide_market(ai, opp, room):
     if total < target_v:
         return ('MARKET_SKIP', {})
 
-    # Premium check: don't overpay drastically except for high priority
     if total > target_v * 1.5 and best_pri < 70:
         return ('MARKET_SKIP', {})
 
-    # Check we won't deplete hand to dangerous levels
     if len(hand) - len(payment) + 1 < 3:
         return ('MARKET_SKIP', {})
 
@@ -829,8 +834,10 @@ def _decide_spell(ai, opp, room):
     # 先知低语: use late-game if not used, behind, and can afford
     if not ai.get('prophet_used', False):
         if my_score >= PROPHET_COST and opp_score - my_score >= 15:
-            # Peek opponent hand for strategic info
-            return ('PROPHET_WHISPER', {'choice': 'peek_hand'})
+            if len(room.deck) > PROPHET_PEEK_HAND_MIN_DECK:
+                return ('PROPHET_WHISPER', {'choice': 'peek_hand'})
+            else:
+                return ('PROPHET_WHISPER', {'choice': 'peek_deck'})
 
     return ('SPELL_SKIP', {})
 
@@ -1091,6 +1098,13 @@ def _decide_col_bet(ai, opp, room):
     return ('COLLISION_BET', {'choice': 'fold'})
 
 
+def _decide_col_arrange(ai):
+    """AI arranges cards for collision — shuffle randomly."""
+    hand = list(ai['hand'])
+    random.shuffle(hand)
+    return ('COLLISION_ARRANGE', {'order': hand})
+
+
 # ── Delay ────────────────────────────────────────────────
 DELAY = {
     'BLUFF_DECLARE': (0.4, 0.8),
@@ -1116,6 +1130,7 @@ DELAY = {
     'LOCKDOWN_SKIP': (0.15, 0.3),
     'COLLISION_PRE_DISCARD': (0.3, 0.5),
     'COLLISION_BET': (0.4, 0.7),
+    'COLLISION_ARRANGE': (0.4, 0.7),
     'COLLISION_FLIP': (0.15, 0.3),
 }
 

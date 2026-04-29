@@ -10,7 +10,8 @@ from game_room import GameRoom
 
 PHASES_CURRENT_PLAYER = (
     'DRAW', 'MARKET', 'AMBUSH_DECIDE', 'AMBUSH_PAY_COST',
-    'AMBUSH_ATK_SELECT', 'SPELL', 'END_DISCARD', 'LOCKDOWN_PLACE',
+    'AMBUSH_ATK_SELECT', 'AMBUSH_BLUFF_DECLARE',
+    'SPELL', 'PROPHET_DECK', 'END_DISCARD', 'LOCKDOWN_PLACE',
 )
 
 
@@ -26,8 +27,12 @@ class AIDriver:
         actor = -1
         if r.phase in PHASES_CURRENT_PLAYER:
             actor = r.current_player
-        elif r.phase == 'AMBUSH_DEF_CHOICE':
+        elif r.phase in ('AMBUSH_DEF_CHOICE', 'AMBUSH_BLUFF_RESPOND'):
             actor = 1 - r.current_player
+        elif r.phase == 'RED_BID':
+            for i in (0, 1):
+                if not r.red_bid_done[i]:
+                    actor = i; break
         elif r.phase == 'COLLISION_PRE_DISCARD':
             for i in (0, 1):
                 if not r.col_pre_discard_done[i]:
@@ -37,6 +42,10 @@ class AIDriver:
                 actor = r.col_bet_caller
             else:
                 actor = 1 - r.col_bet_caller
+        elif r.phase == 'COLLISION_ARRANGE':
+            for i in (0, 1):
+                if not r.col_arrange_done[i]:
+                    actor = i; break
         elif r.phase == 'COLLISION_FLIP':
             actor = r._col_waiting_for()
 

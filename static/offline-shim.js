@@ -117,6 +117,10 @@ function activePlayer(){
     if (engine.col_bet_phase === 'CALLER') return engine.col_bet_caller;
     return 1 - engine.col_bet_caller;
   }
+  if (phase === 'COLLISION_ARRANGE'){
+    for (let i=0;i<2;i++) if (!engine.col_arrange_done[i]) return i;
+    return -1;
+  }
   if (phase === 'COLLISION_FLIP') return engine._colWaitingFor();
   return engine.current_player;
 }
@@ -171,6 +175,9 @@ function handleClientAction(action, data){
     } else if (phase === 'COLLISION_BET'){
       if (engine.col_bet_phase === 'CALLER') actor = engine.col_bet_caller;
       else actor = 1 - engine.col_bet_caller;
+    } else if (phase === 'COLLISION_ARRANGE'){
+      if (!engine.col_arrange_done[humanIdx]) actor = humanIdx;
+      else actor = 1 - humanIdx;
     } else if (phase === 'COLLISION_FLIP'){
       actor = engine._colWaitingFor();
     }
@@ -207,6 +214,8 @@ function scheduleAI(){
   } else if (phase === 'COLLISION_BET'){
     if (engine.col_bet_phase === 'CALLER') actor = engine.col_bet_caller;
     else actor = 1 - engine.col_bet_caller;
+  } else if (phase === 'COLLISION_ARRANGE'){
+    for (let i=0;i<2;i++) if (!engine.col_arrange_done[i]) { actor = i; break; }
   } else if (phase === 'COLLISION_FLIP') actor = engine._colWaitingFor();
   else actor = engine.current_player;
 

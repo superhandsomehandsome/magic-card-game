@@ -771,6 +771,8 @@ const C = {
   MARKET_SIZE: 3,
   MARKET_DECK_GUARD: 8,
   MARKET_DARK_INTERVAL: 5,
+  PROPHET_COST: 5,
+  PROPHET_PEEK_HAND_MIN_DECK: 4,
   LOCKDOWN_BREAK_COST: 15,
   LOCKDOWN_DEBT_ENABLE: true,
   LOCKDOWN_BAN_INSTANT: true,
@@ -971,6 +973,8 @@ function makePlayer(name){
     curse_active: false,
     lockdown_card: null,
     lockdown_debt: 0,
+    prophet_used: false,
+    prophet_peek: null,
   };
 }
 function makeScorepad(){
@@ -1030,6 +1034,8 @@ class GameRoom {
     this.col_bet_phase = 'CALLER';
     this.col_bet_response = null;
     this.col_bonus_pot = 0;
+    this.col_arrange_done = [false, false];
+    this.col_arrange_orders = [null, null];
     this.winner = -1;
     this.turn_log = [];
     this.game_log = [];
@@ -1084,6 +1090,7 @@ class GameRoom {
     this.instant_count = 0;
     this.played_this_turn = [];
     this.turn_log = [];
+    for (const p of this.players) p.prophet_peek = null;
   }
 
   _beginTurn(){
@@ -1238,8 +1245,11 @@ class GameRoom {
       'END_DISCARD': this._h_end_discard,
       'LOCKDOWN_PLACE': this._h_lockdown_place,
       'LOCKDOWN_SKIP': this._h_lockdown_skip,
+      'PROPHET_WHISPER': this._h_prophet_whisper,
+      'PROPHET_DECK': this._h_prophet_deck,
       'COLLISION_PRE_DISCARD': this._h_col_pre_discard,
       'COLLISION_BET': this._h_col_bet,
+      'COLLISION_ARRANGE': this._h_col_arrange,
       'COLLISION_FLIP': this._h_col_flip,
     };
     const h = handlers[action];
@@ -1258,12 +1268,24 @@ class GameRoom {
     if (this.market_buy_done[pidx]) return [false, '本回合已购买'];
     if (!this.market.length) return [false, '黑市无商品'];
     const idx = data.market_idx;
-    const payment = data.payment || [];
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.market.length) return [false, '无效索引'];
-    if (!payment.length) return [false, '需支付至少 1 张'];
     const target = this.market[idx];
-    const targetV = _bvMarket(target);
     const p = this._cur();
+
+    if (this._isDarkMarketTurn()) {
+      this.market.splice(idx, 1);
+      p.hand.push(target);
+      p.hand = sortHand(p.hand);
+      this.market_buy_done[pidx] = true;
+      this._refillMarket();
+      this._log('market_buy', `${p.name} 暗市夜免费拿取 [${target}]`);
+      this._afterMarket();
+      return [true, null];
+    }
+
+    const payment = data.payment || [];
+    if (!payment.length) return [false, '需支付至少 1 张'];
+    const targetV = _bvMarket(target);
     const tmp = [...p.hand];
     for (const c of payment){
       const i = tmp.indexOf(c);
@@ -1283,8 +1305,7 @@ class GameRoom {
     p.hand = sortHand(p.hand);
     this.market_buy_done[pidx] = true;
     this._refillMarket();
-    const dark = this._isDarkMarketTurn() ? '（暗市夜）' : '';
-    this._log('market_buy', `${p.name} 黑市${dark}购入 [${target}]（支付 ${payment.length} 张 = ${payV}/${targetV}）`);
+    this._log('market_buy', `${p.name} 黑市购入 [${target}]（支付 ${payment.length} 张 = ${payV}/${targetV}）`);
     this._afterMarket();
     return [true, null];
   }
@@ -1643,6 +1664,64 @@ class GameRoom {
     return [true, null];
   }
 
+  // ── 先知低语 (Prophet's Whisper) ─────────────────────
+  _h_prophet_whisper(pidx, data){
+    if (this.phase !== 'SPELL' || pidx !== this.current_player) return [false, 'Wrong phase'];
+    const p = this.players[pidx];
+    if (p.prophet_used) return [false, '本局先知低语已用尽'];
+    const choice = data.choice;
+    if (!['peek_hand','peek_deck','peek_market'].includes(choice)) return [false, 'Invalid choice'];
+    const opp = this.players[1 - pidx];
+    if (choice === 'peek_hand'){
+      if (this.deck.length <= C.PROPHET_PEEK_HAND_MIN_DECK)
+        return [false, `终局将至（牌库 ≤ ${C.PROPHET_PEEK_HAND_MIN_DECK}），无法窥探对手手牌`];
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
+      const sample = [];
+      const tmp = [...opp.hand];
+      for (let i=0; i<Math.min(3,tmp.length); i++){
+        const idx = Math.floor(Math.random()*tmp.length);
+        sample.push(tmp.splice(idx,1)[0]);
+      }
+      p.prophet_peek = sample;
+      this._log('prophet', `${p.name} 低语先知 — 窥探对手 ${sample.length} 张手牌（-${C.PROPHET_COST}分）`);
+    } else if (choice === 'peek_deck'){
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
+      p.prophet_peek = this.deck.slice(-3);
+      this._log('prophet', `${p.name} 低语先知 — 窥视牌库顶 ${p.prophet_peek.length} 张（-${C.PROPHET_COST}分）`);
+      this.phase = 'PROPHET_DECK';
+      return [true, null];
+    } else {
+      p.score -= C.PROPHET_COST;
+      p.prophet_used = true;
+      if (this._isDarkMarketTurn() && this.market.length){
+        p.prophet_peek = [this.market[this.market.length-1]];
+        this._log('prophet', `${p.name} 低语先知 — 暗市夜窥见 [${p.prophet_peek[0]}]（-${C.PROPHET_COST}分）`);
+      } else {
+        p.prophet_peek = [];
+        this._log('prophet', `${p.name} 低语先知 — 市场已公开（-${C.PROPHET_COST}分）`);
+      }
+    }
+    return [true, null];
+  }
+
+  _h_prophet_deck(pidx, data){
+    if (this.phase !== 'PROPHET_DECK' || pidx !== this.current_player) return [false, 'Wrong phase'];
+    const discardIdx = data.discard_idx;
+    const peek = this.players[pidx].prophet_peek || [];
+    if (discardIdx != null){
+      const deckLen = this.deck.length;
+      const deckIdx = deckLen - 1 - discardIdx;
+      if (deckIdx < 0 || deckIdx >= deckLen) return [false, 'Invalid index'];
+      const card = this.deck.splice(deckIdx, 1)[0];
+      this.deck.unshift(card);
+      this._log('prophet_deck', `牌库第 ${discardIdx+1} 张已移至底部`);
+    }
+    this.phase = 'SPELL';
+    return [true, null];
+  }
+
   _finishSpell(forceEnd){
     this._discard(this.played_this_turn);
     this.played_this_turn = [];
@@ -1787,8 +1866,44 @@ class GameRoom {
     return [false, 'Unexpected'];
   }
   _startCollision(){
-    const p0 = shuffle([...this.players[0].hand]);
-    const p1 = shuffle([...this.players[1].hand]);
+    this.col_arrange_done = [false, false];
+    this.col_arrange_orders = [null, null];
+    if (!this.players[0].hand.length && !this.players[1].hand.length){
+      this.col_p0_cards = []; this.col_p1_cards = [];
+      this.col_p0_flipped = new Set(); this.col_p1_flipped = new Set();
+      this.col_round_pair = [null, null];
+      this.col_state = colInit([], []);
+      this.col_state.pot += this.col_bonus_pot;
+      this.col_state.done = true;
+      this.phase = 'COLLISION_FLIP';
+      this._log('collision_start', '双方均无手牌，对撞跳过');
+      this._finishCollision();
+      return;
+    }
+    this.phase = 'COLLISION_ARRANGE';
+    this._log('collision_arrange', '请双方排列对撞暗阵顺序！');
+  }
+
+  _h_col_arrange(pidx, data){
+    if (this.phase !== 'COLLISION_ARRANGE') return [false, 'Wrong phase'];
+    if (this.col_arrange_done[pidx]) return [false, '已提交排列'];
+    const order = data.order || [];
+    const hand = this.players[pidx].hand;
+    const sortedOrder = [...order].sort();
+    const sortedHand = [...hand].sort();
+    if (sortedOrder.length !== sortedHand.length || !sortedOrder.every((v,i) => v === sortedHand[i]))
+      return [false, '排列必须包含所有手牌'];
+    this.col_arrange_orders[pidx] = [...order];
+    this.col_arrange_done[pidx] = true;
+    this._log('col_arrange', `${this.players[pidx].name} 已排列暗阵`);
+    if (this.col_arrange_done[0] && this.col_arrange_done[1])
+      this._finalizeCollisionStart();
+    return [true, null];
+  }
+
+  _finalizeCollisionStart(){
+    const p0 = this.col_arrange_orders[0] || [];
+    const p1 = this.col_arrange_orders[1] || [];
     this.col_p0_cards = p0; this.col_p1_cards = p1;
     this.col_p0_flipped = new Set(); this.col_p1_flipped = new Set();
     this.col_round_pair = [null, null];
@@ -1797,10 +1912,6 @@ class GameRoom {
     this.phase = 'COLLISION_FLIP';
     const base = 10 + this.col_bonus_pot;
     this._log('collision_start', `对撞开始！初始底池 ${base} 分`);
-    if (!p0.length && !p1.length){
-      this.col_state.done = true;
-      this._finishCollision();
-    }
   }
   _h_col_flip(pidx, data){
     if (this.phase !== 'COLLISION_FLIP') return [false, 'Wrong phase'];
@@ -1932,6 +2043,14 @@ class GameRoom {
       view.my_hand_for_defend = pidx === (1 - this.current_player) ? p.hand : null;
     }
     if (this.ambush_last_outcome) view.ambush_last_outcome = this.ambush_last_outcome;
+    // Prophet
+    view.prophet_used_me = p.prophet_used || false;
+    view.prophet_cost = C.PROPHET_COST;
+    view.prophet_peek_hand_blocked = this.deck.length <= C.PROPHET_PEEK_HAND_MIN_DECK;
+    if (p.prophet_peek != null && ['SPELL','PROPHET_DECK'].includes(this.phase))
+      view.prophet_peek = [...p.prophet_peek];
+    if (this.phase === 'PROPHET_DECK' && pidx === this.current_player)
+      view.prophet_deck_cards = [...(p.prophet_peek || [])];
     if (this.phase === 'SPELL' && pidx === this.current_player){
       view.instant_count = this.instant_count;
       view.instant_limit = C.INSTANT_PER_TURN;
@@ -1955,6 +2074,10 @@ class GameRoom {
       view.col_bet_caller = this.col_bet_caller;
       view.col_bet_phase = this.col_bet_phase;
       view.col_bet_amount = this.col_bet_amount;
+    }
+    if (this.phase === 'COLLISION_ARRANGE'){
+      view.col_arrange_done = this.col_arrange_done[pidx];
+      view.col_arrange_hand = [...p.hand];
     }
     if (this.phase === 'COLLISION_FLIP'){
       const myCards = pidx === 0 ? this.col_p0_cards : this.col_p1_cards;
@@ -2263,9 +2386,11 @@ function decide(room){
   if (phase === 'AMBUSH_ATK_SELECT'){ if (cp !== AI_IDX) return null; return decideAtkSelect(ai, opp, room); }
   if (phase === 'AMBUSH_DEF_CHOICE'){ if (cp === AI_IDX) return null; return decideDefend(ai, opp, room); }
   if (phase === 'SPELL'){ if (cp !== AI_IDX) return null; return decideSpell(ai, opp, room); }
+  if (phase === 'PROPHET_DECK'){ if (cp !== AI_IDX) return null; return ['PROPHET_DECK', {discard_idx: null}]; }
   if (phase === 'END_DISCARD'){ if (cp !== AI_IDX) return null; return decideEndDiscard(ai, room); }
   if (phase === 'COLLISION_PRE_DISCARD'){ if (room.col_pre_discard_done[AI_IDX]) return null; return decideColPreDiscard(ai, opp, room); }
   if (phase === 'COLLISION_BET') return decideColBet(ai, opp, room);
+  if (phase === 'COLLISION_ARRANGE'){ if (room.col_arrange_done[AI_IDX]) return null; return decideColArrange(ai); }
   if (phase === 'COLLISION_FLIP'){ const wf = room._colWaitingFor(); if (wf !== AI_IDX) return null; return ['COLLISION_FLIP', {}]; }
   return null;
 }
@@ -2291,8 +2416,17 @@ function decideMarket(ai, opp, room){
   for (let i=0;i<market.length;i++){
     const mc = market[i];
     let pri = 0;
-    if (isDark) pri = Math.random() < 0.4 ? 25 : 0;
-    else {
+    if (isDark){
+      const unseen = _brain.unseenDistribution(room, AI_IDX);
+      let tot = 0; for (const c in unseen) tot += unseen[c];
+      let evSlot = 0;
+      if (tot > 0) for (const c in unseen){
+        if (c === '瞬') continue;
+        evSlot += unseen[c] / tot * ((needs[c]||0) + (BV[c]||1) * 4);
+      }
+      if (evSlot === 0) evSlot = 18;
+      pri = Math.round(evSlot * 0.55 + 6 + Math.random() * 22);
+    } else {
       pri = needs[mc] || 0;
       if (pri === 0){
         if (mc === 'A') pri = 50;
@@ -2302,7 +2436,12 @@ function decideMarket(ai, opp, room){
     }
     if (pri > bestPri){ bestPri = pri; bestIdx = i; }
   }
-  if (bestIdx < 0 || bestPri < 20) return ['MARKET_SKIP', {}];
+  if (bestIdx < 0 || bestPri < (isDark ? 14 : 20)) return ['MARKET_SKIP', {}];
+
+  if (isDark) {
+    return ['MARKET_BUY', {market_idx: bestIdx, payment: []}];
+  }
+
   const target = market[bestIdx];
   const targetV = _bvMarket(target);
   const sortedHand = [...hand].sort((a,b) => (a==='瞬'?1:0) - (b==='瞬'?1:0) || _bvMarket(a) - _bvMarket(b));
@@ -2406,6 +2545,9 @@ function decideDefend(ai, opp, room){
 }
 
 function decideSpell(ai, opp, room){
+  const myScore = totalScore(ai), oppScore = totalScore(opp);
+  const oppDist0 = _brain.oppHandDistribution(room, AI_IDX);
+  const oppPressure = oppScore + estimateOppMaxCombo(oppDist0, room) >= C.WIN_SCORE;
   if (ai.breaker_marks > 0){
     const a = decideBreaker(room, ai, opp);
     if (a) return a;
@@ -2419,7 +2561,8 @@ function decideSpell(ai, opp, room){
       if (oppLock && oppLock !== '瞬' && cards.includes(oppLock)){
         if (ai.breaker_marks > 0)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'marker'}];
-        if (score >= 25)
+        const breakThreshold = (myScore + 30 >= C.WIN_SCORE || oppPressure) ? 18 : 22;
+        if (score >= breakThreshold)
           return ['SPELL_SCORE', {cards, combo_key:key, break_lockdown:'pay'}];
         for (const e of playable){
           const [k2,n2,c2,s2] = e;
@@ -2434,6 +2577,12 @@ function decideSpell(ai, opp, room){
   }
   const sac = decideSacrifice(ai, opp, room);
   if (sac) return sac;
+  if (!ai.prophet_used && myScore >= C.PROPHET_COST && oppScore - myScore >= 15) {
+    if (room.deck.length > C.PROPHET_PEEK_HAND_MIN_DECK)
+      return ['PROPHET_WHISPER', {choice:'peek_hand'}];
+    else
+      return ['PROPHET_WHISPER', {choice:'peek_deck'}];
+  }
   return ['SPELL_SKIP', {}];
 }
 
@@ -2564,6 +2713,12 @@ function decideColPreDiscard(ai, opp, room){
   return ['COLLISION_PRE_DISCARD', {cards: []}];
 }
 
+function decideColArrange(ai){
+  const hand = [...ai.hand];
+  shuffle(hand);
+  return ['COLLISION_ARRANGE', {order: hand}];
+}
+
 function decideColBet(ai, opp, room){
   if (room.col_bet_phase === 'CALLER' && room.col_bet_caller !== AI_IDX) return null;
   if (room.col_bet_phase === 'RESPONDER' && room.col_bet_caller === AI_IDX) return null;
@@ -2593,7 +2748,8 @@ const DELAY = {
   SPELL_SCORE:[350,650], SPELL_INSTANT:[300,500], SPELL_SACRIFICE:[400,700],
   SPELL_BREAKER:[300,500], SPELL_SKIP:[150,300],
   END_DISCARD:[200,350], LOCKDOWN_PLACE:[350,600], LOCKDOWN_SKIP:[150,300],
-  COLLISION_PRE_DISCARD:[300,500], COLLISION_BET:[400,700], COLLISION_FLIP:[150,300],
+  PROPHET_WHISPER:[300,500], PROPHET_DECK:[200,350],
+  COLLISION_PRE_DISCARD:[300,500], COLLISION_BET:[400,700], COLLISION_ARRANGE:[400,700], COLLISION_FLIP:[150,300],
 };
 function getDelay(action){
   const r = DELAY[action] || [300, 600];
@@ -2736,6 +2892,8 @@ function onState(s) {
     sacState = null;
     marketState = null;
     pendingLockedCombo = null;
+    colArrangeOrder = null;
+    colArrangeSwapFirst = -1;
   }
 
   hideOverlay();
@@ -3025,8 +3183,10 @@ function renderArena() {
     case 'SPELL': h += renderSpell(); break;
     case 'END_DISCARD': h += renderEndDiscard(); break;
     case 'LOCKDOWN_PLACE': h += renderLockdownPlace(); break;
+    case 'PROPHET_DECK': h += renderProphetDeck(); break;
     case 'COLLISION_PRE_DISCARD': h += renderColPreDiscard(); break;
     case 'COLLISION_BET': h += renderColBet(); break;
+    case 'COLLISION_ARRANGE': h += renderColArrange(); break;
     case 'COLLISION_FLIP': h += renderColFlip(); break;
     default: h += `<div class="text-center text-muted">等待中...</div>`;
   }
@@ -3044,8 +3204,10 @@ function phaseLabel(p) {
     SPELL:'叁 · 咏唱',
     END_DISCARD:'肆 · 弃牌',
     LOCKDOWN_PLACE:'肆 · 明牌封锁',
+    PROPHET_DECK:'叁 · 先知牌库',
     COLLISION_PRE_DISCARD:'终局 · 对撞前弃牌',
     COLLISION_BET:'终局 · 对撞赌注',
+    COLLISION_ARRANGE:'终局 · 排列暗阵',
     COLLISION_FLIP:'终局 · 对撞翻牌',
   };
   return m[p] || p;
@@ -3126,8 +3288,8 @@ function renderMarketPhase() {
   if (uiMode === 'market') return renderMarketBuy();
 
   let h = '<div class="text-center">';
-  h += `<p style="color:#D4AF37">壹 · 黑市${s.market_dark ? '（暗市夜 · 盲买）' : ''}</p>`;
-  h += `<p class="text-muted" style="font-size:.85rem">点击商品开始购买，或跳过进入下一阶段。</p>`;
+  h += `<p style="color:#D4AF37">壹 · 黑市${s.market_dark ? '（暗市夜 · 免费拿取）' : ''}</p>`;
+  h += `<p class="text-muted" style="font-size:.85rem">${s.market_dark ? '暗市夜：点击商品直接免费拿取！' : '点击商品开始购买，或跳过进入下一阶段。'}</p>`;
   if ((s.market || []).length === 0) {
     h += `<p class="text-muted">黑市无商品 · </p>`;
     h += `<div class="action-bar"><button class="btn btn-success" onclick="sendAction('MARKET_SKIP')">跳过</button></div>`;
@@ -3138,7 +3300,7 @@ function renderMarketPhase() {
     const c = s.market[i];
     const v = (c === '瞬' ? 5 : CARD_BV[c]);
     if (s.market_dark) {
-      h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})"><div class="cd cd-back"><span class="lt">？</span></div><div class="market-price">价 ?</div></div>`;
+      h += `<div class="market-buy-slot" onclick="darkMarketPick(${i})"><div class="cd cd-back"><span class="lt">？</span></div><div class="market-price">免费拿取</div></div>`;
     } else {
       h += `<div class="market-buy-slot" onclick="enterMarketBuy(${i})">${cardHTML(c)}<div class="market-price">价 ${v}</div></div>`;
     }
@@ -3186,6 +3348,10 @@ function confirmMarketBuy(payment) {
   const idx = marketState.selectedMarketIdx;
   uiMode = null; marketState = null; selectedCards = [];
   sendAction('MARKET_BUY', {market_idx: idx, payment: payment});
+}
+
+function darkMarketPick(idx) {
+  sendAction('MARKET_BUY', {market_idx: idx, payment: []});
 }
 
 /* ── V5: Lockdown Place ────────────────────────────── */
@@ -3287,10 +3453,19 @@ function renderSpell() {
   let h = '<div>';
   if (s.my_curse) h += '<div class="text-center" style="color:#C0392B;font-size:.85rem">诅咒生效：下一次计分 −10</div>';
 
+  // Prophet peek display
+  if (s.prophet_peek && s.prophet_peek.length) {
+    h += '<div class="text-center" style="margin:6px 0;padding:8px;border:1px solid #6B5B3A;border-radius:4px;background:rgba(20,16,12,.7)">';
+    h += '<span style="color:#9B59B6">先知低语：</span>';
+    h += s.prophet_peek.map(c => `<span class="cd cd-sm cd-${c}">${c}</span>`).join(' ');
+    h += '</div>';
+  }
+
   // Mode overlays
   if (uiMode === 'instant') return h + renderInstantMode() + '</div>';
   if (uiMode === 'sacrifice') return h + renderSacrificeMode() + '</div>';
   if (uiMode === 'breaker') return h + renderBreakerMode() + '</div>';
+  if (uiMode === 'prophet') return h + renderProphetMode() + '</div>';
 
   h += '<div class="action-bar">';
   if (s.my_breaker > 0) h += `<button class="btn btn-sm" onclick="enterBreakerMode()">破法者 (${s.my_breaker})</button>`;
@@ -3298,6 +3473,8 @@ function renderSpell() {
     h += `<button class="btn btn-sm" onclick="enterInstantMode()">使用瞬</button>`;
   if ((s.sacrifice_slots || []).length > 0)
     h += `<button class="btn btn-sm btn-danger" onclick="enterSacrificeMode()">黑暗献祭</button>`;
+  if (!s.prophet_used_me)
+    h += `<button class="btn btn-sm" onclick="enterProphetMode()" style="border-color:#5A3A8A;color:#C4A0FF">先知低语 (−${s.prophet_cost}分)</button>`;
   h += '</div>';
 
   h += renderScorepadGrid();
@@ -3406,6 +3583,47 @@ function doBreaker(type, slotKey) {
   uiMode = null;
   if (type === 'seal') sendAction('SPELL_BREAKER', {type:'seal', slot_key: slotKey});
   else sendAction('SPELL_BREAKER', {type:'curse'});
+}
+
+/* ── Prophet mode ─────────────────────────────────── */
+function enterProphetMode() {
+  uiMode = 'prophet';
+  selectedCards = [];
+  renderArena(); renderMyZone(false);
+}
+function renderProphetMode() {
+  const s = state;
+  let h = '<div class="text-center"><p style="color:#9B59B6;font-size:1.05rem">先知低语 — 选择窥探方式 (−' + s.prophet_cost + ' 分)</p>';
+  h += '<div class="action-bar">';
+  if (s.prophet_peek_hand_blocked) {
+    h += `<button class="btn btn-sm" disabled title="终局将至，无法窥探对手手牌">窥探对手手牌 (禁用)</button>`;
+  } else {
+    h += `<button class="btn btn-sm" onclick="doProphet('peek_hand')">窥探对手手牌 (≤3张)</button>`;
+  }
+  h += `<button class="btn btn-sm" onclick="doProphet('peek_deck')">窥视牌库顶 (≤3张)</button>`;
+  h += `<button class="btn btn-sm" onclick="doProphet('peek_market')">窥探暗市商品</button>`;
+  h += `<button class="btn btn-sm" onclick="exitUIMode()">取消</button>`;
+  return h + '</div></div>';
+}
+function doProphet(choice) {
+  uiMode = null; selectedCards = [];
+  sendAction('PROPHET_WHISPER', {choice: choice});
+}
+
+function renderProphetDeck() {
+  const s = state;
+  if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在查看牌库...</div>';
+  const cards = s.prophet_deck_cards || [];
+  let h = '<div class="text-center"><p style="color:#9B59B6">先知低语 — 牌库顶 ' + cards.length + ' 张</p>';
+  h += '<div class="cards-row">';
+  for (let i = 0; i < cards.length; i++) h += cardHTML(cards[i]);
+  h += '</div>';
+  h += '<p class="text-muted" style="font-size:.85rem">可选择 1 张移至牌库底部，或直接继续</p>';
+  h += '<div class="action-bar">';
+  for (let i = 0; i < cards.length; i++)
+    h += `<button class="btn btn-sm" onclick="sendAction('PROPHET_DECK',{discard_idx:${i}})">第 ${i+1} 张移至底部</button>`;
+  h += `<button class="btn btn-success" onclick="sendAction('PROPHET_DECK',{discard_idx:null})">不移动，继续</button>`;
+  return h + '</div></div>';
 }
 
 /* ── Sacrifice mode (multi-step) ──────────────────── */
@@ -3643,6 +3861,69 @@ function renderColBet() {
   return '<div class="text-center text-muted">处理中...</div>';
 }
 
+function renderColArrange() {
+  const s = state;
+  if (s.col_arrange_done) return '<div class="text-center text-muted">等待对手排列暗阵...</div>';
+  const hand = s.col_arrange_hand || [];
+  if (!hand.length) return '<div class="text-center text-muted">无手牌可排列</div>';
+  let h = '<div class="text-center">';
+  h += '<p style="color:#D4AF37;font-size:1.05rem">排列对撞暗阵</p>';
+  h += '<p class="text-muted" style="font-size:.85rem">拖拽或点击调整顺序，确定后提交。左 = 先翻。</p>';
+  h += '<div id="colArrangeCards" class="col-row" style="gap:6px;flex-wrap:wrap;justify-content:center">';
+  for (let i = 0; i < hand.length; i++) {
+    h += `<div class="col-arrange-card" data-idx="${i}" onclick="colArrangeSwap(${i})" style="cursor:pointer">`
+      + cardHTML(hand[i], {small:true}) + `<div style="font-size:.7rem;color:#8B7D6B;text-align:center">${i+1}</div></div>`;
+  }
+  h += '</div>';
+  h += '<div class="action-bar mt-2">';
+  h += `<button class="btn btn-sm" onclick="colArrangeShuffle()">随机排列</button>`;
+  h += `<button class="btn btn-success" onclick="colArrangeSubmit()">确认提交</button>`;
+  h += '</div></div>';
+  return h;
+}
+
+let colArrangeOrder = null;
+let colArrangeSwapFirst = -1;
+
+function initColArrangeOrder() {
+  if (!colArrangeOrder) {
+    colArrangeOrder = [...(state.col_arrange_hand || [])];
+  }
+}
+
+function colArrangeSwap(idx) {
+  initColArrangeOrder();
+  if (colArrangeSwapFirst < 0) {
+    colArrangeSwapFirst = idx;
+  } else {
+    const tmp = colArrangeOrder[colArrangeSwapFirst];
+    colArrangeOrder[colArrangeSwapFirst] = colArrangeOrder[idx];
+    colArrangeOrder[idx] = tmp;
+    colArrangeSwapFirst = -1;
+    state.col_arrange_hand = [...colArrangeOrder];
+    renderArena();
+  }
+}
+
+function colArrangeShuffle() {
+  initColArrangeOrder();
+  for (let i = colArrangeOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [colArrangeOrder[i], colArrangeOrder[j]] = [colArrangeOrder[j], colArrangeOrder[i]];
+  }
+  colArrangeSwapFirst = -1;
+  state.col_arrange_hand = [...colArrangeOrder];
+  renderArena();
+}
+
+function colArrangeSubmit() {
+  initColArrangeOrder();
+  const order = [...colArrangeOrder];
+  colArrangeOrder = null;
+  colArrangeSwapFirst = -1;
+  sendAction('COLLISION_ARRANGE', {order: order});
+}
+
 function renderColFlip() {
   const s = state;
   let h = '';
@@ -3818,17 +4099,16 @@ function handleClientAction(action, data){
   if (phase === 'AMBUSH_DEF_CHOICE') actor = 1 - engine.current_player;
   // Collision phases: actor depends on phase state
   if (phase === 'COLLISION_PRE_DISCARD'){
-    // Whichever side hasn't submitted yet & matches human
     if (!engine.col_pre_discard_done[humanIdx]) actor = humanIdx;
     else actor = 1 - humanIdx;
   } else if (phase === 'COLLISION_BET'){
     if (engine.col_bet_phase === 'CALLER') actor = engine.col_bet_caller;
     else actor = 1 - engine.col_bet_caller;
+  } else if (phase === 'COLLISION_ARRANGE'){
+    actor = humanIdx;
   } else if (phase === 'COLLISION_FLIP'){
     actor = engine._colWaitingFor();
   }
-  // Only allow human's actions; AI uses scheduleAI() directly
-  // (this shim assumes the click came from the human)
   const [ok, err] = engine.handleAction(actor, action, data);
   if (!ok){
     fireEvent('action_error', {msg: err || 'invalid action'});
@@ -3853,6 +4133,9 @@ function scheduleAI(){
   } else if (phase === 'COLLISION_BET'){
     if (engine.col_bet_phase === 'CALLER') actor = engine.col_bet_caller;
     else actor = 1 - engine.col_bet_caller;
+  } else if (phase === 'COLLISION_ARRANGE'){
+    if (!engine.col_arrange_done[aiIdx]) actor = aiIdx;
+    else actor = humanIdx;
   } else if (phase === 'COLLISION_FLIP') actor = engine._colWaitingFor();
   else actor = engine.current_player;
 
