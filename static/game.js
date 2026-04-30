@@ -284,6 +284,351 @@ function _triggerSFX(newS, oldS) {
     }
   }
 }
+/* ══════════════════════════════════════════════
+   动画系统 — Animation Engine
+   ══════════════════════════════════════════════ */
+
+let _animPlaying = false;
+
+function getAnimLayer() {
+  let el = document.getElementById('animLayer');
+  if (!el) { el = document.createElement('div'); el.id = 'animLayer'; document.body.appendChild(el); }
+  return el;
+}
+function clearAnimLayer() {
+  const el = getAnimLayer();
+  el.innerHTML = '';
+  el.classList.remove('anim-active');
+  _animPlaying = false;
+}
+
+function detectAnimation(oldS, newS) {
+  if (!oldS || !newS) return null;
+
+  // Ambush resolve — new or changed ambush_last_outcome
+  const nO = newS.ambush_last_outcome, oO = oldS.ambush_last_outcome;
+  if (nO && JSON.stringify(nO) !== JSON.stringify(oO || null)) {
+    const wasMyAttack = oldS.is_my_turn;
+    return { type: 'ambush', data: { ...nO, wasMyAttack } };
+  }
+
+  // Collision flip — col_round increased
+  if (newS.phase === 'COLLISION_FLIP' && oldS.phase === 'COLLISION_FLIP') {
+    const oldR = oldS.col_round || 0, newR = newS.col_round || 0;
+    if (newR > oldR) {
+      const mF = new Set(newS.col_my_flipped || []), oF = new Set(newS.col_opp_flipped || []);
+      const omF = new Set(oldS.col_my_flipped || []), ooF = new Set(oldS.col_opp_flipped || []);
+      let myC = null, opC = null;
+      for (const i of mF) if (!omF.has(i)) myC = (newS.col_my_revealed || {})[i];
+      for (const i of oF) if (!ooF.has(i)) opC = (newS.col_opp_revealed || {})[i];
+      if (myC && opC) {
+        const last = (newS.log || []).slice().reverse().find(e => e.type === 'col_result');
+        let result = 'tie';
+        if (last) {
+          if (last.msg.includes(newS.my_name) && last.msg.includes('获胜')) result = 'me';
+          else if (last.msg.includes('获胜')) result = 'opp';
+          else if (last.msg.includes('过载')) result = 'overload';
+        }
+        return { type: 'collision', data: { myCard: myC, oppCard: opC, result } };
+      }
+    }
+  }
+
+  // Score event
+  if (newS.log && oldS.log && newS.log.length > oldS.log.length) {
+    const nl = newS.log.slice(oldS.log.length);
+    for (const e of nl) {
+      if (e.type === 'score' || e.type === 'red_bid_result') {
+        const m = e.msg.match(/(\d+)\s*分/);
+        if (m) return { type: 'score', data: { score: parseInt(m[1]) } };
+      }
+    }
+  }
+  return null;
+}
+
+function playAnimation(anim) {
+  if (_animPlaying) return;
+  switch (anim.type) {
+    case 'ambush': animAmbushReveal(anim.data); break;
+    case 'collision': animCollisionReveal(anim.data); break;
+    case 'score': animScorePopup(anim.data.score); break;
+  }
+}
+
+/* Build flip-card HTML: face-down front, face-up back */
+function flipCardHTML(card) {
+  return `<div class="anim-flip-wrap"><div class="anim-flip-inner">` +
+    `<div class="anim-flip-front">${cardHTML('?', { faceDown: true })}</div>` +
+    `<div class="anim-flip-back">${cardHTML(card)}</div>` +
+    `</div></div>`;
+}
+
+/* Spawn shatter particles from a position */
+function spawnParticles(layer, x, y, color) {
+  for (let i = 0; i < 12; i++) {
+    const p = document.createElement('div');
+    p.className = 'anim-particle';
+    const angle = (Math.PI * 2 / 12) * i + Math.random() * 0.5;
+    const dist = 60 + Math.random() * 80;
+    p.style.cssText = `left:${x}px;top:${y}px;width:${6 + Math.random() * 8}px;height:${4 + Math.random() * 6}px;` +
+      `background:${color};--px:${Math.cos(angle) * dist}px;--py:${Math.sin(angle) * dist}px;--pr:${Math.random() * 720 - 360}deg`;
+    layer.appendChild(p);
+  }
+}
+
+/* ── Ambush reveal animation ── */
+function animAmbushReveal(o) {
+  _animPlaying = true;
+  const layer = getAnimLayer();
+  layer.innerHTML = '';
+  layer.classList.add('anim-active');
+
+  const isBluff = o.outcome === 'bluff_true' || o.outcome === 'bluff_false';
+  const isFold = o.outcome === 'fold';
+  const isAutoWin = o.outcome === 'auto_win';
+  const isTie = o.outcome === 'tie' || o.outcome === 'shun_absorb';
+  const atkWins = o.outcome === 'win' || isAutoWin;
+  const defWins = o.outcome === 'lose';
+  const isFA = (o.atk === 'F' && o.def === 'A') || (o.atk === 'A' && o.def === 'F');
+  const hasTwoCards = !isFold && !isAutoWin && !isBluff && o.def;
+
+  // Build stage
+  const stage = document.createElement('div');
+  stage.style.cssText = 'display:flex;align-items:flex-start;justify-content:center;gap:0;position:relative;';
+
+  // Attacker slot
+  const atkSlot = document.createElement('div');
+  atkSlot.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+  atkSlot.innerHTML = `<div class="anim-slide-left" id="animAtkWrap">${flipCardHTML(o.atk || '?')}</div>` +
+    `<div style="font-size:.72rem;color:#D4AF37;font-family:Cinzel,serif;letter-spacing:1px">攻击方</div>`;
+
+  // VS
+  const vs = document.createElement('div');
+  vs.style.cssText = 'font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#C0392B;' +
+    'text-shadow:0 0 30px rgba(192,57,43,.5);margin:20px 22px 0;';
+  vs.className = 'anim-vs-pop';
+  vs.textContent = hasTwoCards ? 'VS' : '';
+
+  // Defender slot
+  const defSlot = document.createElement('div');
+  defSlot.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+  if (hasTwoCards) {
+    defSlot.innerHTML = `<div class="anim-slide-right" id="animDefWrap">${flipCardHTML(o.def)}</div>` +
+      `<div style="font-size:.72rem;color:#E74C3C;font-family:Cinzel,serif;letter-spacing:1px">防守方</div>`;
+  } else if (isFold) {
+    defSlot.innerHTML = `<div style="width:62px;height:105px;display:flex;align-items:center;justify-content:center;` +
+      `color:#6B5B3A;font-size:.85rem;opacity:.6">怯战</div>`;
+  } else if (isBluff) {
+    defSlot.innerHTML = `<div style="width:62px;height:105px;display:flex;align-items:center;justify-content:center;` +
+      `color:${o.outcome === 'bluff_true' ? '#D4AF37' : '#E74C3C'};font-size:.75rem;text-align:center;line-height:1.4">` +
+      `拆穿！</div>`;
+  } else {
+    defSlot.innerHTML = `<div style="width:62px;height:105px;display:flex;align-items:center;justify-content:center;` +
+      `color:#6B5B3A;font-size:.8rem">—</div>`;
+  }
+
+  stage.appendChild(atkSlot);
+  stage.appendChild(vs);
+  stage.appendChild(defSlot);
+  layer.appendChild(stage);
+
+  // Result text container
+  const rt = document.createElement('div');
+  rt.id = 'animRT';
+  rt.style.cssText = 'position:absolute;bottom:22%;left:50%;transform:translateX(-50%);text-align:center;opacity:0;';
+  layer.appendChild(rt);
+
+  // Timeline
+  const T_FLIP = 700, T_RESULT = 1500, T_END = 3200;
+
+  // Step 1: Flip cards
+  setTimeout(() => {
+    const af = document.querySelector('#animAtkWrap .anim-flip-inner');
+    if (af) af.classList.add('flipped');
+    if (hasTwoCards) {
+      const df = document.querySelector('#animDefWrap .anim-flip-inner');
+      if (df) df.classList.add('flipped');
+    }
+  }, T_FLIP);
+
+  // Step 2: Show result
+  setTimeout(() => {
+    const r = document.getElementById('animRT');
+    if (!r) return;
+
+    // F > A special
+    if (isFA && (atkWins || defWins)) {
+      const flash = document.createElement('div');
+      flash.className = 'anim-fa-flash';
+      document.body.appendChild(flash);
+      setTimeout(() => flash.remove(), 1500);
+      document.getElementById('gameBoard')?.classList.add('screen-shake');
+      setTimeout(() => document.getElementById('gameBoard')?.classList.remove('screen-shake'), 500);
+    }
+
+    const atkCard = atkSlot.querySelector('.anim-flip-back .cd');
+    const defCard = defSlot.querySelector('.anim-flip-back .cd');
+    const atkRect = atkSlot.getBoundingClientRect();
+    const defRect = defSlot.getBoundingClientRect();
+
+    if (atkWins || isFold) {
+      if (atkCard) atkCard.classList.add(isFA ? 'anim-fa-glow' : 'anim-winner-glow');
+      if (defCard && !isFold) {
+        defCard.classList.add('anim-loser-shatter');
+        spawnParticles(layer, defRect.left + defRect.width / 2, defRect.top + defRect.height / 2,
+          'rgba(192,57,43,.8)');
+      }
+      const msg = isFold ? '怯战 — 攻击方窃取' :
+        isFA ? '⚡ 逆转命运 ⚡ F 粉碎 A！' :
+        isAutoWin ? '自动胜利！' :
+        `攻击方胜！ ${o.atk} > ${o.def}`;
+      r.innerHTML = `<div class="anim-result-text" style="color:#D4AF37;text-shadow:0 0 20px rgba(212,175,55,.6)">${msg}</div>`;
+    } else if (defWins) {
+      if (defCard) defCard.classList.add(isFA ? 'anim-fa-glow' : 'anim-winner-glow');
+      if (atkCard) {
+        atkCard.classList.add('anim-loser-shatter');
+        spawnParticles(layer, atkRect.left + atkRect.width / 2, atkRect.top + atkRect.height / 2,
+          'rgba(192,57,43,.8)');
+      }
+      const msg = isFA ? '⚡ 逆转命运 ⚡ F 粉碎 A！' : `防守方胜！ ${o.def} > ${o.atk}`;
+      r.innerHTML = `<div class="anim-result-text" style="color:#E74C3C;text-shadow:0 0 20px rgba(231,76,60,.6)">${msg}</div>`;
+    } else if (isTie) {
+      r.innerHTML = `<div class="anim-result-text" style="color:#8B7D6B">${o.outcome === 'shun_absorb' ? '「瞬」吸收 — 强制平局' : '平局'}</div>`;
+    } else if (isBluff) {
+      const isTrue = o.outcome === 'bluff_true';
+      r.innerHTML = `<div class="anim-result-text" style="color:${isTrue ? '#D4AF37' : '#FF4444'}">` +
+        `声明 [${o.declared}] — ${isTrue ? '属实！防守方 -15' : '虚假！攻击方 -15'}</div>`;
+      setTimeout(() => animPenalty(15), 300);
+    }
+    r.style.opacity = '1';
+  }, T_RESULT);
+
+  setTimeout(() => clearAnimLayer(), T_END);
+}
+
+/* ── Collision reveal animation ── */
+function animCollisionReveal(data) {
+  _animPlaying = true;
+  const layer = getAnimLayer();
+  layer.innerHTML = '';
+  layer.classList.add('anim-active');
+
+  const { myCard, oppCard, result } = data;
+  const isFA = (myCard === 'F' && oppCard === 'A') || (oppCard === 'F' && myCard === 'A');
+
+  const stage = document.createElement('div');
+  stage.style.cssText = 'display:flex;align-items:flex-start;justify-content:center;gap:0;position:relative;';
+
+  const mySlot = document.createElement('div');
+  mySlot.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+  mySlot.innerHTML = `<div class="anim-slide-left" id="animMyWrap">${flipCardHTML(myCard)}</div>` +
+    `<div style="font-size:.72rem;color:#D4AF37;font-family:Cinzel,serif">我方</div>`;
+
+  const vs = document.createElement('div');
+  vs.className = 'anim-vs-pop';
+  vs.style.cssText = 'font-family:Cinzel,serif;font-size:2rem;font-weight:900;color:#C0392B;' +
+    'text-shadow:0 0 30px rgba(192,57,43,.5);margin:20px 22px 0;';
+  vs.textContent = 'VS';
+
+  const oppSlot = document.createElement('div');
+  oppSlot.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+  oppSlot.innerHTML = `<div class="anim-slide-right" id="animOppWrap">${flipCardHTML(oppCard)}</div>` +
+    `<div style="font-size:.72rem;color:#E74C3C;font-family:Cinzel,serif">对手</div>`;
+
+  stage.appendChild(mySlot);
+  stage.appendChild(vs);
+  stage.appendChild(oppSlot);
+  layer.appendChild(stage);
+
+  const rt = document.createElement('div');
+  rt.id = 'animColRT';
+  rt.style.cssText = 'position:absolute;bottom:22%;left:50%;transform:translateX(-50%);text-align:center;opacity:0;';
+  layer.appendChild(rt);
+
+  setTimeout(() => {
+    document.querySelector('#animMyWrap .anim-flip-inner')?.classList.add('flipped');
+    document.querySelector('#animOppWrap .anim-flip-inner')?.classList.add('flipped');
+  }, 700);
+
+  setTimeout(() => {
+    const r = document.getElementById('animColRT');
+    if (!r) return;
+
+    if (isFA) {
+      const flash = document.createElement('div');
+      flash.className = 'anim-fa-flash';
+      document.body.appendChild(flash);
+      setTimeout(() => flash.remove(), 1500);
+      document.getElementById('gameBoard')?.classList.add('screen-shake');
+      setTimeout(() => document.getElementById('gameBoard')?.classList.remove('screen-shake'), 500);
+    }
+
+    const mC = mySlot.querySelector('.anim-flip-back .cd');
+    const oC = oppSlot.querySelector('.anim-flip-back .cd');
+    const mR = mySlot.getBoundingClientRect();
+    const oR = oppSlot.getBoundingClientRect();
+
+    if (result === 'me') {
+      if (mC) mC.classList.add(isFA ? 'anim-fa-glow' : 'anim-winner-glow');
+      if (oC) { oC.classList.add('anim-loser-shatter'); spawnParticles(layer, oR.left + oR.width / 2, oR.top + oR.height / 2, 'rgba(192,57,43,.8)'); }
+      r.innerHTML = `<div class="anim-result-text" style="color:#D4AF37;text-shadow:0 0 20px rgba(212,175,55,.6)">${isFA ? '⚡ F 逆转粉碎 A！' : '我方胜出！'}</div>`;
+    } else if (result === 'opp') {
+      if (oC) oC.classList.add(isFA ? 'anim-fa-glow' : 'anim-winner-glow');
+      if (mC) { mC.classList.add('anim-loser-shatter'); spawnParticles(layer, mR.left + mR.width / 2, mR.top + mR.height / 2, 'rgba(192,57,43,.8)'); }
+      r.innerHTML = `<div class="anim-result-text" style="color:#E74C3C;text-shadow:0 0 20px rgba(231,76,60,.6)">${isFA ? '⚡ F 逆转粉碎 A！' : '对手胜出'}</div>`;
+    } else if (result === 'overload') {
+      if (mC) mC.classList.add('anim-loser-shatter');
+      if (oC) oC.classList.add('anim-loser-shatter');
+      spawnParticles(layer, mR.left + mR.width / 2, mR.top + mR.height / 2, 'rgba(155,89,182,.8)');
+      spawnParticles(layer, oR.left + oR.width / 2, oR.top + oR.height / 2, 'rgba(155,89,182,.8)');
+      r.innerHTML = `<div class="anim-result-text" style="color:#B388FF">⚡ 过载 — 双方牌粉碎</div>`;
+    } else {
+      r.innerHTML = `<div class="anim-result-text" style="color:#8B7D6B">平局</div>`;
+    }
+    r.style.opacity = '1';
+  }, 1500);
+
+  setTimeout(() => clearAnimLayer(), 2800);
+}
+
+/* ── Score popup ── */
+function animScorePopup(score) {
+  const el = document.createElement('div');
+  el.className = 'anim-score-popup';
+  el.textContent = `+${score}`;
+  el.style.left = '50%';
+  el.style.top = '42%';
+  el.style.transform = 'translateX(-50%)';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
+/* ── Penalty popup ── */
+function animPenalty(amount) {
+  const el = document.createElement('div');
+  el.className = 'anim-penalty';
+  el.textContent = `−${amount}`;
+  el.style.left = '50%';
+  el.style.top = '38%';
+  el.style.transform = 'translateX(-50%)';
+  document.body.appendChild(el);
+  document.getElementById('gameBoard')?.classList.add('screen-shake');
+  setTimeout(() => document.getElementById('gameBoard')?.classList.remove('screen-shake'), 500);
+  setTimeout(() => el.remove(), 2200);
+}
+
+/* ── Card steal visual (fire-and-forget) ── */
+function animStealCard() {
+  const oppZone = document.querySelector('.player-zone.opp .cards-row');
+  if (!oppZone) return;
+  const cards = oppZone.querySelectorAll('.cd');
+  if (!cards.length) return;
+  const pick = cards[Math.floor(Math.random() * cards.length)];
+  pick.classList.add('anim-card-steal');
+  setTimeout(() => pick.style.display = 'none', 800);
+}
+
 /* ══════════════════════════════════════════════ */
 
 /* State */
@@ -380,9 +725,12 @@ function showWaiting() {
 function onState(s) {
   const oldState = state;
   prevState = state;
+
+  // Detect animation BEFORE updating state
+  const anim = detectAnimation(state, s);
+
   state = s;
   selectedCards = [];
-  // reset ui modes on most transitions
   if (!prevState || prevState.phase !== s.phase) {
     uiMode = null;
     sacState = null;
@@ -408,11 +756,23 @@ function onState(s) {
   renderArena();
   startTimer();
 
-  // Auto-ack DRAW after brief animation
+  // Play animation overlay on top of rendered state
+  if (anim) {
+    playAnimation(anim);
+    // Steal card visual for ambush wins
+    if (anim.type === 'ambush' && anim.data.stole > 0 &&
+        ((anim.data.wasMyAttack && (anim.data.outcome === 'win' || anim.data.outcome === 'fold' || anim.data.outcome === 'auto_win')) ||
+         (!anim.data.wasMyAttack && anim.data.outcome === 'lose'))) {
+      setTimeout(() => animStealCard(), 2000);
+    }
+  }
+
+  // Auto-ack DRAW after animation completes
   if (s.phase === 'DRAW' && s.is_my_turn) {
+    const delay = anim ? 3500 : 900;
     setTimeout(() => {
       if (state && state.phase === 'DRAW' && state.is_my_turn) sendAction('DRAW_ACK');
-    }, 900);
+    }, delay);
   }
 }
 
@@ -934,8 +1294,22 @@ function renderAmbushPayCost() {
 
 /* ── Phase: Ambush Atk Select ──────────────────────── */
 function renderAmbushAtkSelect() {
-  if (!state.is_my_turn) return '<div class="text-center text-muted">对手正在暗扣...</div>';
-  let h = '<div class="text-center"><p class="text-muted">选择一张牌（非瞬）暗扣发起拼点</p><div class="action-bar">';
+  if (!state.is_my_turn) {
+    let h = '<div class="ambush-duel">';
+    h += '<div class="ambush-duel-slot"><div class="cd cd-back" style="opacity:.6"><span class="lt">?</span></div>';
+    h += '<div class="ambush-duel-label" style="color:#E74C3C">对手选牌中</div></div>';
+    h += '</div>';
+    h += '<div class="text-center text-muted">对手正在暗扣出牌...</div>';
+    return h;
+  }
+  let h = '<div class="ambush-duel">';
+  if (selectedCards.length === 1) {
+    h += '<div class="ambush-duel-slot">' + cardHTML('?', { faceDown: true }) + '<div class="ambush-duel-label">暗扣就绪</div></div>';
+  } else {
+    h += '<div class="ambush-duel-slot"><div class="ambush-duel-empty" style="border-color:rgba(212,175,55,.4)">选择<br>暗扣牌</div></div>';
+  }
+  h += '</div>';
+  h += '<div class="text-center"><p class="text-muted">选择一张牌（非瞬）暗扣发起拼点</p><div class="action-bar">';
   if (selectedCards.length === 1) {
     const card = state.my_hand[selectedCards[0]];
     h += `<button class="btn btn-danger" onclick="sendAction('AMBUSH_ATK_SELECT',{card:'${card}'})">确认暗扣</button>`;
@@ -947,8 +1321,21 @@ function renderAmbushAtkSelect() {
 /* ── Phase: Bluff Declare (attacker declares rank) ─── */
 function renderBluffDeclare() {
   const s = state;
-  if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在决定是否声明...</div>';
-  let h = '<div class="text-center">';
+  if (!s.is_my_turn) {
+    let h = '<div class="ambush-duel">';
+    h += '<div class="ambush-duel-slot"><div class="cd cd-back" style="animation:aGlow 2s ease-in-out infinite"><span class="lt">☽</span></div>';
+    h += '<div class="ambush-duel-label">对手暗扣</div></div>';
+    h += '</div>';
+    h += '<div class="text-center text-muted">对手正在决定是否声明...</div>';
+    return h;
+  }
+  let h = '';
+  h += '<div class="ambush-duel">';
+  h += '<div class="ambush-duel-slot">' + cardHTML('?', { faceDown: true }) + '<div class="ambush-duel-label">我的暗扣</div></div>';
+  h += '<div class="ambush-duel-vs" style="opacity:.3">VS</div>';
+  h += '<div class="ambush-duel-slot"><div class="ambush-duel-empty">等待<br>对手</div></div>';
+  h += '</div>';
+  h += '<div class="text-center">';
   h += '<p style="color:#D4AF37;font-size:1.05rem">虚实之言 — 可选声明暗扣牌等级（加注！）</p>';
   h += '<p class="text-muted" style="font-size:.82rem">声明 = 加注：拼点赢家额外 +5 分，且对手可选择「拆穿」。<br>属实被拆穿：对手 -15 分；虚假被识破：你 -15 分。</p>';
   h += '<div class="action-bar" style="flex-wrap:wrap">';
@@ -964,10 +1351,33 @@ function renderBluffDeclare() {
 function renderAmbushDefChoice() {
   const s = state;
   const isDefender = !s.is_my_turn;
-  if (!isDefender) return '<div class="text-center text-muted">对手正在抉择...</div>';
+  if (!isDefender) {
+    let h = '<div class="ambush-duel">';
+    h += '<div class="ambush-duel-slot">' + cardHTML('?', { faceDown: true }) + '<div class="ambush-duel-label">我的暗扣</div></div>';
+    h += '<div class="ambush-duel-vs">VS</div>';
+    h += '<div class="ambush-duel-slot"><div class="ambush-duel-empty">等待<br>回应</div></div>';
+    h += '</div>';
+    h += '<div class="text-center text-muted">对手正在抉择...</div>';
+    return h;
+  }
   const declared = s.bluff_declared_rank;
   const canCall = s.can_call_bluff;
   let h = '';
+
+  // Duel stage with attacker's face-down card and my response slot
+  h += '<div class="ambush-duel">';
+  h += '<div class="ambush-duel-slot"><div class="cd cd-back" style="animation:aGlow 2s ease-in-out infinite"><span class="lt">☽</span></div>';
+  h += '<div class="ambush-duel-label">对手暗扣' + (declared ? ` [${declared}]` : '') + '</div></div>';
+  h += '<div class="ambush-duel-vs">VS</div>';
+  h += '<div class="ambush-duel-slot">';
+  if (selectedCards.length === 1) {
+    h += cardHTML('?', { faceDown: true });
+    h += '<div class="ambush-duel-label">我的迎战</div>';
+  } else {
+    h += '<div class="ambush-duel-empty">选牌<br>迎战</div>';
+  }
+  h += '</div></div>';
+
   if (declared) {
     h += `<div class="defend-alert">对手声明暗扣牌为 [${declared}]（加注！拼点赢家 +${s.bluff_stake_bonus||5} 分）</div>`;
   } else {
@@ -1066,7 +1476,7 @@ function renderScorepadGrid() {
     h += `<td>${statusParts.join(' ')}</td>`;
 
     let reward = '';
-    if (cfg.color === 'red') reward = '🔥 对手弃 2';
+    if (cfg.color === 'red') reward = '🔥 对手弃 1';
     else if (cfg.color === 'blue') reward = '💧 抽 1';
     else if (cfg.color === 'green') reward = '🌿 抽 1';
     h += `<td>${reward}</td>`;
