@@ -14,7 +14,7 @@ from game_state import (
     SACRIFICE_MAX_X, NO_AMBUSH_BEFORE_TURN,
     MARKET_DECK_GUARD, LOCKDOWN_BREAK_COST,
     PROPHET_COST, PROPHET_PEEK_HAND_MIN_DECK,
-    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
+    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY, BLUFF_STAKE_BONUS,
     RED_BID_MIN, RED_BID_MAX,
 )
 
@@ -493,11 +493,6 @@ def decide(room):
             return None
         return _decide_bluff_declare(ai, opp, room)
 
-    if phase == 'AMBUSH_BLUFF_RESPOND':
-        if cp == AI_IDX:
-            return None
-        return _decide_bluff_respond(ai, opp, room)
-
     if phase == 'PROPHET_DECK':
         if cp != AI_IDX:
             return None
@@ -787,8 +782,9 @@ def _decide_atk_select(ai, opp, room):
 
 
 def _decide_defend(ai, opp, room):
-    """Aggressive AI defender — fights back instead of folding.
-    Uses ZeroBrain EV calculation and considers combo preservation."""
+    """AI defender with integrated bluff-call decision.
+    When a declaration is active, considers challenge vs fight vs fold using
+    Bayesian bluff probability and EV comparison."""
     hand = ai['hand']
     eligible = [c for c in hand if c != '瞬']
     has_instant = '瞬' in hand
@@ -796,50 +792,64 @@ def _decide_defend(ai, opp, room):
     if not eligible and not has_instant:
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
 
-    # Known attack card (server has it)
     atk_known = getattr(room, 'atk_card', None)
+    declared = getattr(room, 'bluff_declared_rank', None)
 
-    # If we have 瞬 and the attack is A/B (high value), always absorb
+    # ── Evaluate challenge EV when a declaration exists ──
+    if declared:
+        unseen = _brain.unseen_distribution(room, AI_IDX)
+        atk_dist = _brain.opp_hand_distribution(room, AI_IDX)
+        non_shun_total = sum(v for k, v in atk_dist.items() if k != '瞬')
+        p_true = (atk_dist.get(declared, 0) / max(1, non_shun_total))
+        my_score = _total_score(ai)
+        opp_score = _total_score(opp)
+
+        # EV of challenge: p_true * (-PENALTY) + (1-p_true) * (+PENALTY + card value)
+        ev_call = p_true * (-BLUFF_TRUE_PENALTY) + (1 - p_true) * BLUFF_FALSE_PENALTY
+
+        # Strong confidence it's a bluff → challenge
+        if p_true < 0.25 and my_score >= BLUFF_TRUE_PENALTY:
+            return ('AMBUSH_DEFEND', {'choice': 'call'})
+        # Ahead and suspicious → challenge
+        if my_score - opp_score > 20 and p_true < 0.40:
+            return ('AMBUSH_DEFEND', {'choice': 'call'})
+        # General threshold
+        call_threshold = 0.30 if my_score >= 25 else 0.22
+        if p_true < call_threshold:
+            return ('AMBUSH_DEFEND', {'choice': 'call'})
+
+    # ── Normal defend logic (fight or fold) ──
     if has_instant and atk_known in ('A', 'B'):
         return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
 
-    # Check for combo emergency: near-completed big combo
     near = _near_combos(hand, room, AI_IDX)
     high_value_near = [c for c in near if c[2] >= 70 and c[1] <= 1]
 
-    # If we know the attack card, pick the optimal counter
     if atk_known and eligible:
         from game_logic import compare_duel
-        # Find cards that beat the attack
         winners = [c for c in set(eligible) if compare_duel(atk_known, c) == -1]
         if winners:
-            # Pick the cheapest winner (preserve valuable cards)
             winners.sort(key=lambda c: _card_value(c, hand, room, AI_IDX))
             return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': winners[0]})
 
-        # No winner available — use 瞬 if attack is valuable
         if has_instant and BV.get(atk_known, 0) >= 4:
             return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
 
-        # If near-combo and hand is small, fold to preserve
         if high_value_near and len(hand) <= 4:
             if has_instant:
                 return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
             return ('AMBUSH_DEFEND', {'choice': 'fold'})
 
-        # Tie cards (same rank) — use expendable one to force tie
         tie_cards = [c for c in set(eligible) if compare_duel(atk_known, c) == 0]
         if tie_cards:
             tie_cards.sort(key=lambda c: _card_value(c, hand, room, AI_IDX))
             return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': tie_cards[0]})
 
-    # Brain-based optimal decision (when attack card is uncertain)
     decision = _brain.best_defense_card(room, AI_IDX, can_fold=True)
     if decision is None:
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
     choice, card = decision
     if choice == 'fold':
-        # Even when brain says fold, fight back if we have 瞬
         if has_instant and len(opp['hand']) >= 3:
             return ('AMBUSH_DEFEND', {'choice': 'defend', 'card': '瞬'})
         return ('AMBUSH_DEFEND', {'choice': 'fold'})
@@ -1392,7 +1402,6 @@ def _decide_col_arrange(ai):
 # ── Delay ────────────────────────────────────────────────
 DELAY = {
     'BLUFF_DECLARE': (0.4, 0.8),
-    'BLUFF_RESPOND': (0.4, 0.8),
     'PROPHET_WHISPER': (0.5, 0.9),
     'PROPHET_DECK': (0.3, 0.5),
     'RED_BID': (0.6, 1.0),
@@ -1426,73 +1435,46 @@ def get_delay(action):
 
 # ── Bluff Call (虚实之言) ─────────────────────────────
 def _decide_bluff_declare(ai, opp, room):
-    """Strategic bluffing: AI bluffs when it benefits from intimidation,
-    and tells truth when the true card is already scary."""
+    """Declaration = raising stakes (+5 to combat winner).
+    Declare truthfully with strong cards to bait challenges or gain stake bonus.
+    Bluff with weak cards to pressure folds. Skip declaration to play safe."""
     hand = ai['hand']
     true_card = room.atk_card
     if not true_card:
         return ('BLUFF_DECLARE', {'declared_rank': 'none'})
 
-    true_rank = RANK.get(true_card, 6)
+    my_score = _total_score(ai)
+    opp_score = _total_score(opp)
 
-    # Strong cards (A, B): usually tell truth to trigger fold
+    # Strong cards (A, B): declare truthfully ~75% to bait challenges (+15) or win with stake bonus
     if true_card in ('A', 'B'):
-        # 70% truth (intimidation), 30% declare nothing (hide info)
-        if random.random() < 0.70:
+        if random.random() < 0.75:
             return ('BLUFF_DECLARE', {'declared_rank': true_card})
         return ('BLUFF_DECLARE', {'declared_rank': 'none'})
 
-    # Mid cards (C, D): bluff as A/B to intimidate ~40%
+    # Mid cards (C, D): mixed strategy — bluff ~35%, truth ~25%, skip ~40%
     if true_card in ('C', 'D'):
-        if random.random() < 0.40:
+        r = random.random()
+        if r < 0.35:
             declared = random.choice(['A', 'A', 'B'])
             return ('BLUFF_DECLARE', {'declared_rank': declared})
-        if random.random() < 0.30:
-            return ('BLUFF_DECLARE', {'declared_rank': 'none'})
-        return ('BLUFF_DECLARE', {'declared_rank': true_card})
+        if r < 0.60:
+            return ('BLUFF_DECLARE', {'declared_rank': true_card})
+        return ('BLUFF_DECLARE', {'declared_rank': 'none'})
 
-    # Weak cards (E, F): bluff aggressively 60%
+    # Weak cards (E, F): bluff ~50% to pressure folds, skip ~50% to avoid challenge risk
     if true_card in ('E', 'F'):
-        if random.random() < 0.60:
+        if my_score - opp_score < -15:
+            # Behind: bluff more aggressively to catch up
+            if random.random() < 0.65:
+                declared = random.choice(['A', 'B', 'B', 'C'])
+                return ('BLUFF_DECLARE', {'declared_rank': declared})
+        elif random.random() < 0.45:
             declared = random.choice(['A', 'B', 'B', 'C'])
             return ('BLUFF_DECLARE', {'declared_rank': declared})
         return ('BLUFF_DECLARE', {'declared_rank': 'none'})
 
     return ('BLUFF_DECLARE', {'declared_rank': 'none'})
-
-
-def _decide_bluff_respond(ai, opp, room):
-    """Smarter bluff calling using Bayesian reasoning and game context."""
-    declared = room.bluff_declared_rank
-    if declared is None:
-        return ('BLUFF_RESPOND', {'choice': 'believe'})
-
-    unseen = _brain.unseen_distribution(room, AI_IDX)
-    atk_dist = _brain.opp_hand_distribution(room, AI_IDX)
-    non_shun_total = sum(v for k, v in atk_dist.items() if k != '瞬')
-
-    # P(declared was the actual attack card)
-    p_true = (atk_dist.get(declared, 0) / max(1, non_shun_total))
-
-    my_score = _total_score(ai)
-    opp_score = _total_score(opp)
-
-    # If declared is A/B but opp has few of them in expected distribution → likely bluff
-    if declared in ('A', 'B') and p_true < 0.25:
-        # High confidence it's a bluff — call it
-        if my_score >= BLUFF_TRUE_PENALTY:
-            return ('BLUFF_RESPOND', {'choice': 'call'})
-
-    # If we're ahead, we can afford to call more aggressively
-    if my_score - opp_score > 20 and p_true < 0.40:
-        return ('BLUFF_RESPOND', {'choice': 'call'})
-
-    # General threshold
-    call_threshold = 0.30 if my_score >= 25 else 0.22
-    if p_true < call_threshold:
-        return ('BLUFF_RESPOND', {'choice': 'call'})
-
-    return ('BLUFF_RESPOND', {'choice': 'believe'})
 
 
 # ── Red Zone Bid (红区暗标拍卖) ────────────────────────

@@ -30,7 +30,7 @@ from game_state import (
     MARKET_SIZE, MARKET_DECK_GUARD, MARKET_DARK_INTERVAL,
     LOCKDOWN_BREAK_COST, LOCKDOWN_DEBT_ENABLE, LOCKDOWN_BAN_INSTANT,
     PROPHET_COST, PROPHET_PEEK_HAND_MIN_DECK,
-    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY,
+    BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY, BLUFF_STAKE_BONUS,
     RED_BID_MIN, RED_BID_MAX, RED_BID_BONUS_MULT,
 )
 
@@ -430,7 +430,6 @@ class GameRoom:
             'AMBUSH_CANCEL': self._h_ambush_cancel,
             'AMBUSH_DEFEND': self._h_ambush_defend,
             'BLUFF_DECLARE': self._h_bluff_declare,
-            'BLUFF_RESPOND': self._h_bluff_respond,
             'SPELL_SCORE': self._h_spell_score,
             'SPELL_INSTANT': self._h_spell_instant,
             'SPELL_BREAKER': self._h_spell_breaker,
@@ -614,59 +613,10 @@ class GameRoom:
         if declared == 'none':
             self._log('bluff_declare', f'{self._cur()["name"]} 未作声明，直接进入拼点')
             self.bluff_declared_rank = None
-            self.phase = 'AMBUSH_DEF_CHOICE'
         else:
-            self._log('bluff_declare', f'{self._cur()["name"]} 声明暗扣牌为【{declared}】')
+            self._log('bluff_declare', f'{self._cur()["name"]} 声明暗扣牌为【{declared}】（加注！拼点赢家 +{BLUFF_STAKE_BONUS}）')
             self.bluff_declared_rank = declared
-            self.phase = 'AMBUSH_BLUFF_RESPOND'
-        return True, None
-
-    def _h_bluff_respond(self, pidx, data):
-        if self.phase != 'AMBUSH_BLUFF_RESPOND' or pidx != (1 - self.current_player):
-            return False, 'Wrong phase / not defender'
-        choice = data.get('choice')
-        if choice not in ('believe', 'call'):
-            return False, 'Invalid choice'
-        attacker = self._cur()
-        defender = self._opp()
-        if choice == 'believe':
-            self._log('bluff_respond', f'{defender["name"]} 相信声明，正常迎战')
-            self.phase = 'AMBUSH_DEF_CHOICE'
-            return True, None
-        # Call bluff
-        true_card = self.atk_card
-        declared = self.bluff_declared_rank
-        atk_idx = self.current_player
-        def_idx = 1 - atk_idx
-        self._log('bluff_respond', f'{defender["name"]} 拆穿！揭示攻击牌 [{true_card}]')
-        if true_card == declared:
-            # Truthful declaration wrongly called — defender punished
-            self._discard([true_card])
-            defender['score'] -= BLUFF_TRUE_PENALTY
-            drawn = self._draw_to_hand(atk_idx, 1)
-            self._log('bluff_reveal',
-                      f'声明属实！{defender["name"]} -{BLUFF_TRUE_PENALTY} 分，{true_card} 弃置，{attacker["name"]} 抽 {len(drawn)} 张')
-            self.ambush_last_outcome = {
-                'outcome': 'bluff_true', 'declared': declared,
-                'atk': true_card, 'penalty_to': 'defender',
-                'drew': len(drawn),
-            }
-        else:
-            # Liar caught — attacker punished, card goes to defender
-            defender['hand'].append(true_card)
-            defender['hand'] = sort_hand(defender['hand'])
-            attacker['score'] -= BLUFF_FALSE_PENALTY
-            drawn = self._draw_to_hand(def_idx, 1)
-            self._log('bluff_reveal',
-                      f'虚张声势！{attacker["name"]} -{BLUFF_FALSE_PENALTY} 分，{true_card} 入{defender["name"]}手，{defender["name"]} 抽 {len(drawn)} 张')
-            self.ambush_last_outcome = {
-                'outcome': 'bluff_false', 'declared': declared,
-                'atk': true_card, 'penalty_to': 'attacker',
-                'drew': len(drawn),
-            }
-        self.atk_card = None
-        self.bluff_declared_rank = None
-        self._post_ambush_continue()
+        self.phase = 'AMBUSH_DEF_CHOICE'
         return True, None
 
     def _h_ambush_cancel(self, pidx, data):
@@ -686,8 +636,44 @@ class GameRoom:
         atk_idx = self.current_player
         def_idx = 1 - atk_idx
 
+        # ── Call bluff (拆穿) — only available when a declaration was made
+        if choice == 'call':
+            if not self.bluff_declared_rank:
+                return False, '未声明时不可拆穿'
+            attacker = self._cur()
+            defender = opp
+            true_card = self.atk_card
+            declared = self.bluff_declared_rank
+            self._log('bluff_respond', f'{defender["name"]} 拆穿！揭示攻击牌 [{true_card}]')
+            if true_card == declared:
+                self._discard([true_card])
+                defender['score'] -= BLUFF_TRUE_PENALTY
+                drawn = self._draw_to_hand(atk_idx, 1)
+                self._log('bluff_reveal',
+                          f'声明属实！{defender["name"]} -{BLUFF_TRUE_PENALTY} 分，{true_card} 弃置，{attacker["name"]} 抽 {len(drawn)} 张')
+                self.ambush_last_outcome = {
+                    'outcome': 'bluff_true', 'declared': declared,
+                    'atk': true_card, 'penalty_to': 'defender',
+                    'drew': len(drawn),
+                }
+            else:
+                defender['hand'].append(true_card)
+                defender['hand'] = sort_hand(defender['hand'])
+                attacker['score'] -= BLUFF_FALSE_PENALTY
+                drawn = self._draw_to_hand(def_idx, 1)
+                self._log('bluff_reveal',
+                          f'虚张声势！{attacker["name"]} -{BLUFF_FALSE_PENALTY} 分，{true_card} 入{defender["name"]}手，{defender["name"]} 抽 {len(drawn)} 张')
+                self.ambush_last_outcome = {
+                    'outcome': 'bluff_false', 'declared': declared,
+                    'atk': true_card, 'penalty_to': 'attacker',
+                    'drew': len(drawn),
+                }
+            self.atk_card = None
+            self.bluff_declared_rank = None
+            self._post_ambush_continue()
+            return True, None
+
         if choice == 'fold':
-            # Attacker steals 1 random from defender, attack card → discard
             stolen = self._random_steal(atk_idx, def_idx, AMBUSH_STEAL_COUNT)
             self._discard([self.atk_card])
             self.ambush_fold = True
@@ -744,6 +730,7 @@ class GameRoom:
         stole = 0
         drew = 0
         a_bonus_msg = ''
+        stake_bonus = BLUFF_STAKE_BONUS if self.bluff_declared_rank else 0
         if result == 1:
             # Attacker wins
             self.duel_winner_idx = atk_idx
@@ -751,14 +738,15 @@ class GameRoom:
             drew = len(drew_cards)
             stolen = self._random_steal(atk_idx, def_idx, AMBUSH_STEAL_COUNT)
             stole = len(stolen)
-            # A bonuses
+            if stake_bonus:
+                self._cur()['score'] += stake_bonus
+                a_bonus_msg += f' 加注+{stake_bonus}'
             if self.atk_card == 'A' and card != 'F':
                 self._cur()['score'] += AMBUSH_A_WIN_BONUS
                 a_bonus_msg += f' 圣物威压+{AMBUSH_A_WIN_BONUS}'
             if card == 'A' and self.atk_card != 'F':
                 opp['score'] += AMBUSH_A_LOSE_BONUS
                 a_bonus_msg += f' 圣物陨落+{AMBUSH_A_LOSE_BONUS}'
-            # F > A godslayer
             if self.atk_card == 'F' and card == 'A':
                 self._cur()['breaker_marks'] += 1
                 a_bonus_msg += ' 弑神·破法者+1'
@@ -772,6 +760,9 @@ class GameRoom:
             drew = len(drew_cards)
             stolen = self._random_steal(def_idx, atk_idx, AMBUSH_STEAL_COUNT)
             stole = len(stolen)
+            if stake_bonus:
+                opp['score'] += stake_bonus
+                a_bonus_msg += f' 加注+{stake_bonus}'
             if card == 'A' and self.atk_card != 'F':
                 opp['score'] += AMBUSH_A_WIN_BONUS
                 a_bonus_msg += f' 圣物威压+{AMBUSH_A_WIN_BONUS}'
@@ -785,7 +776,7 @@ class GameRoom:
             self._log('ambush_reveal',
                       f'{self.atk_card} vs {card} — 防守方胜！抽{drew}偷{stole}{a_bonus_msg}')
         else:
-            # Tie — no bonus even if A vs A
+            # Tie — no stake bonus on ties
             self._discard([self.atk_card, card])
             self._log('ambush_reveal', f'{self.atk_card} vs {card} — 平局！')
 
@@ -793,6 +784,7 @@ class GameRoom:
             'outcome': 'win' if result == 1 else ('lose' if result == -1 else 'tie'),
             'atk': self.atk_card, 'def': card,
             'stole': stole, 'drew': drew,
+            'stake_bonus': stake_bonus,
         }
         self._post_ambush_continue()
         return True, None
@@ -1630,7 +1622,7 @@ class GameRoom:
 
         # Ambush phase info
         if self.phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_DEF_CHOICE', 'AMBUSH_PAY_COST',
-                          'AMBUSH_BLUFF_DECLARE', 'AMBUSH_BLUFF_RESPOND'):
+                          'AMBUSH_BLUFF_DECLARE'):
             if pidx == self.current_player:
                 view['atk_card'] = self.atk_card
             else:
@@ -1639,10 +1631,14 @@ class GameRoom:
         if self.phase == 'AMBUSH_DEF_CHOICE':
             view['defender_idx'] = 1 - self.current_player
             view['can_fold'] = True
+            view['can_call_bluff'] = self.bluff_declared_rank is not None
+            view['bluff_declared_rank'] = self.bluff_declared_rank
+            view['bluff_stake_bonus'] = BLUFF_STAKE_BONUS if self.bluff_declared_rank else 0
             view['my_hand_for_defend'] = p['hand'] if pidx == (1 - self.current_player) else None
 
-        if self.phase in ('AMBUSH_BLUFF_DECLARE', 'AMBUSH_BLUFF_RESPOND'):
+        if self.phase == 'AMBUSH_BLUFF_DECLARE':
             view['bluff_declared_rank'] = self.bluff_declared_rank
+            view['bluff_stake_bonus'] = BLUFF_STAKE_BONUS
 
         # Prophet's Whisper
         view['prophet_used_me'] = p.get('prophet_used', False)

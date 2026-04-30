@@ -78,6 +78,8 @@ def _on_turn_timeout(room_id):
             room.handle_action(_sid_for(room, cp), 'DRAW_ACK', {})
         elif phase == 'AMBUSH_DECIDE':
             room.handle_action(_sid_for(room, cp), 'AMBUSH_DECIDE', {'choice': 'skip'})
+        elif phase == 'AMBUSH_BLUFF_DECLARE':
+            room.handle_action(_sid_for(room, cp), 'BLUFF_DECLARE', {'declared_rank': 'none'})
         elif phase in ('AMBUSH_ATK_SELECT', 'AMBUSH_PAY_COST'):
             room.handle_action(_sid_for(room, cp), 'AMBUSH_CANCEL', {})
         elif phase == 'AMBUSH_DEF_CHOICE':

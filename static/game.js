@@ -685,7 +685,6 @@ function renderArena() {
     case 'AMBUSH_PAY_COST': h += renderAmbushPayCost(); break;
     case 'AMBUSH_ATK_SELECT': h += renderAmbushAtkSelect(); break;
     case 'AMBUSH_BLUFF_DECLARE': h += renderBluffDeclare(); break;
-    case 'AMBUSH_BLUFF_RESPOND': h += renderBluffRespond(); break;
     case 'AMBUSH_DEF_CHOICE': h += renderAmbushDefChoice(); break;
     case 'SPELL': h += renderSpell(); break;
     case 'PROPHET_DECK': h += renderProphetDeck(); break;
@@ -709,8 +708,7 @@ function phaseLabel(p) {
     AMBUSH_PAY_COST:'贰 · 明弃代价',
     AMBUSH_ATK_SELECT:'贰 · 暗扣出牌',
     AMBUSH_BLUFF_DECLARE:'贰 · 虚实之言',
-    AMBUSH_BLUFF_RESPOND:'贰 · 拆穿 or 相信',
-    AMBUSH_DEF_CHOICE:'贰 · 迎战 / 怯战',
+    AMBUSH_DEF_CHOICE:'贰 · 迎战 / 怯战 / 拆穿',
     SPELL:'叁 · 咏唱',
     PROPHET_DECK:'叁 · 先知选择',
     RED_BID:'叁 · 红区暗标',
@@ -951,8 +949,8 @@ function renderBluffDeclare() {
   const s = state;
   if (!s.is_my_turn) return '<div class="text-center text-muted">对手正在决定是否声明...</div>';
   let h = '<div class="text-center">';
-  h += '<p style="color:#D4AF37;font-size:1.05rem">虚实之言 — 可选声明暗扣牌等级</p>';
-  h += '<p class="text-muted" style="font-size:.82rem">声明后对手可选择「拆穿」或「相信」。属实被拆穿：对手 -15 分，牌弃置，你抽 1；虚假被识破：你 -15 分，牌归对手，对手抽 1。</p>';
+  h += '<p style="color:#D4AF37;font-size:1.05rem">虚实之言 — 可选声明暗扣牌等级（加注！）</p>';
+  h += '<p class="text-muted" style="font-size:.82rem">声明 = 加注：拼点赢家额外 +5 分，且对手可选择「拆穿」。<br>属实被拆穿：对手 -15 分；虚假被识破：你 -15 分。</p>';
   h += '<div class="action-bar" style="flex-wrap:wrap">';
   for (const r of ['A','B','C','D','E','F']) {
     h += `<button class="btn btn-sm" onclick="sendAction('BLUFF_DECLARE',{declared_rank:'${r}'})">声明 [${r}]</button>`;
@@ -962,30 +960,31 @@ function renderBluffDeclare() {
   return h + '</div></div>';
 }
 
-/* ── Phase: Bluff Respond (defender calls or believes) */
-function renderBluffRespond() {
+/* ── Phase: Ambush Defend Choice (Call / Fold / Defend) */
+function renderAmbushDefChoice() {
   const s = state;
   const isDefender = !s.is_my_turn;
-  const declared = s.bluff_declared_rank || '？';
-  if (!isDefender) return `<div class="text-center text-muted">等待对手决定是否拆穿声明 [${declared}]...</div>`;
-  let h = `<div class="defend-alert">对手声明暗扣牌为 [${declared}]</div>`;
+  if (!isDefender) return '<div class="text-center text-muted">对手正在抉择...</div>';
+  const declared = s.bluff_declared_rank;
+  const canCall = s.can_call_bluff;
+  let h = '';
+  if (declared) {
+    h += `<div class="defend-alert">对手声明暗扣牌为 [${declared}]（加注！拼点赢家 +${s.bluff_stake_bonus||5} 分）</div>`;
+  } else {
+    h += '<div class="defend-alert">对手暗扣了一张牌！</div>';
+  }
   h += '<div class="text-center">';
-  h += `<p class="text-muted" style="font-size:.82rem">「拆穿」：若声明虚假 → 对手 -15 分，攻击牌归你，你抽 1 张；若声明属实 → 你 -15 分，攻击牌弃置，对手抽 1 张。</p>`;
+  if (canCall) {
+    h += '<p class="text-muted" style="font-size:.82rem">「拆穿」：若虚假 → 对手 -15 分，攻击牌归你；若属实 → 你 -15 分。</p>';
+  }
+  h += '<p class="text-muted" style="font-size:.85rem">怯战：对手偷你 1 张随机牌。';
+  if (declared) h += ' 迎战：比点数，赢家额外 +5。';
+  else h += ' 迎战：比点数。胜者抽 1 + 偷 1。';
+  h += '「瞬」强制吸收为平局。</p>';
   h += '<div class="action-bar">';
-  h += `<button class="btn btn-danger" onclick="sendAction('BLUFF_RESPOND',{choice:'call'})">拆穿！Call Bluff</button>`;
-  h += `<button class="btn btn-success" onclick="sendAction('BLUFF_RESPOND',{choice:'believe'})">相信，正常迎战</button>`;
-  return h + '</div></div>';
-}
-
-/* ── Phase: Ambush Defend Choice (Fold or Defend) ──── */
-function renderAmbushDefChoice() {
-  const isDefender = !state.is_my_turn;
-  if (!isDefender) return '<div class="text-center text-muted">对手正在抉择迎战或怯战...</div>';
-  let h = '<div class="defend-alert">对手暗扣了一张牌！选择迎战或怯战</div>';
-  h += '<div class="text-center">';
-  h += '<p class="text-muted" style="font-size:.85rem">怯战：对手偷你 1 张随机牌，但暗扣牌进弃牌堆</p>';
-  h += '<p class="text-muted" style="font-size:.85rem">迎战：比点数。胜者抽 1 + 偷对方 1。「瞬」强制吸收为平局。</p>';
-  h += '<div class="action-bar">';
+  if (canCall) {
+    h += `<button class="btn btn-warning" onclick="sendAction('AMBUSH_DEFEND',{choice:'call'})">拆穿！</button>`;
+  }
   if (selectedCards.length === 1) {
     const card = state.my_hand[selectedCards[0]];
     h += `<button class="btn btn-success" onclick="sendAction('AMBUSH_DEFEND',{choice:'defend',card:'${card}'})">迎战 [${card}]</button>`;

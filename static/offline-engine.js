@@ -52,6 +52,7 @@ const C = {
   PROPHET_PEEK_HAND_MIN_DECK: 4,
   BLUFF_TRUE_PENALTY: 15,
   BLUFF_FALSE_PENALTY: 15,
+  BLUFF_STAKE_BONUS: 5,
   RED_BID_MIN: 1,
   RED_BID_MAX: 3,
   RED_BID_BONUS_MULT: 2,
@@ -536,7 +537,6 @@ class GameRoom {
       'AMBUSH_CANCEL': this._h_ambush_cancel,
       'AMBUSH_DEFEND': this._h_ambush_defend,
       'BLUFF_DECLARE': this._h_bluff_declare,
-      'BLUFF_RESPOND': this._h_bluff_respond,
       'SPELL_SCORE': this._h_spell_score,
       'SPELL_INSTANT': this._h_spell_instant,
       'SPELL_BREAKER': this._h_spell_breaker,
@@ -694,50 +694,11 @@ class GameRoom {
     if (declared === 'none'){
       this._log('bluff_declare', `${this._cur().name} 未作声明，直接进入拼点`);
       this.bluff_declared_rank = null;
-      this.phase = 'AMBUSH_DEF_CHOICE';
     } else {
-      this._log('bluff_declare', `${this._cur().name} 声明暗扣牌为【${declared}】`);
+      this._log('bluff_declare', `${this._cur().name} 声明暗扣牌为【${declared}】（加注！拼点赢家 +${C.BLUFF_STAKE_BONUS}）`);
       this.bluff_declared_rank = declared;
-      this.phase = 'AMBUSH_BLUFF_RESPOND';
     }
-    return [true, null];
-  }
-
-  _h_bluff_respond(pidx, data){
-    if (this.phase !== 'AMBUSH_BLUFF_RESPOND' || pidx !== (1 - this.current_player)) return [false, 'Wrong phase'];
-    const choice = data.choice;
-    if (!['believe','call'].includes(choice)) return [false, 'Invalid choice'];
-    const attacker = this._cur();
-    const defender = this._opp();
-    if (choice === 'believe'){
-      this._log('bluff_respond', `${defender.name} 相信声明，正常迎战`);
-      this.phase = 'AMBUSH_DEF_CHOICE';
-      return [true, null];
-    }
-    const trueCard = this.atk_card;
-    const declared = this.bluff_declared_rank;
-    const atkIdx = this.current_player;
-    const defIdx = 1 - atkIdx;
-    this._log('bluff_respond', `${defender.name} 拆穿！揭示攻击牌 [${trueCard}]`);
-    if (trueCard === declared){
-      // Truthful — defender punished, card discarded, attacker draws
-      this._discard([trueCard]);
-      defender.score -= C.BLUFF_TRUE_PENALTY;
-      const drawn = this._drawToHand(atkIdx, 1);
-      this._log('bluff_reveal', `声明属实！${defender.name} -${C.BLUFF_TRUE_PENALTY} 分，${trueCard} 弃置，${attacker.name} 抽 ${drawn.length} 张`);
-      this.ambush_last_outcome = {outcome:'bluff_true', declared, atk:trueCard, penalty_to:'defender', drew:drawn.length};
-    } else {
-      // Liar caught — attacker punished, card to defender, defender draws
-      defender.hand.push(trueCard);
-      defender.hand = sortHand(defender.hand);
-      attacker.score -= C.BLUFF_FALSE_PENALTY;
-      const drawn = this._drawToHand(defIdx, 1);
-      this._log('bluff_reveal', `虚张声势！${attacker.name} -${C.BLUFF_FALSE_PENALTY} 分，${trueCard} 入${defender.name}手，${defender.name} 抽 ${drawn.length} 张`);
-      this.ambush_last_outcome = {outcome:'bluff_false', declared, atk:trueCard, penalty_to:'attacker', drew:drawn.length};
-    }
-    this.atk_card = null;
-    this.bluff_declared_rank = null;
-    this._postAmbushContinue();
+    this.phase = 'AMBUSH_DEF_CHOICE';
     return [true, null];
   }
 
@@ -758,6 +719,33 @@ class GameRoom {
     const opp = this._opp();
     const atk_idx = this.current_player;
     const def_idx = 1 - atk_idx;
+    // ── Call bluff (拆穿) ──
+    if (choice === 'call'){
+      if (!this.bluff_declared_rank) return [false, '未声明时不可拆穿'];
+      const attacker = this._cur();
+      const defender = opp;
+      const trueCard = this.atk_card;
+      const declared = this.bluff_declared_rank;
+      this._log('bluff_respond', `${defender.name} 拆穿！揭示攻击牌 [${trueCard}]`);
+      if (trueCard === declared){
+        this._discard([trueCard]);
+        defender.score -= C.BLUFF_TRUE_PENALTY;
+        const drawn = this._drawToHand(atk_idx, 1);
+        this._log('bluff_reveal', `声明属实！${defender.name} -${C.BLUFF_TRUE_PENALTY} 分，${trueCard} 弃置，${attacker.name} 抽 ${drawn.length} 张`);
+        this.ambush_last_outcome = {outcome:'bluff_true', declared, atk:trueCard, penalty_to:'defender', drew:drawn.length};
+      } else {
+        defender.hand.push(trueCard);
+        defender.hand = sortHand(defender.hand);
+        attacker.score -= C.BLUFF_FALSE_PENALTY;
+        const drawn = this._drawToHand(def_idx, 1);
+        this._log('bluff_reveal', `虚张声势！${attacker.name} -${C.BLUFF_FALSE_PENALTY} 分，${trueCard} 入${defender.name}手，${defender.name} 抽 ${drawn.length} 张`);
+        this.ambush_last_outcome = {outcome:'bluff_false', declared, atk:trueCard, penalty_to:'attacker', drew:drawn.length};
+      }
+      this.atk_card = null;
+      this.bluff_declared_rank = null;
+      this._postAmbushContinue();
+      return [true, null];
+    }
     if (choice === 'fold'){
       const stolen = this._randomSteal(atk_idx, def_idx, C.AMBUSH_STEAL_COUNT);
       this._discard([this.atk_card]);
@@ -798,10 +786,12 @@ class GameRoom {
                            (this.atk_card === 'F' && card === 'A');
     let stole = 0, drew = 0;
     let bonusMsg = '';
+    const stakeBonus = this.bluff_declared_rank ? C.BLUFF_STAKE_BONUS : 0;
     if (result === 1){
       this.duel_winner_idx = atk_idx;
       const drewC = this._drawToHand(atk_idx, 1); drew = drewC.length;
       const stolen = this._randomSteal(atk_idx, def_idx, C.AMBUSH_STEAL_COUNT); stole = stolen.length;
+      if (stakeBonus){ this._cur().score += stakeBonus; bonusMsg += ` 加注+${stakeBonus}`; }
       if (this.atk_card === 'A' && card !== 'F'){
         this._cur().score += C.AMBUSH_A_WIN_BONUS; bonusMsg += ` 圣物威压+${C.AMBUSH_A_WIN_BONUS}`;
       }
@@ -817,6 +807,7 @@ class GameRoom {
       this.duel_winner_idx = def_idx;
       const drewC = this._drawToHand(def_idx, 1); drew = drewC.length;
       const stolen = this._randomSteal(def_idx, atk_idx, C.AMBUSH_STEAL_COUNT); stole = stolen.length;
+      if (stakeBonus){ opp.score += stakeBonus; bonusMsg += ` 加注+${stakeBonus}`; }
       if (card === 'A' && this.atk_card !== 'F'){
         opp.score += C.AMBUSH_A_WIN_BONUS; bonusMsg += ` 圣物威压+${C.AMBUSH_A_WIN_BONUS}`;
       }
@@ -834,7 +825,7 @@ class GameRoom {
     }
     this.ambush_last_outcome = {
       outcome: result === 1 ? 'win' : (result === -1 ? 'lose' : 'tie'),
-      atk: this.atk_card, def: card, stole, drew,
+      atk: this.atk_card, def: card, stole, drew, stake_bonus: stakeBonus,
     };
     this._postAmbushContinue();
     return [true, null];
@@ -1467,7 +1458,7 @@ class GameRoom {
       view.draw_was_overdraft = this.draw_was_overdraft;
     }
     if (['AMBUSH_ATK_SELECT','AMBUSH_DEF_CHOICE','AMBUSH_PAY_COST',
-         'AMBUSH_BLUFF_DECLARE','AMBUSH_BLUFF_RESPOND'].includes(this.phase)){
+         'AMBUSH_BLUFF_DECLARE'].includes(this.phase)){
       if (pidx === this.current_player) view.atk_card = this.atk_card;
       else view.atk_card = this.atk_card ? '?' : null;
     }
@@ -1476,8 +1467,14 @@ class GameRoom {
       view.can_fold = true;
       view.my_hand_for_defend = pidx === (1 - this.current_player) ? p.hand : null;
     }
-    if (['AMBUSH_BLUFF_DECLARE','AMBUSH_BLUFF_RESPOND'].includes(this.phase)){
+    if (this.phase === 'AMBUSH_BLUFF_DECLARE'){
       view.bluff_declared_rank = this.bluff_declared_rank;
+      view.bluff_stake_bonus = C.BLUFF_STAKE_BONUS;
+    }
+    if (this.phase === 'AMBUSH_DEF_CHOICE'){
+      view.can_call_bluff = !!this.bluff_declared_rank;
+      view.bluff_declared_rank = this.bluff_declared_rank;
+      view.bluff_stake_bonus = this.bluff_declared_rank ? C.BLUFF_STAKE_BONUS : 0;
     }
     if (this.ambush_last_outcome) view.ambush_last_outcome = this.ambush_last_outcome;
     // Prophet
@@ -1879,7 +1876,6 @@ function decide(room){
   if (phase === 'AMBUSH_PAY_COST'){ if (cp !== AI_IDX) return null; return decidePayCost(ai, room); }
   if (phase === 'AMBUSH_ATK_SELECT'){ if (cp !== AI_IDX) return null; return decideAtkSelect(ai, opp, room); }
   if (phase === 'AMBUSH_BLUFF_DECLARE'){ if (cp !== AI_IDX) return null; return decideBluffDeclare(ai, opp, room); }
-  if (phase === 'AMBUSH_BLUFF_RESPOND'){ if (cp === AI_IDX) return null; return decideBluffRespond(ai, opp, room); }
   if (phase === 'AMBUSH_DEF_CHOICE'){ if (cp === AI_IDX) return null; return decideDefend(ai, opp, room); }
   if (phase === 'SPELL'){ if (cp !== AI_IDX) return null; return decideSpell(ai, opp, room); }
   if (phase === 'PROPHET_DECK'){ if (cp !== AI_IDX) return null; return ['PROPHET_DECK', {discard_idx: null}]; }
@@ -1895,20 +1891,23 @@ function decide(room){
 function decideBluffDeclare(ai, opp, room){
   const trueCard = room.atk_card;
   if (!trueCard) return ['BLUFF_DECLARE', {declared_rank:'none'}];
+  const myScore = totalScore(ai), oppScore = totalScore(opp);
   if (trueCard === 'A' || trueCard === 'B'){
-    if (Math.random() < 0.70) return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+    if (Math.random() < 0.75) return ['BLUFF_DECLARE', {declared_rank: trueCard}];
     return ['BLUFF_DECLARE', {declared_rank:'none'}];
   }
   if (trueCard === 'C' || trueCard === 'D'){
-    if (Math.random() < 0.40){
+    const r = Math.random();
+    if (r < 0.35){
       const declared = ['A','A','B'][Math.floor(Math.random()*3)];
       return ['BLUFF_DECLARE', {declared_rank: declared}];
     }
-    if (Math.random() < 0.30) return ['BLUFF_DECLARE', {declared_rank:'none'}];
-    return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+    if (r < 0.60) return ['BLUFF_DECLARE', {declared_rank: trueCard}];
+    return ['BLUFF_DECLARE', {declared_rank:'none'}];
   }
   if (trueCard === 'E' || trueCard === 'F'){
-    if (Math.random() < 0.60){
+    const bluffRate = (myScore - oppScore < -15) ? 0.65 : 0.45;
+    if (Math.random() < bluffRate){
       const pool = ['A','B','B','C'];
       const declared = pool[Math.floor(Math.random()*pool.length)];
       return ['BLUFF_DECLARE', {declared_rank: declared}];
@@ -1918,10 +1917,9 @@ function decideBluffDeclare(ai, opp, room){
   return ['BLUFF_DECLARE', {declared_rank:'none'}];
 }
 
-function decideBluffRespond(ai, opp, room){
+function _shouldCallBluff(ai, opp, room){
   const declared = room.bluff_declared_rank;
-  if (!declared) return ['BLUFF_RESPOND', {choice:'believe'}];
-  const unseen = _brain.unseenDistribution(room, AI_IDX);
+  if (!declared) return false;
   const atkDist = _brain.oppHandDistribution(room, AI_IDX);
   let nonShunTotal = 0;
   for (const k in atkDist) if (k !== '瞬') nonShunTotal += atkDist[k];
@@ -1929,12 +1927,12 @@ function decideBluffRespond(ai, opp, room){
   const myScore = totalScore(ai);
   const oppScore = totalScore(opp);
   if ((declared === 'A' || declared === 'B') && pTrue < 0.25){
-    if (myScore >= C.BLUFF_TRUE_PENALTY) return ['BLUFF_RESPOND', {choice:'call'}];
+    if (myScore >= C.BLUFF_TRUE_PENALTY) return true;
   }
-  if (myScore - oppScore > 20 && pTrue < 0.40) return ['BLUFF_RESPOND', {choice:'call'}];
+  if (myScore - oppScore > 20 && pTrue < 0.40) return true;
   const callThreshold = myScore >= 25 ? 0.30 : 0.22;
-  if (pTrue < callThreshold) return ['BLUFF_RESPOND', {choice:'call'}];
-  return ['BLUFF_RESPOND', {choice:'believe'}];
+  if (pTrue < callThreshold) return true;
+  return false;
 }
 
 function decideRedBid(ai, opp, room, aiIdx){
@@ -2127,6 +2125,9 @@ function decideDefend(ai, opp, room){
   const eligible = hand.filter(c => c !== '瞬');
   const hasInstant = hand.includes('瞬');
   if (!eligible.length && !hasInstant) return ['AMBUSH_DEFEND', {choice:'fold'}];
+  // Check bluff call first
+  if (_shouldCallBluff(ai, opp, room))
+    return ['AMBUSH_DEFEND', {choice:'call'}];
   const atkKnown = room.atk_card || null;
   if (hasInstant && (atkKnown === 'A' || atkKnown === 'B'))
     return ['AMBUSH_DEFEND', {choice:'defend', card:'瞬'}];
@@ -2440,7 +2441,7 @@ function decideColBet(ai, opp, room){
 }
 
 const DELAY = {
-  BLUFF_DECLARE:[400,800], BLUFF_RESPOND:[400,800],
+  BLUFF_DECLARE:[400,800],
   PROPHET_WHISPER:[500,900], PROPHET_DECK:[300,500], RED_BID:[600,1000],
   DRAW_ACK:[150,300], MARKET_BUY:[400,700], MARKET_SKIP:[150,300],
   AMBUSH_DECIDE:[300,500], AMBUSH_PAY_COST:[250,400], AMBUSH_ATK_SELECT:[300,500],

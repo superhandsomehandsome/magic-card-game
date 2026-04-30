@@ -85,6 +85,7 @@ PROPHET_PEEK_HAND_MIN_DECK = 4  # peek_hand blocked when deck ≤ this (prevents
 # ── 虚实之言 (Bluff Call) ────────────────────────────
 BLUFF_TRUE_PENALTY = 15    # Defender wrongly calls bluff on truthful declaration
 BLUFF_FALSE_PENALTY = 15   # Attacker caught lying
+BLUFF_STAKE_BONUS = 5      # Combat winner bonus when a declaration was made (raised stakes)
 
 # ── 红区暗标拍卖 (Sealed-Bid Red Zone) ───────────────
 RED_BID_MIN = 1

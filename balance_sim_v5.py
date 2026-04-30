@@ -47,6 +47,10 @@ MARKET_DARK_INTERVAL = int(os.environ.get('DARK_N', 5))
 LOCKDOWN_BREAK_COST = int(os.environ.get('LOCK_COST', 15))
 LOCKDOWN_DEBT_ENABLE = bool(int(os.environ.get('LOCK_DEBT', 1)))
 
+BLUFF_TRUE_PENALTY = 15
+BLUFF_FALSE_PENALTY = 15
+BLUFF_STAKE_BONUS = 5
+
 ANT_COLONY_MIN_F = 3
 
 RED_KEYS = {'dragon_breath', 'arcane_sequence'}
@@ -315,7 +319,42 @@ def phase_draw(g, pidx):
     p['market_purchased'] = False
 
 
-# ────────── AMBUSH (V3 logic) ──────────
+# ────────── BLUFF HELPERS ──────────
+def _sim_bluff_declare(atk_card):
+    """Decide whether to declare and what rank. Returns declared rank or None."""
+    if atk_card in ('A', 'B'):
+        return atk_card if random.random() < 0.75 else None
+    if atk_card in ('C', 'D'):
+        r = random.random()
+        if r < 0.35:
+            return random.choice(['A', 'A', 'B'])
+        if r < 0.60:
+            return atk_card
+        return None
+    if atk_card in ('E', 'F'):
+        if random.random() < 0.45:
+            return random.choice(['A', 'B', 'B', 'C'])
+        return None
+    return None
+
+
+def _sim_bluff_respond(declared, atk_card, opp_hand):
+    """Defender decides: 'call', 'fold', or 'fight'. Simple heuristic."""
+    if not declared:
+        return 'fight'
+    ct = Counter(opp_hand)
+    # Estimate if the declaration is plausible
+    total_non_shun = sum(v for k, v in ct.items() if k != '瞬')
+    # If defender holds the declared card → less likely opponent has it → call
+    own_count = ct.get(declared, 0)
+    if declared in ('A', 'B') and own_count >= 2:
+        return 'call' if random.random() < 0.6 else 'fight'
+    if declared in ('A', 'B'):
+        return 'call' if random.random() < 0.25 else 'fight'
+    return 'fight' if random.random() < 0.7 else 'call'
+
+
+# ────────── AMBUSH (with bluff mechanics) ──────────
 def phase_ambush(g, pidx, stats):
     if g['turn_number'] < NO_AMBUSH_BEFORE_TURN:
         return
@@ -365,14 +404,50 @@ def phase_ambush(g, pidx, stats):
             atk_card = eligible[0]
         p['hand'].remove(atk_card)
 
+        # Bluff declaration
+        declared = _sim_bluff_declare(atk_card)
+        if declared:
+            stats['bluff_declares'] += 1
+            if declared == atk_card:
+                stats['bluff_truthful'] += 1
+            else:
+                stats['bluff_false'] += 1
+
         opp_eligible = [c for c in opp['hand'] if c != '瞬']
         has_shun = '瞬' in opp['hand']
         ct_opp = Counter(opp['hand'])
-        valuable_ratio = sum(ct_opp.get(c, 0) for c in 'AB') / max(1, len(opp['hand']))
-        should_fold = (len(opp['hand']) <= 3 and valuable_ratio >= 0.5 and not has_shun)
 
-        if should_fold:
-            random_steal(g, pidx, 1 - pidx, 1)
+        # Defender response (considers bluff)
+        if declared:
+            response = _sim_bluff_respond(declared, atk_card, opp['hand'])
+        else:
+            valuable_ratio = sum(ct_opp.get(c, 0) for c in 'AB') / max(1, len(opp['hand']))
+            should_fold = (len(opp['hand']) <= 3 and valuable_ratio >= 0.5 and not has_shun)
+            response = 'fold' if should_fold else 'fight'
+
+        # Handle call (challenge)
+        if response == 'call' and declared:
+            stats['bluff_calls'] += 1
+            if atk_card == declared:
+                # Truthful — defender punished
+                opp['score'] -= BLUFF_TRUE_PENALTY
+                discard_cards(g, [atk_card])
+                draw_into_hand(g, pidx, 1)
+                stats['bluff_call_wrong'] += 1
+            else:
+                # Liar caught
+                p['score'] -= BLUFF_FALSE_PENALTY
+                opp['hand'].append(atk_card)
+                opp['hand'] = sort_hand(opp['hand'])
+                draw_into_hand(g, 1 - pidx, 1)
+                stats['bluff_call_right'] += 1
+            stats['ambush_attempts'] += 1
+            attempts += 1
+            continue
+
+        # Handle fold
+        if response == 'fold':
+            random_steal(g, pidx, 1 - pidx, AMBUSH_STEAL_COUNT)
             discard_cards(g, [atk_card])
             stats['fold'] += 1
         elif has_shun and atk_card in ('A', 'B'):
@@ -388,12 +463,16 @@ def phase_ambush(g, pidx, stats):
             best_def = non_a[max(0, len(non_a) // 2 - 1)] if non_a else opp_sorted[0]
             opp['hand'].remove(best_def)
             res = compare_duel(atk_card, best_def)
+            stake = BLUFF_STAKE_BONUS if declared else 0
             if res == 0:
                 discard_cards(g, [atk_card, best_def])
             elif res == 1:
                 stats['ambush_win_atk'] += 1
                 draw_into_hand(g, pidx, 1)
                 random_steal(g, pidx, 1 - pidx, AMBUSH_STEAL_COUNT)
+                if stake:
+                    p['score'] += stake
+                    stats['bluff_stake_total'] += stake
                 if atk_card == 'A' and best_def != 'F':
                     p['score'] += AMBUSH_A_WIN_BONUS
                     stats['a_win_bonus_total'] += AMBUSH_A_WIN_BONUS
@@ -406,6 +485,9 @@ def phase_ambush(g, pidx, stats):
                 stats['ambush_win_def'] += 1
                 draw_into_hand(g, 1 - pidx, 1)
                 random_steal(g, 1 - pidx, pidx, AMBUSH_STEAL_COUNT)
+                if stake:
+                    opp['score'] += stake
+                    stats['bluff_stake_total'] += stake
                 if best_def == 'A' and atk_card != 'F':
                     opp['score'] += AMBUSH_A_WIN_BONUS
                     stats['a_win_bonus_total'] += AMBUSH_A_WIN_BONUS
@@ -606,6 +688,9 @@ def run_one_game():
         'lockdown_placed': 0,
         'lockdown_break_marker': 0, 'lockdown_break_score': 0,
         'a_win_bonus_total': 0,
+        'bluff_declares': 0, 'bluff_truthful': 0, 'bluff_false': 0,
+        'bluff_calls': 0, 'bluff_call_right': 0, 'bluff_call_wrong': 0,
+        'bluff_stake_total': 0,
         'combos': Counter(),
         'turns': 0,
     }
@@ -678,6 +763,9 @@ def run_batch(n=5000):
         'lockdown_placed': 0,
         'lockdown_break_marker': 0, 'lockdown_break_score': 0,
         'a_win_bonus_total': 0,
+        'bluff_declares': 0, 'bluff_truthful': 0, 'bluff_false': 0,
+        'bluff_calls': 0, 'bluff_call_right': 0, 'bluff_call_wrong': 0,
+        'bluff_stake_total': 0,
         'combos': Counter(),
         'race_wins': 0, 'collision_wins': 0,
     }
@@ -696,7 +784,9 @@ def run_batch(n=5000):
         for k in ['ambush_attempts','second_ambush','fold','shun_absorb',
                   'ambush_win_atk','ambush_win_def','breaker_seal','breaker_curse',
                   'red_punish','market_buys','dark_buys','lockdown_placed',
-                  'lockdown_break_marker','lockdown_break_score','a_win_bonus_total']:
+                  'lockdown_break_marker','lockdown_break_score','a_win_bonus_total',
+                  'bluff_declares','bluff_truthful','bluff_false',
+                  'bluff_calls','bluff_call_right','bluff_call_wrong','bluff_stake_total']:
             agg[k] += s[k]
         for k, v in s['combos'].items():
             agg['combos'][k] += v
@@ -736,6 +826,16 @@ def print_report(agg, n):
         atk = agg['ambush_win_atk'] / (agg['ambush_win_atk'] + agg['ambush_win_def']) * 100
         print(f"  Atk winrate:          {atk:.1f}%")
     print(f"  A-win-bonus total/game: {agg['a_win_bonus_total']/n:.2f}")
+    print(f"\n[BLUFF / 虚实之言]")
+    print(f"  Declarations/game:    {agg['bluff_declares']/n:.2f}")
+    if agg['bluff_declares'] > 0:
+        print(f"    Truthful:           {agg['bluff_truthful']/n:.2f} ({agg['bluff_truthful']/agg['bluff_declares']*100:.1f}%)")
+        print(f"    False:              {agg['bluff_false']/n:.2f} ({agg['bluff_false']/agg['bluff_declares']*100:.1f}%)")
+    print(f"  Calls (拆穿)/game:    {agg['bluff_calls']/n:.2f}")
+    if agg['bluff_calls'] > 0:
+        print(f"    Caught liar:        {agg['bluff_call_right']/n:.2f} ({agg['bluff_call_right']/agg['bluff_calls']*100:.1f}%)")
+        print(f"    Wrong call:         {agg['bluff_call_wrong']/n:.2f} ({agg['bluff_call_wrong']/agg['bluff_calls']*100:.1f}%)")
+    print(f"  Stake bonus total/game: {agg['bluff_stake_total']/n:.2f}")
     print(f"\n[BLACK MARKET]")
     print(f"  Buys/game:            {agg['market_buys']/n:.2f}")
     print(f"  Dark-night buys/game: {agg['dark_buys']/n:.2f}")
