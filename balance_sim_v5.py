@@ -22,6 +22,7 @@ from game_state import CARD_CONFIG, SCORE_MULT
 
 # ────────── V5.0 PARAMETERS ──────────
 WIN_SCORE = int(os.environ.get('WIN_SCORE', 155))
+SCORE_FLOOR_LOSS = -100
 AMBUSH_A_WIN_BONUS = int(os.environ.get('A_WIN', 15))
 AMBUSH_A_LOSE_BONUS = int(os.environ.get('A_LOSE', 3))
 AMBUSH_MAX_PER_TURN = 2
@@ -29,7 +30,7 @@ AMBUSH_SECOND_COST = int(os.environ.get('COST', 1))
 AMBUSH_STEAL_COUNT = 1
 BLUE_REWARD_DRAW = int(os.environ.get('BLUE', 1))
 GREEN_REWARD_DRAW = int(os.environ.get('GREEN', 1))
-RED_PUNISH_DISCARD = 2
+RED_PUNISH_DISCARD = 1
 SACRIFICE_MAX_X = 3
 SACRIFICE_WINDOW = int(os.environ.get('SAC_WIN', 5))
 HAND_LIMIT = 8
@@ -726,6 +727,12 @@ def run_one_game():
                 break
         if g['winner'] != -1:
             break
+        for i in (0, 1):
+            if total_score(g, i) <= SCORE_FLOOR_LOSS:
+                g['winner'] = 1 - i
+                break
+        if g['winner'] != -1:
+            break
 
         if not g['deck']:
             s0, s1 = total_score(g, 0), total_score(g, 1)
@@ -745,7 +752,8 @@ def run_one_game():
     stats['score_p1'] = total_score(g, 1)
     stats['winner'] = g['winner'] if g['winner'] >= 0 else -1
     stats['win_by_race'] = (stats['winner'] >= 0 and
-                            max(stats['score_p0'], stats['score_p1']) >= WIN_SCORE)
+                            (max(stats['score_p0'], stats['score_p1']) >= WIN_SCORE or
+                             min(stats['score_p0'], stats['score_p1']) <= SCORE_FLOOR_LOSS))
     return stats
 
 

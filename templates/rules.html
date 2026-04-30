@@ -45,7 +45,7 @@ a{color:#D4AF37}
 <p class="subtitle">V5.0 · 黑市博弈版 · 快速入门</p>
 
 <h2>一句话概括</h2>
-<p>两位巫师用 A～F 六种魔力牌互相 <strong>突袭 · 拼组合 · 黑市交易 · 明牌封锁</strong>，率先 <span class="gold">115 分</span> 或在牌库耗尽后的【魔力对撞】中胜出获胜。</p>
+<p>两位巫师用 A～F 六种魔力牌互相 <strong>突袭 · 拼组合 · 黑市交易 · 明牌封锁</strong>，率先 <span class="gold">115 分</span> 或在牌库耗尽后的【魔力对撞】中胜出获胜。<span class="red">分数跌至 −100 即刻判负！</span></p>
 
 <h2>卡牌一览</h2>
 <div class="card-row">
@@ -136,7 +136,7 @@ a{color:#D4AF37}
 <h2>咏唱 · 组合与奖励</h2>
 <table>
   <tr><th>颜色</th><th>组合</th><th>完成奖励</th></tr>
-  <tr><td class="red">🔴 红</td><td>龙之吐息 / 奥术序列（<strong>共享 1 格</strong>）</td><td><strong>对手随机弃 2 张</strong></td></tr>
+  <tr><td class="red">🔴 红</td><td>龙之吐息 / 奥术序列（<strong>共享 1 格</strong>）</td><td><strong>对手随机弃 1 张</strong></td></tr>
   <tr><td class="blue">🔵 蓝</td><td>元素激流 / 混沌炼金</td><td>自己抽 1 张</td></tr>
   <tr><td class="green">🟢 绿</td><td>三重共鸣 / 以量取胜（<strong>至少 3 张 F</strong>）</td><td>自己抽 1 张</td></tr>
 </table>
@@ -160,6 +160,7 @@ a{color:#D4AF37}
 <table>
   <tr><th>参数</th><th>值</th></tr>
   <tr><td>胜利分</td><td>115（×SCORE_MULT 2.0）</td></tr>
+  <tr><td class="red">落败线</td><td>−100 分（跌破立即判负）</td></tr>
   <tr><td>开局手牌</td><td>先手 5 张（−5 起始分）/ 后手 6 张（首回合透支抽 1）</td></tr>
   <tr><td>手牌上限</td><td>8</td></tr>
   <tr><td>蓄力期</td><td>前 2 回合</td></tr>

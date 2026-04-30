@@ -38,6 +38,7 @@ CARD_ORDER = ['A', 'B', 'C', 'D', 'E', 'F', '瞬']
 # ══════════════════════════════════════════════════════════════════════
 
 WIN_SCORE = 115
+SCORE_FLOOR_LOSS = -100
 HAND_LIMIT = 8
 INITIAL_HAND_P0 = 5
 INITIAL_HAND_P1 = 6
@@ -53,7 +54,7 @@ AMBUSH_A_WIN_BONUS = 10
 AMBUSH_A_LOSE_BONUS = 3
 
 ANT_COLONY_MIN_F = 3
-RED_PUNISH_DISCARD = 2
+RED_PUNISH_DISCARD = 1
 BLUE_REWARD_DRAW = 1
 GREEN_REWARD_DRAW = 1
 

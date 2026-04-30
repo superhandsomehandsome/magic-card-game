@@ -36,7 +36,7 @@ const C = {
   AMBUSH_A_WIN_BONUS: 10,
   AMBUSH_A_LOSE_BONUS: 3,
   ANT_COLONY_MIN_F: 3,
-  RED_PUNISH_DISCARD: 2,
+  RED_PUNISH_DISCARD: 1,
   BLUE_REWARD_DRAW: 1,
   GREEN_REWARD_DRAW: 1,
   SACRIFICE_MAX_X: 3,
@@ -59,6 +59,7 @@ const C = {
   LOCKDOWN_BREAK_COST: 15,
   LOCKDOWN_DEBT_ENABLE: true,
   LOCKDOWN_BAN_INSTANT: true,
+  SCORE_FLOOR_LOSS: -100,
   // Scoring formula
   FIVE_KIND_BASE: 40, FIVE_KIND_PER_BV: 5,
   ARCANE_SEQUENCE_BASE: 45,
@@ -459,6 +460,13 @@ class GameRoom {
       if (totalScore(this.players[i]) >= C.WIN_SCORE){
         this.winner = i; this.phase = 'GAME_OVER';
         this._log('game_over', `${this.players[i].name} 达成 ${C.WIN_SCORE} 分竞速胜利！`);
+        return true;
+      }
+    }
+    for (let i=0;i<2;i++){
+      if (totalScore(this.players[i]) <= C.SCORE_FLOOR_LOSS){
+        this.winner = 1 - i; this.phase = 'GAME_OVER';
+        this._log('game_over', `${this.players[i].name} 分数跌破 ${C.SCORE_FLOOR_LOSS}，判定落败！`);
         return true;
       }
     }
@@ -1920,18 +1928,20 @@ function decideBluffDeclare(ai, opp, room){
 function _shouldCallBluff(ai, opp, room){
   const declared = room.bluff_declared_rank;
   if (!declared) return false;
-  const atkDist = _brain.oppHandDistribution(room, AI_IDX);
-  let nonShunTotal = 0;
-  for (const k in atkDist) if (k !== '瞬') nonShunTotal += atkDist[k];
-  const pTrue = (atkDist[declared] || 0) / Math.max(1, nonShunTotal);
+  // Estimate p(declaration is true) WITHOUT peeking at actual card.
+  // Use unseen distribution and add 1 back to compensate for atk_card subtraction.
+  const unseen = _brain.unseenDistribution(room, AI_IDX);
+  let totalUnseen = 0;
+  for (const k in unseen) totalUnseen += unseen[k];
+  const declaredInPool = (unseen[declared] || 0) + 1;
+  const totalPool = totalUnseen + 1;
+  const pTrue = declaredInPool / Math.max(1, totalPool);
   const myScore = totalScore(ai);
   const oppScore = totalScore(opp);
-  if ((declared === 'A' || declared === 'B') && pTrue < 0.25){
-    if (myScore >= C.BLUFF_TRUE_PENALTY) return true;
-  }
-  if (myScore - oppScore > 20 && pTrue < 0.40) return true;
-  const callThreshold = myScore >= 25 ? 0.30 : 0.22;
-  if (pTrue < callThreshold) return true;
+  const evCall = pTrue * (-C.BLUFF_TRUE_PENALTY) + (1 - pTrue) * C.BLUFF_FALSE_PENALTY;
+  if (evCall > 5 && pTrue < 0.20) return true;
+  if (myScore - oppScore > 25 && evCall > 2 && pTrue < 0.30) return true;
+  if (pTrue < 0.12 && myScore >= C.BLUFF_TRUE_PENALTY) return true;
   return false;
 }
 

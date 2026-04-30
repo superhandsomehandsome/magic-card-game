@@ -797,25 +797,30 @@ def _decide_defend(ai, opp, room):
 
     # ── Evaluate challenge EV when a declaration exists ──
     if declared:
+        # Estimate p(declaration is true) WITHOUT peeking at the actual attack card.
+        # Use unseen distribution before the attack card was played.
         unseen = _brain.unseen_distribution(room, AI_IDX)
-        atk_dist = _brain.opp_hand_distribution(room, AI_IDX)
-        non_shun_total = sum(v for k, v in atk_dist.items() if k != '瞬')
-        p_true = (atk_dist.get(declared, 0) / max(1, non_shun_total))
+        total_unseen = sum(unseen.values())
+        # P(attacker played the declared rank) ≈ unseen count of that rank / total unseen
+        # Note: unseen already subtracts atk_card, so add 1 back to avoid information leak
+        declared_in_pool = unseen.get(declared, 0) + 1
+        total_pool = total_unseen + 1
+        p_true = declared_in_pool / max(1, total_pool)
+
         my_score = _total_score(ai)
         opp_score = _total_score(opp)
 
-        # EV of challenge: p_true * (-PENALTY) + (1-p_true) * (+PENALTY + card value)
+        # EV of challenge: p_true * (-PENALTY) + (1-p_true) * (+PENALTY)
         ev_call = p_true * (-BLUFF_TRUE_PENALTY) + (1 - p_true) * BLUFF_FALSE_PENALTY
 
-        # Strong confidence it's a bluff → challenge
-        if p_true < 0.25 and my_score >= BLUFF_TRUE_PENALTY:
+        # Only challenge when EV is clearly positive AND confidence is high
+        if ev_call > 5 and p_true < 0.20:
             return ('AMBUSH_DEFEND', {'choice': 'call'})
-        # Ahead and suspicious → challenge
-        if my_score - opp_score > 20 and p_true < 0.40:
+        # Ahead and very suspicious → challenge with relaxed threshold
+        if my_score - opp_score > 25 and ev_call > 2 and p_true < 0.30:
             return ('AMBUSH_DEFEND', {'choice': 'call'})
-        # General threshold
-        call_threshold = 0.30 if my_score >= 25 else 0.22
-        if p_true < call_threshold:
+        # Behind or even → only challenge with very strong evidence of bluff
+        if p_true < 0.12 and my_score >= BLUFF_TRUE_PENALTY:
             return ('AMBUSH_DEFEND', {'choice': 'call'})
 
     # ── Normal defend logic (fight or fold) ──

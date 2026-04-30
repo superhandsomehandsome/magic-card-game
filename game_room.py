@@ -32,6 +32,7 @@ from game_state import (
     PROPHET_COST, PROPHET_PEEK_HAND_MIN_DECK,
     BLUFF_TRUE_PENALTY, BLUFF_FALSE_PENALTY, BLUFF_STAKE_BONUS,
     RED_BID_MIN, RED_BID_MAX, RED_BID_BONUS_MULT,
+    SCORE_FLOOR_LOSS,
 )
 
 
@@ -347,6 +348,13 @@ class GameRoom:
                 self.winner = i
                 self.phase = 'GAME_OVER'
                 self._log('game_over', f'{self.players[i]["name"]} 达成 {WIN_SCORE} 分竞速胜利！')
+                return True
+        for i in range(2):
+            if _total_score(self.players[i]) <= SCORE_FLOOR_LOSS:
+                self.winner = 1 - i
+                self.phase = 'GAME_OVER'
+                self._log('game_over',
+                          f'{self.players[i]["name"]} 分数跌破 {SCORE_FLOOR_LOSS}，判定落败！')
                 return True
         return False
 
@@ -1597,6 +1605,7 @@ class GameRoom:
             'current_player': self.current_player,
             'turn_number': self.turn_number,
             'win_score': WIN_SCORE,
+            'score_floor_loss': SCORE_FLOOR_LOSS,
             'hand_limit': HAND_LIMIT,
             'log': self._filtered_log(pidx),
             'winner': self.winner,
