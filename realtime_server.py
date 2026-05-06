@@ -43,8 +43,9 @@ class Room:
     """两人房间。slot 0 = 房主, slot 1 = 加入者。"""
     def __init__(self, code: str, host_sid: str):
         self.code = code
-        self.players = [host_sid, None]  # type: list[Optional[str]]
-        self.heroes = [None, None]       # type: list[Optional[str]]
+        self.sio_room = f'game_{code}'
+        self.players: list[Optional[str]] = [host_sid, None]
+        self.heroes: list[Optional[str]] = [None, None]
 
     def add_player(self, sid: str) -> Optional[int]:
         for i, slot in enumerate(self.players):
@@ -72,6 +73,14 @@ class Room:
         if slot is None:
             return None
         return self.players[1 - slot]
+
+    def update_sid(self, old_sid: str, new_sid: str) -> bool:
+        """重连时更新 sid"""
+        for i, slot in enumerate(self.players):
+            if slot == old_sid:
+                self.players[i] = new_sid
+                return True
+        return False
 
     @property
     def is_full(self) -> bool:
@@ -155,17 +164,20 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     log.info(f'Client disconnected: {sid}')
-    room = manager.leave(sid)
+    room = manager.find(sid)
     if room:
-        opp_sid = next((p for p in room.players if p), None)
-        if opp_sid:
-            await sio.emit('OPPONENT_LEFT', {}, to=opp_sid)
+        sio_room = room.sio_room
+        manager.leave(sid)
+        sio.leave_room(sid, sio_room)
+        # 通知房间内剩余的人
+        await sio.emit('OPPONENT_LEFT', {}, room=sio_room)
 
 
 @sio.on('CREATE_ROOM')
 async def handle_create_room(sid, _data=None):
     room = manager.create(sid)
-    log.info(f'Room {room.code} created by {sid}')
+    sio.enter_room(sid, room.sio_room)
+    log.info(f'Room {room.code} created by {sid}, sio_room={room.sio_room}')
     await sio.emit('ROOM_CREATED', {
         'roomCode': room.code,
         'slot': 0,
@@ -184,7 +196,8 @@ async def handle_join_room(sid, data):
         return
 
     slot = room.slot_of(sid)
-    log.info(f'Player {sid} joined room {code} as slot {slot}')
+    sio.enter_room(sid, room.sio_room)
+    log.info(f'Player {sid} joined room {code} as slot {slot}, sio_room={room.sio_room}')
 
     # 通知加入方
     await sio.emit('ROOM_JOINED', {
@@ -193,19 +206,19 @@ async def handle_join_room(sid, data):
         'opponentReady': room.is_full,
     }, to=sid)
 
-    # 通知房间内对手
-    opp = room.opponent_of(sid)
-    if opp:
-        await sio.emit('OPPONENT_JOINED', {}, to=opp)
+    # 通知房间内对手 (用 room 广播, skip 自己)
+    await sio.emit('OPPONENT_JOINED', {}, room=room.sio_room, skip_sid=sid)
 
 
 @sio.on('LEAVE_ROOM')
 async def handle_leave_room(sid, _data=None):
-    room = manager.leave(sid)
-    if room:
-        opp_sid = next((p for p in room.players if p), None)
-        if opp_sid:
-            await sio.emit('OPPONENT_LEFT', {}, to=opp_sid)
+    room = manager.find(sid)
+    if not room:
+        return
+    sio_room = room.sio_room
+    manager.leave(sid)
+    sio.leave_room(sid, sio_room)
+    await sio.emit('OPPONENT_LEFT', {}, room=sio_room)
 
 
 @sio.on('HERO_SELECTED')
@@ -218,9 +231,9 @@ async def handle_hero_selected(sid, data):
     if slot is None or not hero:
         return
     room.heroes[slot] = hero
-    opp = room.opponent_of(sid)
-    if opp:
-        await sio.emit('OPPONENT_HERO', {'hero': hero}, to=opp)
+    log.info(f'Player {sid} (slot {slot}) selected hero: {hero}')
+    # 广播给对手
+    await sio.emit('OPPONENT_HERO', {'hero': hero}, room=room.sio_room, skip_sid=sid)
 
 
 @sio.on('GAME_ACTION')
@@ -228,9 +241,8 @@ async def handle_game_action(sid, data):
     room = manager.find(sid)
     if not room:
         return
-    opp = room.opponent_of(sid)
-    if opp:
-        await sio.emit('GAME_ACTION', data, to=opp)
+    # 转发给房间内对手
+    await sio.emit('GAME_ACTION', data, room=room.sio_room, skip_sid=sid)
 
 
 # ═══════════════════════════════════════════════════════════
