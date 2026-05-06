@@ -8,9 +8,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
-  getSocket, emitCreateRoom, emitJoinRoom, emitLeaveRoom,
+  getSocket, emitCreateRoom, emitJoinRoom, emitLeaveRoom, emitRoomPing,
   onSocketStatus, type SocketStatus,
   type RoomCreatedPayload, type RoomJoinedPayload, type RoomErrorPayload,
+  type RoomPongPayload,
 } from '../../net/socket';
 
 interface RoomProps {
@@ -67,19 +68,22 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
     firedRef.current = false;
 
     const handleCreated = (data: RoomCreatedPayload) => {
+      console.log('[Room] ROOM_CREATED', data);
       setRoomCode(data.roomCode);
       setMySlot(data.slot);
       setStatus('WAITING_OPPONENT');
     };
 
     const handleJoined = (data: RoomJoinedPayload) => {
+      console.log('[Room] ROOM_JOINED', data);
       setRoomCode(data.roomCode);
       setMySlot(data.slot);
       setStatus(data.opponentReady ? 'BOTH_READY' : 'WAITING_OPPONENT');
     };
 
     const handleOpponentJoined = () => {
-      setStatus('BOTH_READY');
+      console.log('[Room] OPPONENT_JOINED received');
+      setStatus(prev => prev === 'BOTH_READY' ? prev : 'BOTH_READY');
     };
 
     const handleOpponentLeft = () => {
@@ -92,11 +96,21 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
       setErrorMsg(data.message || '未知错误');
     };
 
+    const handleRoomPong = (data: RoomPongPayload) => {
+      console.log('[Room] ROOM_PONG', data);
+      if (data.inRoom && data.isFull) {
+        setStatus(prev => prev === 'BOTH_READY' ? prev : 'BOTH_READY');
+        if (data.slot !== undefined) setMySlot(data.slot as 0 | 1);
+        if (data.roomCode) setRoomCode(data.roomCode);
+      }
+    };
+
     socket.on('ROOM_CREATED', handleCreated);
     socket.on('ROOM_JOINED', handleJoined);
     socket.on('OPPONENT_JOINED', handleOpponentJoined);
     socket.on('OPPONENT_LEFT', handleOpponentLeft);
     socket.on('ROOM_ERROR', handleError);
+    socket.on('ROOM_PONG', handleRoomPong);
 
     const fire = () => {
       if (firedRef.current) return;
@@ -111,12 +125,21 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
       socket.once('connect', fire);
     }
 
+    // 轮询: 每3秒主动查询房间状态 (防止 OPPONENT_JOINED 事件丢失)
+    const pollInterval = setInterval(() => {
+      if (socket.connected) {
+        emitRoomPing();
+      }
+    }, 3000);
+
     return () => {
+      clearInterval(pollInterval);
       socket.off('ROOM_CREATED', handleCreated);
       socket.off('ROOM_JOINED', handleJoined);
       socket.off('OPPONENT_JOINED', handleOpponentJoined);
       socket.off('OPPONENT_LEFT', handleOpponentLeft);
       socket.off('ROOM_ERROR', handleError);
+      socket.off('ROOM_PONG', handleRoomPong);
     };
   }, [mode, initialRoomCode]);
 

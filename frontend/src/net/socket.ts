@@ -133,3 +133,14 @@ export function emitHeroSelected(hero: HeroType): void {
 export function emitGameAction(payload: GameActionPayload): void {
   getSocket().emit('GAME_ACTION', payload);
 }
+
+export interface RoomPongPayload {
+  inRoom: boolean;
+  roomCode?: string;
+  slot?: 0 | 1;
+  isFull?: boolean;
+}
+
+export function emitRoomPing(): void {
+  getSocket().emit('ROOM_PING');
+}

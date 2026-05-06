@@ -156,6 +156,17 @@ sio = socketio.AsyncServer(
 manager = RoomManager()
 
 
+async def _emit_to_opponent(event: str, data: dict, room: Room, my_sid: str):
+    """双重保险: 既用直接 sid 发送, 也用 room 广播"""
+    opp = room.opponent_of(my_sid)
+    if opp:
+        log.info(f'  -> emit {event} direct to={opp}')
+        await sio.emit(event, data, to=opp)
+    # 同时 room 广播 (即使 direct 到达了, 客户端也做了幂等处理)
+    log.info(f'  -> emit {event} to room={room.sio_room} skip={my_sid}')
+    await sio.emit(event, data, room=room.sio_room, skip_sid=my_sid)
+
+
 @sio.event
 async def connect(sid, environ):
     log.info(f'Client connected: {sid}')
@@ -166,18 +177,18 @@ async def disconnect(sid):
     log.info(f'Client disconnected: {sid}')
     room = manager.find(sid)
     if room:
-        sio_room = room.sio_room
+        opp = room.opponent_of(sid)
         manager.leave(sid)
-        sio.leave_room(sid, sio_room)
-        # 通知房间内剩余的人
-        await sio.emit('OPPONENT_LEFT', {}, room=sio_room)
+        sio.leave_room(sid, room.sio_room)
+        if opp:
+            await sio.emit('OPPONENT_LEFT', {}, to=opp)
 
 
 @sio.on('CREATE_ROOM')
 async def handle_create_room(sid, _data=None):
     room = manager.create(sid)
     sio.enter_room(sid, room.sio_room)
-    log.info(f'Room {room.code} created by {sid}, sio_room={room.sio_room}')
+    log.info(f'Room {room.code} created by {sid}')
     await sio.emit('ROOM_CREATED', {
         'roomCode': room.code,
         'slot': 0,
@@ -197,17 +208,16 @@ async def handle_join_room(sid, data):
 
     slot = room.slot_of(sid)
     sio.enter_room(sid, room.sio_room)
-    log.info(f'Player {sid} joined room {code} as slot {slot}, sio_room={room.sio_room}')
+    log.info(f'Player {sid} joined room {code} as slot {slot}')
 
-    # 通知加入方
     await sio.emit('ROOM_JOINED', {
         'roomCode': room.code,
         'slot': slot,
         'opponentReady': room.is_full,
     }, to=sid)
 
-    # 通知房间内对手 (用 room 广播, skip 自己)
-    await sio.emit('OPPONENT_JOINED', {}, room=room.sio_room, skip_sid=sid)
+    # 通知对手: 双重发送
+    await _emit_to_opponent('OPPONENT_JOINED', {}, room, sid)
 
 
 @sio.on('LEAVE_ROOM')
@@ -215,10 +225,11 @@ async def handle_leave_room(sid, _data=None):
     room = manager.find(sid)
     if not room:
         return
-    sio_room = room.sio_room
+    opp = room.opponent_of(sid)
     manager.leave(sid)
-    sio.leave_room(sid, sio_room)
-    await sio.emit('OPPONENT_LEFT', {}, room=sio_room)
+    sio.leave_room(sid, room.sio_room)
+    if opp:
+        await sio.emit('OPPONENT_LEFT', {}, to=opp)
 
 
 @sio.on('HERO_SELECTED')
@@ -232,8 +243,7 @@ async def handle_hero_selected(sid, data):
         return
     room.heroes[slot] = hero
     log.info(f'Player {sid} (slot {slot}) selected hero: {hero}')
-    # 广播给对手
-    await sio.emit('OPPONENT_HERO', {'hero': hero}, room=room.sio_room, skip_sid=sid)
+    await _emit_to_opponent('OPPONENT_HERO', {'hero': hero}, room, sid)
 
 
 @sio.on('GAME_ACTION')
@@ -241,8 +251,25 @@ async def handle_game_action(sid, data):
     room = manager.find(sid)
     if not room:
         return
-    # 转发给房间内对手
-    await sio.emit('GAME_ACTION', data, room=room.sio_room, skip_sid=sid)
+    opp = room.opponent_of(sid)
+    if opp:
+        await sio.emit('GAME_ACTION', data, to=opp)
+
+
+@sio.on('ROOM_PING')
+async def handle_room_ping(sid, _data=None):
+    """客户端主动查询房间状态 (用于重连恢复)"""
+    room = manager.find(sid)
+    if not room:
+        await sio.emit('ROOM_PONG', {'inRoom': False}, to=sid)
+        return
+    slot = room.slot_of(sid)
+    await sio.emit('ROOM_PONG', {
+        'inRoom': True,
+        'roomCode': room.code,
+        'slot': slot,
+        'isFull': room.is_full,
+    }, to=sid)
 
 
 # ═══════════════════════════════════════════════════════════
