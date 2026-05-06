@@ -303,6 +303,28 @@ window.__runSimulation(10000)
 5. **Zustand 全局状态**：订阅引擎事件自动同步 React 状态
 6. **Framer Motion 动画**：VFX 层覆盖渲染
 
+### 11.1 多人对局同步模型 (Host-Authoritative)
+
+| 端 | 引擎 | 数据流 |
+|---|---|---|
+| HOST (slot 0) | 本地 GameEngine 真实运行 | 引擎事件 → `HostSync` → socket → GUEST |
+| GUEST (slot 1) | 引擎实例只作为事件 bus | socket → `GuestSync` → 直接写入 store；UI 动作 → `PLAYER_ACTION` → HOST |
+
+通信信封 (走 `GAME_ACTION` 通道, 服务端纯转发):
+
+```text
+NET_INIT       HOST → GUEST   { p1Id, p2Id, hero1, hero2 } 共享身份
+STATE_SYNC     HOST → GUEST   { state }                    完整状态快照
+ACTION_ENQUEUE HOST → GUEST   { action }                   动画指令
+ENGINE_EVENT   HOST → GUEST   { event, args }              转发引擎事件 (HERO_ABILITY_USED 等)
+PLAYER_ACTION  GUEST → HOST   { action, payload }          代执行请求
+```
+
+特点:
+- GUEST 永不本地推断状态，杜绝因随机种子不同导致的桌面分叉
+- 配合 `StateSerializer` 的视图遮蔽，HOST 在广播前对 GUEST 视角的隐藏信息已做差分屏蔽
+- 客机的 `EventEmitter` 仍会被 `ENGINE_EVENT` 重放，使 `VoiceLineLayer` 等订阅者无需改造
+
 ---
 
 > ⚠️ 本规则版本：**V6.0 — 喋血狂欢**  

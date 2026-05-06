@@ -32,48 +32,72 @@ export interface RoomErrorPayload {
   message: string;
 }
 
-export type GameActionType =
-  | 'AMBUSH_DECLARE'
-  | 'AMBUSH_DEFEND'
-  | 'CHANT_SUBMIT'
-  | 'BLOCKADE_PLACE'
-  | 'PHASE_ADVANCE'
-  | 'DRAW_CARDS'
-  | 'BUY_MARKET'
-  | 'USE_ULTIMATE'
-  | 'COLLISION_ACTION';
-
 export interface GameActionPayload {
-  type: GameActionType;
-  payload: Record<string, unknown>;
+  kind: string;
+  [key: string]: unknown;
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Singleton Socket
+//  连接状态
 // ═══════════════════════════════════════════════════════════
 
+export type SocketStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'FAILED';
+type StatusCallback = (status: SocketStatus) => void;
+
 let socket: Socket | null = null;
+let currentStatus: SocketStatus = 'DISCONNECTED';
+const statusListeners = new Set<StatusCallback>();
+
+function setStatus(s: SocketStatus) {
+  currentStatus = s;
+  statusListeners.forEach(cb => cb(s));
+}
+
+export function onSocketStatus(cb: StatusCallback): () => void {
+  statusListeners.add(cb);
+  cb(currentStatus);
+  return () => statusListeners.delete(cb);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Singleton Socket — 仅在首次 getSocket() 时创建
+// ═══════════════════════════════════════════════════════════
 
 export function getSocket(): Socket {
-  if (socket && socket.connected) return socket;
+  if (socket) return socket;
 
-  if (!socket) {
-    // 开发: 默认连本地 10000; 生产: 直接连同源
-    const url = import.meta.env.DEV
-      ? (import.meta.env.VITE_SOCKET_URL || 'http://localhost:10000')
-      : window.location.origin;
+  const url = import.meta.env.DEV
+    ? (import.meta.env.VITE_SOCKET_URL || 'http://localhost:10000')
+    : window.location.origin;
 
-    socket = io(url, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
+  setStatus('CONNECTING');
 
-    socket.on('connect', () => console.log('[socket] connected', socket?.id));
-    socket.on('disconnect', (reason) => console.log('[socket] disconnected', reason));
-    socket.on('connect_error', (err) => console.warn('[socket] connect_error', err.message));
-  }
+  socket = io(url, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    timeout: 8000,
+  });
+
+  socket.on('connect', () => {
+    console.log('[socket] connected', socket?.id);
+    setStatus('CONNECTED');
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('[socket] disconnected', reason);
+    setStatus('DISCONNECTED');
+  });
+
+  socket.on('connect_error', (err) => {
+    console.warn('[socket] connect_error', err.message);
+  });
+
+  socket.io.on('reconnect_failed', () => {
+    console.warn('[socket] all reconnection attempts exhausted');
+    setStatus('FAILED');
+  });
 
   return socket;
 }
@@ -82,6 +106,7 @@ export function disconnectSocket(): void {
   if (socket) {
     socket.disconnect();
     socket = null;
+    setStatus('DISCONNECTED');
   }
 }
 
@@ -105,6 +130,6 @@ export function emitHeroSelected(hero: HeroType): void {
   getSocket().emit('HERO_SELECTED', { hero });
 }
 
-export function emitGameAction(action: GameActionPayload): void {
-  getSocket().emit('GAME_ACTION', action);
+export function emitGameAction(payload: GameActionPayload): void {
+  getSocket().emit('GAME_ACTION', payload);
 }

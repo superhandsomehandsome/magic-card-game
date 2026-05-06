@@ -5,10 +5,11 @@
  *   CREATE_ROOM → 等待 ROOM_CREATED → 等待 OPPONENT_JOINED → onReady
  *   JOIN_ROOM   → 等待 ROOM_JOINED  → 立即 onReady (因为另一方已在)
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   getSocket, emitCreateRoom, emitJoinRoom, emitLeaveRoom,
+  onSocketStatus, type SocketStatus,
   type RoomCreatedPayload, type RoomJoinedPayload, type RoomErrorPayload,
 } from '../../net/socket';
 
@@ -33,10 +34,37 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
   const [status, setStatus] = useState<RoomStatus>('CONNECTING');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const firedRef = useRef(false);
+
+  // 监听 socket 连接状态 → 超时/失败时显示错误
+  useEffect(() => {
+    const unsub = onSocketStatus((s: SocketStatus) => {
+      if (s === 'FAILED') {
+        setStatus('ERROR');
+        setErrorMsg('无法连接到服务器，请检查网络或稍后重试');
+      }
+    });
+    return unsub;
+  }, []);
+
+  // 额外的硬超时: 15 秒无任何 socket 事件 → 显示错误
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setStatus(prev => {
+        if (prev === 'CONNECTING') {
+          setErrorMsg('连接超时 — 服务器可能未启动');
+          return 'ERROR';
+        }
+        return prev;
+      });
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 主连接生命周期
   useEffect(() => {
     const socket = getSocket();
+    firedRef.current = false;
 
     const handleCreated = (data: RoomCreatedPayload) => {
       setRoomCode(data.roomCode);
@@ -71,6 +99,8 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
     socket.on('ROOM_ERROR', handleError);
 
     const fire = () => {
+      if (firedRef.current) return;
+      firedRef.current = true;
       if (mode === 'CREATE_ROOM') emitCreateRoom();
       else if (initialRoomCode) emitJoinRoom(initialRoomCode);
     };

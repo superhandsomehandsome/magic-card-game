@@ -5,8 +5,10 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
-dist/
+# Python 构建产物 (保留 frontend/dist 用于部署)
+/dist/
 build/
+!frontend/dist/
 .idea/
 .vscode/
 *.swp
