@@ -3,7 +3,7 @@ services:
     name: magic-card
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python realtime_server.py
+    startCommand: pip install -r requirements.txt && python realtime_server.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
