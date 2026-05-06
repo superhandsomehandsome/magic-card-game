@@ -92,7 +92,7 @@ export function Card({
             {name}
           </div>
 
-          {/* 中央分数 */}
+          {/* 中央等级 */}
           <div style={{
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
@@ -102,16 +102,26 @@ export function Card({
             textShadow: `0 0 15px ${color}, 0 0 30px ${color}40`,
             fontFamily: '"Cinzel", serif',
           }}>
-            {card.rank === CardRank.FLASH ? '⚡' : card.baseScore}
+            {card.rank === CardRank.FLASH ? '⚡' : name}
           </div>
 
-          {/* 底部装饰 */}
+          {/* 右下角分数小标 */}
           <div style={{
-            position: 'absolute', bottom: 4, right: 6,
-            fontSize: size === 'lg' ? 18 : 14,
+            position: 'absolute', bottom: 16, right: 6,
+            fontSize: size === 'lg' ? 12 : 10,
+            color: `${color}99`,
+            fontFamily: 'monospace',
+          }}>
+            {card.rank !== CardRank.FLASH ? `${card.baseScore}pt` : ''}
+          </div>
+
+          {/* 底部左下角等级 (倒置) */}
+          <div style={{
+            position: 'absolute', bottom: 4, left: 6,
+            fontSize: size === 'lg' ? 14 : 11,
             fontWeight: 900,
             color,
-            opacity: 0.6,
+            opacity: 0.5,
             transform: 'rotate(180deg)',
             fontFamily: '"Cinzel", serif',
           }}>

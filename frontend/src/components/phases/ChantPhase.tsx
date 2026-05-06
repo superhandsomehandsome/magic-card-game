@@ -52,10 +52,18 @@ export function ChantPhase() {
     return grouped;
   }, [combos]);
 
-  const handleSubmitCombo = (combo: IComboResult) => {
-    submitCombo(combo.cards.map(c => c.id), combo.score);
-    setSelectedCombo(null);
-    setShowDetail(false);
+  const handleComboClick = (combo: IComboResult) => {
+    if (!isMyTurn) return;
+    if (selectedCombo === combo) {
+      // 第二次点击同一个组合 → 直接提交
+      submitCombo(combo.cards.map(c => c.id), combo.score);
+      setSelectedCombo(null);
+      setShowDetail(false);
+    } else {
+      // 第一次点击 → 选中高亮
+      setSelectedCombo(combo);
+      setShowDetail(false);
+    }
   };
 
   // 计算当前回合的衰减系数
@@ -166,11 +174,7 @@ export function ChantPhase() {
                   background: 'rgba(26, 11, 46, 0.9)',
                   cursor: isMyTurn ? 'pointer' : 'default',
                 }}
-                onClick={() => {
-                  if (!isMyTurn) return;
-                  setSelectedCombo(combo);
-                  setShowDetail(true);
-                }}
+                onClick={() => handleComboClick(combo)}
                 whileHover={isMyTurn ? { scale: 1.01, borderColor: '#b8860b' } : {}}
               >
                 {/* 组合名称行 */}
@@ -253,23 +257,29 @@ export function ChantPhase() {
       )}
 
       {/* 操作按钮 */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'center' }}>
         {selectedCombo && isMyTurn && (
-          <motion.button
-            onClick={() => handleSubmitCombo(selectedCombo)}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            style={{
-              padding: '12px 28px', borderRadius: 8,
-              border: '2px solid #ffd700',
-              background: 'linear-gradient(180deg, #4a3a0a, #2a1f05)',
-              color: '#ffd700', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-            }}
-            whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(255,215,0,0.5)' }}
-            whileTap={{ scale: 0.95 }}
-          >
-            ✨ 咏唱得分 +{Math.floor(selectedCombo.score * decayInfo.multiplier)}
-          </motion.button>
+          <>
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              style={{ color: '#ffd700', fontSize: 13 }}
+            >
+              已选中 {COMBO_NAMES[selectedCombo.type].icon} {COMBO_NAMES[selectedCombo.type].name} (+{Math.floor(selectedCombo.score * decayInfo.multiplier)})
+              <span style={{ color: '#888', fontSize: 11, marginLeft: 8 }}>再次点击提交</span>
+            </motion.div>
+            <motion.button
+              onClick={() => { setShowDetail(true); }}
+              style={{
+                padding: '6px 14px', borderRadius: 6,
+                border: '1px solid #9b59b6', background: 'transparent',
+                color: '#9b59b6', cursor: 'pointer', fontSize: 11,
+              }}
+              whileHover={{ scale: 1.05 }}
+            >
+              📊 查看明细
+            </motion.button>
+          </>
         )}
 
         {isMyTurn && (
@@ -279,6 +289,7 @@ export function ChantPhase() {
               padding: '10px 20px', borderRadius: 8,
               border: '1px solid #666', background: 'transparent',
               color: '#888', cursor: 'pointer', fontSize: 13,
+              marginLeft: 'auto',
             }}
             whileHover={{ scale: 1.05 }}
           >
