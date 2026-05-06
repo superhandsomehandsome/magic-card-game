@@ -1,5 +1,5 @@
 /**
- * 秘术对决 V6.0 — 核心引擎 (Pure Logic, No UI Dependencies)
+ * 秘术对决：禁忌魔典 — 核心引擎 (Pure Logic, No UI Dependencies)
  * 基于 EventEmitter 实现状态机驱动的游戏逻辑。
  * UI 组件不应包含"谁赢了"、"扣多少分"的逻辑。
  */
@@ -186,7 +186,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   public drawPhaseCards(playerId: string): void {
     this.validatePhase(GamePhase.DRAW_MARKET);
     const player = this.getPlayer(playerId);
-    const drawCount = GAME_CONSTANTS.DRAW_PER_TURN;
+    let drawCount = GAME_CONSTANTS.DRAW_PER_TURN;
+
+    // 奥术怪盗被动 SleightOfHand: 额外 +1 抽牌
+    if (player.hero === HeroType.PHANTOM) {
+      drawCount += 1;
+    }
+
     const drawn = this.drawFromDeck(drawCount);
     player.hand.push(...drawn);
 
@@ -198,6 +204,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       });
     });
 
+    if (player.hero === HeroType.PHANTOM && drawn.length > GAME_CONSTANTS.DRAW_PER_TURN) {
+      this.pushAction({
+        type: 'PHANTOM_COIN',
+        payload: { playerId },
+        durationMs: 600,
+      });
+    }
+
     this.checkDeckEmpty();
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
@@ -205,6 +219,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   public buyMarketCard(playerId: string, marketCardId: string, paymentCardIds: string[]): boolean {
     this.validatePhase(GamePhase.DRAW_MARKET);
     const player = this.getPlayer(playerId);
+
+    // 非怪盗玩家有购买次数限制
+    if (player.hero !== HeroType.PHANTOM &&
+        player.marketBuysThisTurn >= GAME_CONSTANTS.MARKET_BUY_LIMIT) {
+      return false;
+    }
+
     const marketCard = this.state.marketCards.find(c => c.id === marketCardId);
     if (!marketCard) return false;
 
@@ -228,6 +249,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
     // 获得黑市牌
     player.hand.push(marketCard);
+    player.marketBuysThisTurn++;
     this.state.marketCards = this.state.marketCards.filter(c => c.id !== marketCardId);
 
     // 补充黑市
@@ -568,8 +590,9 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       return; // UI 层应提示弃牌
     }
 
-    // 重置突袭次数
+    // 重置回合计数器
     current.ambushesThisTurn = 0;
+    current.marketBuysThisTurn = 0;
 
     // 处理以太歌者反转倒计时
     if (this.state.isInverted) {
@@ -816,6 +839,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       blockadeZone: null,
       hasUsedUltimate: false,
       ambushesThisTurn: 0,
+      marketBuysThisTurn: 0,
     };
   }
 

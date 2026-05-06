@@ -285,7 +285,7 @@ export function runMonteCarloSimulation(config: SimConfig): SimResult {
  */
 export function printSimulationReport(result: SimResult): void {
   console.log('═══════════════════════════════════════════════');
-  console.log('   秘术对决 V6.0 — 蒙特卡洛平衡性报告');
+  console.log('   秘术对决：禁忌魔典 — 蒙特卡洛平衡性报告');
   console.log('═══════════════════════════════════════════════');
   console.log(`总模拟局数: ${result.totalGames}`);
   console.log(`对撞终局率: ${(result.collisionRate * 100).toFixed(1)}% (目标 >40%)`);

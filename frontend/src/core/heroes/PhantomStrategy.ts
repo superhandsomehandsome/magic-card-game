@@ -27,7 +27,6 @@ export class PhantomStrategy implements IHeroStrategy {
   onTurnStart(engine: IGameEngineAPI, playerId: string): void {
     if (playerId !== this.playerId) return;
 
-    // SleightOfHand: 回合开始额外抽牌
     engine.pushAction({
       type: 'PHANTOM_COIN',
       payload: { playerId: this.playerId },

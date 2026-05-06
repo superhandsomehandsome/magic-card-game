@@ -1,6 +1,7 @@
 /**
  * 主游戏版面 — 调度所有阶段组件和状态面板
  */
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { GamePhase } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
@@ -20,6 +21,8 @@ import { VFXLayer } from '../vfx/VFXLayer';
 import { VictoryScreen } from '../vfx/VictoryScreen';
 import { VoiceLineLayer } from '../vfx/VoiceLine';
 import { HeroType } from '../../types/game';
+import { useGameAudio } from '../../audio/useGameAudio';
+import { toggleBGM, toggleSFX, isBGMPlaying, isSFXEnabled } from '../../audio/AudioManager';
 
 const HERO_COLORS: Record<HeroType, string> = {
   [HeroType.PHANTOM]: '#b8860b',
@@ -30,6 +33,7 @@ const HERO_COLORS: Record<HeroType, string> = {
 
 export function GameBoard() {
   const { gameState, localPlayerId } = useGameStore();
+  useGameAudio();
 
   if (!gameState) return null;
 
@@ -53,6 +57,9 @@ export function GameBoard() {
     }}>
       {/* VFX 全局特效层 */}
       <VFXLayer />
+
+      {/* 音频控制 */}
+      <AudioControls />
 
       {/* 英雄台词层 */}
       <VoiceLineLayer />
@@ -237,5 +244,40 @@ function UltimateButton({ hero }: { hero: HeroType }) {
     >
       ⚡ 大招
     </motion.button>
+  );
+}
+
+function AudioControls() {
+  const [bgm, setBgm] = useState(isBGMPlaying());
+  const [sfx, setSfx] = useState(isSFXEnabled());
+
+  return (
+    <div style={{
+      position: 'absolute', top: 8, right: 8,
+      display: 'flex', gap: 4, zIndex: 999,
+    }}>
+      <button
+        onClick={() => setBgm(toggleBGM())}
+        style={{
+          width: 32, height: 32, borderRadius: 6,
+          border: '1px solid #444', background: 'rgba(0,0,0,0.6)',
+          color: bgm ? '#b8860b' : '#555', cursor: 'pointer', fontSize: 16,
+        }}
+        title={bgm ? 'BGM 开' : 'BGM 关'}
+      >
+        {bgm ? '🔊' : '🔇'}
+      </button>
+      <button
+        onClick={() => setSfx(toggleSFX())}
+        style={{
+          width: 32, height: 32, borderRadius: 6,
+          border: '1px solid #444', background: 'rgba(0,0,0,0.6)',
+          color: sfx ? '#b8860b' : '#555', cursor: 'pointer', fontSize: 16,
+        }}
+        title={sfx ? '音效 开' : '音效 关'}
+      >
+        {sfx ? '🔔' : '🔕'}
+      </button>
+    </div>
   );
 }

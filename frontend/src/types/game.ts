@@ -1,5 +1,5 @@
 /**
- * 秘术对决 V6.0：喋血狂欢 — 领域模型定义 (Domain Model Types)
+ * 秘术对决：禁忌魔典 — 领域模型定义 (Domain Model Types)
  * 整个系统的心脏，所有组件严格依赖以下约束。
  */
 
@@ -81,6 +81,7 @@ export interface IPlayerState {
   blockadeZone: ICard | null;  // 封锁区
   hasUsedUltimate: boolean;
   ambushesThisTurn: number;    // 本回合突袭次数(上限2)
+  marketBuysThisTurn: number;  // 本回合黑市购买次数(怪盗无限制,其他人限1)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -226,6 +227,7 @@ export const GAME_CONSTANTS = {
   CHANT_FULL_POWER_TURN: 5,      // 从第N回合起咏唱得分恢复100%
   BOUNTY_CAP: 20,                // 悬赏池单次上限 (避免前期暴利)
   DRAW_PER_TURN: 1,              // 每回合抽牌数 (从2降至1, 减缓资源积累)
+  MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗无限制)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣
   EARLY_COMBO_TURN_THRESHOLD: 3, // "早期"回合阈值
 } as const;

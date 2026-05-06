@@ -1,5 +1,5 @@
 /**
- * 秘术对决 V6.0：喋血狂欢 — 主应用入口
+ * 秘术对决：禁忌魔典 — 主应用入口
  *
  * 流程: Lobby → (Room | AI Setup) → HeroSelect → PLAYING (GameBoard)
  *

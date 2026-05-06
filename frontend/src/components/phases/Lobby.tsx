@@ -57,7 +57,7 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         }}
         transition={{ duration: 3, repeat: Infinity }}
       >
-        ⛧ 秘术对决 ⛧
+        ⛧ 秘术对决：禁忌魔典 ⛧
       </motion.h1>
 
       <p style={{
@@ -67,7 +67,7 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         fontFamily: '"Cinzel", serif',
         marginBottom: 40,
       }}>
-        V 6.0 — 喋血狂欢
+        禁忌魔典
       </p>
 
       {/* 三大入口 */}
