@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { ICard, AmbushDeclaration } from '../../types/game';
+import type { ICard, AmbushDeclaration, IAmbushState } from '../../types/game';
 import { CardRank, GamePhase } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
@@ -214,7 +214,7 @@ export function AmbushPhase() {
 // ═══════════════════════════════════════════════════════════
 
 interface DefenderViewProps {
-  ambushState: NonNullable<typeof useGameStore extends () => infer S ? S extends { gameState: infer G } ? G extends { ambushState: infer A } ? A : never : never : never>;
+  ambushState: IAmbushState;
   hand: ICard[];
   onChoice: (choice: 'FOLD' | 'CALL_BLUFF' | 'DEFEND', cardId?: string) => void;
 }
