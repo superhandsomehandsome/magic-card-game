@@ -87,13 +87,26 @@ export function getCardDisplayName(rank: CardRank): string {
 
 export function getRankColor(rank: CardRank): string {
   switch (rank) {
-    case CardRank.A: return '#ffd700';
-    case CardRank.B: return '#c0c0c0';
-    case CardRank.C: return '#cd7f32';
-    case CardRank.D: return '#8b4513';
-    case CardRank.E: return '#4a4a4a';
-    case CardRank.F: return '#2d1b4e';
-    case CardRank.FLASH: return '#00ffff';
+    case CardRank.A: return '#ffd700';     // 金色 — 最强
+    case CardRank.B: return '#e0a0ff';     // 亮紫 — 次强
+    case CardRank.C: return '#ff6b6b';     // 珊瑚红 — 中上
+    case CardRank.D: return '#f0a050';     // 暖橙 — 中等
+    case CardRank.E: return '#6a8caf';     // 灰蓝 — 较弱
+    case CardRank.F: return '#556b6b';     // 暗灰绿 — 最弱
+    case CardRank.FLASH: return '#00ffff'; // 青色 — 功能牌
     default: return '#ffffff';
+  }
+}
+
+export function getRankGlow(rank: CardRank): string {
+  switch (rank) {
+    case CardRank.A: return '0 0 12px rgba(255,215,0,0.6), 0 0 24px rgba(255,215,0,0.3)';
+    case CardRank.B: return '0 0 10px rgba(224,160,255,0.5), 0 0 20px rgba(224,160,255,0.2)';
+    case CardRank.C: return '0 0 8px rgba(255,107,107,0.4)';
+    case CardRank.D: return '0 0 6px rgba(240,160,80,0.3)';
+    case CardRank.E: return 'none';
+    case CardRank.F: return 'none';
+    case CardRank.FLASH: return '0 0 10px rgba(0,255,255,0.5), 0 0 20px rgba(0,255,255,0.2)';
+    default: return 'none';
   }
 }

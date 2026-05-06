@@ -2,19 +2,42 @@
  * 阶段2：突袭与虚实之言 — 系统最高复杂度环节
  * 攻击方宣告 + 防守方抉择
  */
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard, AmbushDeclaration, IAmbushState } from '../../types/game';
 import { CardRank, GamePhase } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
-import { getCardDisplayName } from '../../utils/deck';
+import { getCardDisplayName, getRankColor, compareCards } from '../../utils/deck';
+
+interface AmbushResult {
+  choice: string;
+  attackCard: ICard;
+  defenderCard: ICard | null;
+  declaration: AmbushDeclaration | null;
+}
 
 export function AmbushPhase() {
-  const { gameState, localPlayerId, declareAmbush, respondAmbush, advancePhase, selectedCards, selectCard, clearSelection } = useGameStore();
+  const { gameState, localPlayerId, declareAmbush, respondAmbush, advancePhase, selectedCards, selectCard, clearSelection, engine } = useGameStore();
   const [selectedAmbushCard, setSelectedAmbushCard] = useState<string | null>(null);
   const [declaration, setDeclaration] = useState<AmbushDeclaration | null>(null);
   const [showDeclareModal, setShowDeclareModal] = useState(false);
+  const [lastResult, setLastResult] = useState<AmbushResult | null>(null);
+  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!engine) return;
+    const handleResolved = (data: AmbushResult) => {
+      setLastResult(data);
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+      resultTimerRef.current = setTimeout(() => setLastResult(null), 3500);
+    };
+    engine.on('AMBUSH_RESOLVED', handleResolved);
+    return () => {
+      engine.off('AMBUSH_RESOLVED', handleResolved);
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+    };
+  }, [engine]);
 
   if (!gameState) return null;
 
@@ -74,6 +97,13 @@ export function AmbushPhase() {
         padding: 16,
       }}
     >
+      {/* 上次突袭结算结果展示 */}
+      <AnimatePresence>
+        {lastResult && (
+          <AmbushResultPanel result={lastResult} isInverted={gameState.isInverted} />
+        )}
+      </AnimatePresence>
+
       {isMyTurn && gameState.phase === GamePhase.AMBUSH_DECLARE && (
         <>
           <div style={{
@@ -336,6 +366,108 @@ function DefenderView({ ambushState, hand, onChoice }: DefenderViewProps) {
           />
         ))}
       </div>
+    </motion.div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  突袭结算结果展示面板
+// ═══════════════════════════════════════════════════════════
+
+function AmbushResultPanel({ result, isInverted }: { result: AmbushResult; isInverted: boolean }) {
+  const atkCard = result.attackCard;
+  const defCard = result.defenderCard;
+  const isFold = result.choice === 'FOLD';
+  const isBluff = result.choice === 'CALL_BLUFF';
+
+  let resultText = '';
+  let resultColor = '#888';
+
+  if (isFold) {
+    resultText = '😰 怯战 — 攻击方收回牌并窃取';
+    resultColor = '#b8860b';
+  } else if (isBluff) {
+    const isTruthful = result.declaration !== null && result.declaration !== 'SILENT' &&
+      (result.declaration as CardRank) === atkCard.rank;
+    resultText = isTruthful ? '拆穿失败！防守方 -15分' : '拆穿成功！攻击方 -15分';
+    resultColor = isTruthful ? '#e74c3c' : '#2ecc71';
+  } else if (defCard) {
+    const cmp = compareCards(atkCard.rank, defCard.rank, isInverted);
+    const isFSlaysA = (atkCard.rank === CardRank.F && defCard.rank === CardRank.A) ||
+      (atkCard.rank === CardRank.A && defCard.rank === CardRank.F);
+    if (cmp > 0) {
+      resultText = isFSlaysA ? '⚡ F 弑神 A！攻击方胜' :
+        `攻击方 ${getCardDisplayName(atkCard.rank)} 胜 > ${getCardDisplayName(defCard.rank)}`;
+      resultColor = '#ffd700';
+    } else if (cmp < 0) {
+      resultText = isFSlaysA ? '⚡ F 弑神 A！防守方胜' :
+        `防守方 ${getCardDisplayName(defCard.rank)} 胜 > ${getCardDisplayName(atkCard.rank)}`;
+      resultColor = '#e74c3c';
+    } else {
+      resultText = '平局 — 血池保留';
+      resultColor = '#888';
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -20, scale: 0.9 }}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        padding: '16px 24px', borderRadius: 12,
+        background: 'rgba(13,0,24,0.95)',
+        border: `2px solid ${resultColor}40`,
+        boxShadow: `0 0 20px ${resultColor}30`,
+        width: '100%', maxWidth: 400,
+      }}
+    >
+      <div style={{
+        color: '#888', fontSize: 11, letterSpacing: 2,
+        fontFamily: '"Cinzel", serif',
+      }}>
+        上次突袭结算
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {/* 攻击方牌 */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <Card card={atkCard} size="sm" />
+          <span style={{ color: '#b8860b', fontSize: 10 }}>攻击方</span>
+        </div>
+
+        <span style={{ color: resultColor, fontSize: 24, fontWeight: 900 }}>⚔</span>
+
+        {/* 防守方牌 */}
+        {defCard ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <Card card={defCard} size="sm" />
+            <span style={{ color: '#e74c3c', fontSize: 10 }}>防守方</span>
+          </div>
+        ) : (
+          <div style={{
+            width: 60, height: 84, borderRadius: 8,
+            background: 'rgba(100,100,100,0.2)', border: '1px dashed #555',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#555', fontSize: 11,
+          }}>
+            {isFold ? '怯战' : isBluff ? '拆穿' : '—'}
+          </div>
+        )}
+      </div>
+
+      <motion.div
+        style={{
+          color: resultColor, fontSize: 14, fontWeight: 700,
+          textShadow: `0 0 10px ${resultColor}60`,
+          textAlign: 'center',
+        }}
+        animate={{ opacity: [0.8, 1, 0.8] }}
+        transition={{ duration: 1.5, repeat: Infinity }}
+      >
+        {resultText}
+      </motion.div>
     </motion.div>
   );
 }

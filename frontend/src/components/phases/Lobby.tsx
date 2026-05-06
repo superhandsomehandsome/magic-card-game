@@ -15,6 +15,7 @@ interface LobbyProps {
 
 export function Lobby({ onSelectMode }: LobbyProps) {
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState('');
 
   const handleJoin = () => {
@@ -99,6 +100,13 @@ export function Lobby({ onSelectMode }: LobbyProps) {
           color="#4488ff"
           onClick={() => onSelectMode('VS_AI')}
         />
+        <ModeButton
+          icon="📜"
+          label="查看规则"
+          subtitle="了解卡牌、组合、英雄技能"
+          color="#666"
+          onClick={() => setShowRules(true)}
+        />
       </div>
 
       <p style={{
@@ -109,6 +117,11 @@ export function Lobby({ onSelectMode }: LobbyProps) {
       }}>
         暗影中的契约，自此立下…
       </p>
+
+      {/* 规则弹窗 */}
+      <AnimatePresence>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      </AnimatePresence>
 
       {/* 加入房间弹窗 */}
       <AnimatePresence>
@@ -215,6 +228,110 @@ export function Lobby({ onSelectMode }: LobbyProps) {
           </motion.div>
         )}
       </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function RulesModal({ onClose }: { onClose: () => void }) {
+  const sections = [
+    {
+      title: '🃏 牌库 (71张)',
+      content: 'A(6分)×5 · B(5分)×6 · C(4分)×9 · D(3分)×13 · E(2分)×15 · F(1分)×18 · 瞬(0分)×5',
+    },
+    {
+      title: '⚔ 压制链',
+      content: 'A > B > C > D > E > F\n绝对特例：F 弑神 A (F > A)',
+    },
+    {
+      title: '🏆 胜利条件',
+      content: '• 任一方总分率先达到 155 分\n• 牌库抽空进入【魔力对撞】定胜负',
+    },
+    {
+      title: '🔄 回合流程',
+      content: '❶ 喋血悬赏 → 掷骰×5 加入奖金池\n❷ 汲取 → 抽2张 + 黑市交易\n❸ 突袭 → 暗扣牌+虚实之言+拼点\n❹ 咏唱 → 手牌组合计分\n❺ 封锁 → 弃1张牌封锁对手',
+    },
+    {
+      title: '✨ 咏唱组合',
+      content: '• 大顺(A-F各一)：总分×3\n• 四条(4张同)：总分×4\n• 葫芦(3+2)：总分×3\n• 小顺(连续4+)：总分×2\n• 三条(3张同)：总分×2\n• 对子(2张同)：总分×1',
+    },
+    {
+      title: '⚡ 突袭规则',
+      content: '• 每回合最多突袭2次，第2次需先弃1张\n• 攻击方可宣告牌等级或沉默\n• 防守方选择：怯战/拆穿/迎战\n• 怯战→攻击方窃取+独吞悬赏\n• 拆穿成功→攻击方-15分\n• 拆穿失败→防守方-15分\n• 迎战→翻牌拼点，胜者得悬赏',
+    },
+    {
+      title: '🦸 四大英雄',
+      content: '• 奥术怪盗：黑市无限购+额外抽牌\n• 命运织梦者：咏唱掷骰生成虚影牌\n• 至高审判官：裁剪对手手牌(全局1次)\n• 以太歌者：反转大小关系2回合(全局1次)',
+    },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.9)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: 16,
+      }}
+    >
+      <motion.div
+        initial={{ scale: 0.85, y: 30 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.85, y: 30 }}
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
+          border: '2px solid #b8860b',
+          borderRadius: 16, padding: 28,
+          maxWidth: 480, width: '100%',
+          maxHeight: '85vh', overflowY: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}
+      >
+        <h2 style={{
+          color: '#b8860b', fontFamily: '"Cinzel", serif',
+          margin: 0, textAlign: 'center', fontSize: 22,
+        }}>
+          📜 游戏规则
+        </h2>
+
+        {sections.map((s, i) => (
+          <div key={i} style={{
+            padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid #2a1a3e',
+          }}>
+            <div style={{
+              color: '#b8860b', fontSize: 14, fontWeight: 700,
+              marginBottom: 6, fontFamily: '"Cinzel", serif',
+            }}>
+              {s.title}
+            </div>
+            <div style={{
+              color: '#bbb', fontSize: 12, lineHeight: 1.7,
+              whiteSpace: 'pre-line',
+            }}>
+              {s.content}
+            </div>
+          </div>
+        ))}
+
+        <motion.button
+          onClick={onClose}
+          style={{
+            padding: '10px 28px', borderRadius: 8,
+            border: '1px solid #b8860b', background: 'transparent',
+            color: '#b8860b', cursor: 'pointer', fontSize: 14,
+            alignSelf: 'center', fontWeight: 700,
+          }}
+          whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(184,134,11,0.4)' }}
+        >
+          关闭
+        </motion.button>
+      </motion.div>
     </motion.div>
   );
 }

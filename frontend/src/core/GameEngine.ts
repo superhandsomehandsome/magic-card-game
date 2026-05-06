@@ -340,10 +340,16 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     }
 
     ambush.resolved = true;
+    const resolvedResult = {
+      choice,
+      attackCard: ambush.attackCard,
+      defenderCard: ambush.defenderCard,
+      declaration: ambush.declaration,
+    };
     this.state.ambushState = null;
     this.state.phase = GamePhase.AMBUSH_DECLARE;
     this.checkWinCondition();
-    this.emit('AMBUSH_RESOLVED', { choice });
+    this.emit('AMBUSH_RESOLVED', resolvedResult);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 

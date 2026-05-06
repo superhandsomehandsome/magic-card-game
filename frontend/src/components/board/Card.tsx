@@ -4,7 +4,7 @@
 import { motion } from 'framer-motion';
 import type { ICard } from '../../types/game';
 import { CardRank } from '../../types/game';
-import { getCardDisplayName, getRankColor } from '../../utils/deck';
+import { getCardDisplayName, getRankColor, getRankGlow } from '../../utils/deck';
 
 interface CardProps {
   card: ICard;
@@ -30,6 +30,7 @@ export function Card({
   const sizeMap = { sm: { w: 60, h: 84 }, md: { w: 80, h: 112 }, lg: { w: 100, h: 140 } };
   const { w, h } = sizeMap[size];
   const color = getRankColor(card.rank);
+  const glow = getRankGlow(card.rank);
   const name = getCardDisplayName(card.rank);
 
   return (
@@ -45,7 +46,7 @@ export function Card({
           : `linear-gradient(180deg, #0d0018 0%, #1a0b2e 100%)`,
         boxShadow: isSelected
           ? '0 0 20px rgba(255,215,0,0.6), inset 0 0 10px rgba(255,215,0,0.2)'
-          : '0 4px 12px rgba(0,0,0,0.5)',
+          : glow !== 'none' ? glow : '0 4px 12px rgba(0,0,0,0.5)',
         cursor: isDisabled ? 'not-allowed' : 'pointer',
         position: 'relative',
         overflow: 'hidden',
@@ -127,6 +128,15 @@ export function Card({
           }}>
             {name}
           </div>
+
+          {/* 顶部等级色条 */}
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0,
+            height: 3,
+            background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
+            opacity: card.rank >= CardRank.C ? 0.8 : 0.3,
+            borderRadius: '6px 6px 0 0',
+          }} />
 
           {/* 虚影牌标记 */}
           {(card.isPhantom || isPhantom) && (
