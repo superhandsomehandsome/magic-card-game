@@ -1,5 +1,2 @@
-flask>=3.0
-flask-socketio>=5.3
-python-socketio>=5.10
-eventlet>=0.35
-gunicorn>=21.2
+python-socketio>=5.11
+aiohttp>=3.9
