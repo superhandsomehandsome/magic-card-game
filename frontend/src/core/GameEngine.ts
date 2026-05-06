@@ -824,7 +824,9 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     for (let i = 0; i < count && this.deck.length > 0; i++) {
       cards.push(this.deck.pop()!);
     }
-    this.state.deckCount = this.deck.length;
+    if (this.state) {
+      this.state.deckCount = this.deck.length;
+    }
     return cards;
   }
 
