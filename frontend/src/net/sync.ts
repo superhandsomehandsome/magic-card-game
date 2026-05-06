@@ -39,6 +39,7 @@ export type PlayerActionKind =
   | 'PLACE_BLOCKADE'
   | 'DISCARD_EXCESS'
   | 'USE_ULTIMATE'
+  | 'ROLL_FATE_DICE'
   | 'COLLISION_ACTION';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
