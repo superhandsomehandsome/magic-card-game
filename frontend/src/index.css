@@ -1,0 +1,68 @@
+/**
+ * 秘术对决 V6.0 — 全局样式
+ * 暗黑哥特 / 克苏鲁神秘学 / 塔罗牌质感
+ * 主色调：深紫 #1a0b2e、血红 #8b0000、暗金 #b8860b
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #e0e0e0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0018;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a1f5e;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b8860b;
+}
+
+/* 全局按钮重置 */
+button {
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+button:focus-visible {
+  outline: 2px solid #b8860b;
+  outline-offset: 2px;
+}
+
+/* 卡牌选中高亮 */
+.card--selected {
+  transform: translateY(-12px) !important;
+}
+.card--disabled {
+  filter: grayscale(0.7) brightness(0.5);
+}
+
+/* 全局暗黑氛围 */
+#root::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(139,0,0,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(75,0,130,0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
