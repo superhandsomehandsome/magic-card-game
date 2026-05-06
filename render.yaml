@@ -1,9 +1,9 @@
 services:
   - type: web
     name: magic-card
-    runtime: node
-    buildCommand: cd frontend && npm install && npm run build && npm install -g serve
-    startCommand: serve frontend/dist -s -l $PORT
+    runtime: python
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: python serve_frontend.py
     envVars:
-      - key: NODE_VERSION
-        value: 20.11.0
+      - key: PYTHON_VERSION
+        value: 3.11.0
