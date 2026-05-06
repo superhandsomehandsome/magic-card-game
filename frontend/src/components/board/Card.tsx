@@ -10,6 +10,7 @@ interface CardProps {
   card: ICard;
   isSelected?: boolean;
   isDisabled?: boolean;
+  disabledReason?: string;
   isFaceDown?: boolean;
   isPhantom?: boolean;
   onClick?: (card: ICard) => void;
@@ -20,6 +21,7 @@ export function Card({
   card,
   isSelected = false,
   isDisabled = false,
+  disabledReason,
   isFaceDown = false,
   isPhantom = false,
   onClick,
@@ -50,7 +52,14 @@ export function Card({
         opacity: isDisabled ? 0.4 : isPhantom ? 0.7 : 1,
         userSelect: 'none',
       }}
-      onClick={() => !isDisabled && onClick?.(card)}
+      title={isDisabled && disabledReason ? disabledReason : undefined}
+      onClick={() => {
+        if (isDisabled && disabledReason) {
+          // 被封锁的牌点击时显示原因（简易 toast）
+          return;
+        }
+        if (!isDisabled) onClick?.(card);
+      }}
       whileHover={!isDisabled ? { scale: 1.08, y: -8 } : undefined}
       whileTap={!isDisabled ? { scale: 0.95 } : undefined}
       animate={isSelected ? { y: -12 } : { y: 0 }}

@@ -52,6 +52,7 @@ export function Hand({ cards, isOpponent = false, disabledRanks = [], onCardClic
                 isFaceDown={isOpponent}
                 isSelected={isSelected}
                 isDisabled={isDisabled}
+                disabledReason={isDisabled ? '被规则封锁' : undefined}
                 isPhantom={card.isPhantom}
                 onClick={onCardClick}
                 size="md"

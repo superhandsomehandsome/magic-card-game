@@ -268,7 +268,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   public declareAmbush(
     attackerId: string,
     cardId: string,
-    declaration: AmbushDeclaration | null
+    declaration: AmbushDeclaration | null,
+    discardCardId?: string
   ): boolean {
     this.validatePhase(GamePhase.AMBUSH_DECLARE);
     const attacker = this.getPlayer(attackerId);
@@ -276,7 +277,19 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     if (attacker.ambushesThisTurn >= GAME_CONSTANTS.MAX_AMBUSH_PER_TURN) return false;
 
     // 第2次突袭须先明弃1张
-    if (attacker.ambushesThisTurn === 1 && attacker.hand.length <= 1) return false;
+    if (attacker.ambushesThisTurn === 1) {
+      if (!discardCardId || attacker.hand.length <= 1) return false;
+      const discardCard = attacker.hand.find(c => c.id === discardCardId);
+      if (!discardCard) return false;
+      attacker.hand = attacker.hand.filter(c => c.id !== discardCardId);
+      this.state.discardPile.push(discardCard);
+      this.pushAction({
+        type: 'VFX_BURN',
+        payload: { card: discardCard, playerId: attackerId, reason: '突袭明弃' },
+        durationMs: 500,
+      });
+      this.addLog(`${attacker.name} 明弃 ${CardRank[discardCard.rank]} 级牌，发起第2次突袭`);
+    }
 
     const card = attacker.hand.find(c => c.id === cardId);
     if (!card) return false;
@@ -603,16 +616,20 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       }
     }
 
+    // 清除虚影牌（织梦者当回合限定）
+    current.hand = current.hand.filter(c => !c.isPhantom);
+
     // 切换玩家
     const playerIds = Object.keys(this.state.players);
     const nextId = playerIds.find(id => id !== currentId)!;
     this.state.currentTurnPlayerId = nextId;
     this.state.turnNumber++;
 
-    // 清除对手封锁区（封锁只持续对手一个回合）
+    // 清除即将行动玩家之前放置的封锁（它的封锁已对对手生效了一个回合）
+    // 例如：A 放封锁 → B 受封锁（本回合） → B 回合结束 → 清除 B 的封锁
+    // 规则：封锁持续对手一个回合，之后自动解除
     const nextPlayer = this.getPlayer(nextId);
-    const opponent = this.getPlayer(currentId);
-    opponent.blockadeZone = null;
+    nextPlayer.blockadeZone = null;
 
     // 触发英雄回合开始事件
     const strategy = this.heroStrategies.get(nextId);
@@ -750,13 +767,42 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const collision = this.state.collisionState;
     const playerIds = Object.keys(this.state.players);
 
-    const scores = playerIds.map(id => {
+    // 对撞分 = 翻牌有效分之和 + 底池权重加成
+    const revealScores = playerIds.map(id => {
       const revealed = collision.revealedCards[id];
       return revealed.reduce((sum, c) => sum + getEffectiveScore(c.rank, this.state.isInverted), 0);
     });
 
-    const winnerId = scores[0] >= scores[1] ? playerIds[0] : playerIds[1];
-    this.declareWinner(winnerId, '魔力对撞');
+    // 将 pot 按权重分配给双方基础分
+    const p1 = this.state.players[playerIds[0]];
+    const p2 = this.state.players[playerIds[1]];
+    const p1Weighted = p1.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
+      revealScores[0] * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
+    const p2Weighted = p2.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
+      revealScores[1] * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
+
+    if (Math.abs(p1Weighted - p2Weighted) < 0.001) {
+      // 真正平局：比较剩余手牌总有效分
+      const p1Remaining = collision.playerCards[playerIds[0]]
+        .reduce((s, c) => s + getEffectiveScore(c.rank, this.state.isInverted), 0);
+      const p2Remaining = collision.playerCards[playerIds[1]]
+        .reduce((s, c) => s + getEffectiveScore(c.rank, this.state.isInverted), 0);
+
+      if (p1Remaining === p2Remaining) {
+        // 绝对平局：后手玩家胜（避免偏袒）
+        this.declareWinner(playerIds[1], '魔力对撞 (平局后手胜)');
+      } else {
+        this.declareWinner(
+          p1Remaining > p2Remaining ? playerIds[0] : playerIds[1],
+          '魔力对撞 (平局加赛)'
+        );
+      }
+    } else {
+      this.declareWinner(
+        p1Weighted > p2Weighted ? playerIds[0] : playerIds[1],
+        '魔力对撞'
+      );
+    }
   }
 
   private declareWinner(winnerId: string, reason: string): void {

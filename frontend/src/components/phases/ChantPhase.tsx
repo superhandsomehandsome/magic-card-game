@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { IComboResult } from '../../types/game';
-import { ComboType, CardRank, GAME_CONSTANTS } from '../../types/game';
+import { ComboType, CardRank, HeroType, GAME_CONSTANTS } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { detectCombos, getBlockedRank } from '../../utils/scoring';
 import { getCardDisplayName, getEffectiveScore } from '../../utils/deck';
@@ -23,9 +23,10 @@ const COMBO_NAMES: Record<ComboType, { name: string; icon: string; description: 
 };
 
 export function ChantPhase() {
-  const { gameState, localPlayerId, submitCombo, advancePhase } = useGameStore();
+  const { gameState, localPlayerId, submitCombo, advancePhase, rollFateDice } = useGameStore();
   const [selectedCombo, setSelectedCombo] = useState<IComboResult | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [diceUsed, setDiceUsed] = useState(false);
 
   if (!gameState) return null;
 
@@ -34,6 +35,7 @@ export function ChantPhase() {
   const opponent = gameState.players[opponentId];
   const isMyTurn = gameState.currentTurnPlayerId === localPlayerId;
   const blockedRank = getBlockedRank(opponent);
+  const isWeaver = player.hero === HeroType.WEAVER;
 
   const combos = useMemo(() => {
     return detectCombos(player.hand, gameState.isInverted, blockedRank);
@@ -88,6 +90,31 @@ export function ChantPhase() {
       }}>
         ✨ 咏唱计分
       </div>
+
+      {/* 织梦者命运骰子 */}
+      {isWeaver && isMyTurn && !diceUsed && (
+        <motion.button
+          onClick={() => {
+            const ok = rollFateDice();
+            if (ok) setDiceUsed(true);
+          }}
+          style={{
+            padding: '10px 24px', borderRadius: 8,
+            border: '2px solid #9b59b6',
+            background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
+            color: '#c39bd3', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+            fontFamily: '"Cinzel", serif',
+          }}
+          whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(155,89,182,0.5)' }}
+          whileTap={{ scale: 0.95 }}
+          animate={{
+            boxShadow: ['0 0 5px #9b59b640', '0 0 15px #9b59b680', '0 0 5px #9b59b640'],
+          }}
+          transition={{ duration: 2, repeat: Infinity }}
+        >
+          🔮 命运骰子 (每回合1次)
+        </motion.button>
+      )}
 
       {/* 衰减提示 */}
       {decayInfo.multiplier < 1 && (

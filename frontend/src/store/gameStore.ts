@@ -41,12 +41,13 @@ interface GameStore {
   startGame: () => void;
   drawCards: () => void;
   buyMarketCard: (marketCardId: string, paymentCardIds: string[]) => boolean;
-  declareAmbush: (cardId: string, declaration: AmbushDeclaration | null) => boolean;
+  declareAmbush: (cardId: string, declaration: AmbushDeclaration | null, discardCardId?: string) => boolean;
   respondAmbush: (choice: 'FOLD' | 'CALL_BLUFF' | 'DEFEND', defenderCardId?: string) => void;
   submitCombo: (cardIds: string[], score: number) => void;
   placeBlockade: (cardId: string) => void;
   discardExcess: (cardIds: string[]) => void;
   useUltimate: () => boolean;
+  rollFateDice: () => boolean;
   collisionAction: (action: 'RAISE' | 'FOLD') => void;
 
   selectCard: (cardId: string) => void;
@@ -193,14 +194,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return engine.buyMarketCard(localPlayerId, marketCardId, paymentCardIds);
   },
 
-  declareAmbush: (cardId, declaration) => {
+  declareAmbush: (cardId, declaration, discardCardId?) => {
     const { engine, localPlayerId, networkMode } = get();
     if (networkMode === 'GUEST') {
-      sendPlayerAction('DECLARE_AMBUSH', { cardId, declaration });
+      sendPlayerAction('DECLARE_AMBUSH', { cardId, declaration, discardCardId });
       return true;
     }
     if (!engine) return false;
-    return engine.declareAmbush(localPlayerId, cardId, declaration);
+    return engine.declareAmbush(localPlayerId, cardId, declaration, discardCardId);
   },
 
   respondAmbush: (choice, defenderCardId) => {
@@ -247,6 +248,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     if (!engine) return false;
     return engine.useUltimate(localPlayerId);
+  },
+
+  rollFateDice: () => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('ROLL_FATE_DICE');
+      return true;
+    }
+    if (!engine) return false;
+    const strategy = (engine as any).heroStrategies?.get(localPlayerId);
+    if (strategy && typeof strategy.rollFateDice === 'function') {
+      const card = strategy.rollFateDice(engine);
+      return card !== null;
+    }
+    return false;
   },
 
   collisionAction: (action) => {
