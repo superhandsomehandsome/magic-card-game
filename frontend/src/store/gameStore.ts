@@ -10,9 +10,12 @@
  */
 import { create } from 'zustand';
 import type {
-  IGameState, IActionCommand, AmbushDeclaration,
+  IGameState, IActionCommand, AmbushDeclaration, ICard,
 } from '../types/game';
 import { GamePhase, HeroType } from '../types/game';
+
+/** 阶段组件接管手牌点击的 handler */
+export type HandClickHandler = (card: ICard) => void;
 import { GameEngine } from '../core/GameEngine';
 import { PhantomStrategy, WeaverStrategy, InquisitorStrategy, SingerStrategy } from '../core/heroes';
 import { HostSync, GuestSync, sendPlayerAction } from '../net/sync';
@@ -56,8 +59,20 @@ interface GameStore {
   deselectCard: (cardId: string) => void;
   clearSelection: () => void;
 
+  /**
+   * 手牌点击转发：阶段组件可注册 handler 接管底部 Hand 的点击。
+   * 若为 null，则使用 GameBoard 默认行为（FLASH 换牌）。
+   */
+  handClickHandler: HandClickHandler | null;
+  setHandClickHandler: (h: HandClickHandler | null) => void;
+
   consumeNextAction: () => IActionCommand | null;
   setAnimating: (v: boolean) => void;
+
+  /** 投降：自动判负 */
+  surrender: () => void;
+  /** 退出回到主菜单：清空 engine + state */
+  quitToMenu: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -70,6 +85,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   networkMode: 'LOCAL',
   hostSync: null,
   guestSync: null,
+  handClickHandler: null,
 
   setLocalPlayer: (id: string) => set({ localPlayerId: id }),
   setNetworkMode: (mode: NetworkMode) => set({ networkMode: mode }),
@@ -310,6 +326,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearSelection: () => set({ selectedCards: [] }),
 
+  setHandClickHandler: (h) => set({ handClickHandler: h }),
+
   consumeNextAction: () => {
     const { actionQueue } = get();
     if (actionQueue.length === 0) return null;
@@ -319,6 +337,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setAnimating: (v) => set({ isAnimating: v }),
+
+  surrender: () => {
+    const { engine, localPlayerId } = get();
+    if (!engine) return;
+    // 投降：让对手以 999 分数过 155 阈值即可
+    const oppId = Object.keys(engine.getState().players).find(id => id !== localPlayerId);
+    if (!oppId) return;
+    engine.mutateState(s => {
+      s.players[oppId].score = 999;
+      s.phase = GamePhase.GAME_OVER;
+    });
+    engine.emit('GAME_OVER', { winnerId: oppId, reason: 'SURRENDER' });
+  },
+
+  quitToMenu: () => {
+    const { engine, hostSync, guestSync } = get();
+    try { hostSync?.destroy?.(); } catch { /* noop */ }
+    try { guestSync?.destroy?.(); } catch { /* noop */ }
+    if (engine) {
+      try { engine.removeAllListeners(); } catch { /* noop */ }
+    }
+    set({
+      engine: null, gameState: null, actionQueue: [],
+      isAnimating: false, selectedCards: [],
+      networkMode: 'LOCAL', hostSync: null, guestSync: null,
+      handClickHandler: null, localPlayerId: '',
+    });
+  },
 }));
 
 // 让 GamePhase 仍能从 store 文件导出 (历史兼容)

@@ -383,6 +383,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     this.state.phase = GamePhase.AMBUSH_DECLARE;
     this.checkWinCondition();
     this.emit('AMBUSH_RESOLVED', resolvedResult);
+    // 通知 AI/UI 重新评估是否进入第 2 次突袭
+    this.emit('PHASE_CHANGED', GamePhase.AMBUSH_DECLARE);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 

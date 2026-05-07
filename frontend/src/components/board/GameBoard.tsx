@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GamePhase } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Hand } from './Hand';
-import { Market } from './Market';
 import { BountyPool } from './BountyPool';
 import { ScoreBar } from './ScoreBar';
 import { Timer } from './Timer';
@@ -72,9 +71,8 @@ export function GameBoard() {
       {/* 得分浮字 (对方/我方加减分) */}
       <ScoreToast />
 
-      {/* 音频控制 (移至左下角，避开顶栏) */}
-      <AudioControls />
-      <ScoringRulesButton />
+      {/* 设置菜单（统一收纳音效/规则/投降/退出） */}
+      <SettingsMenu />
 
       {/* 英雄台词层 */}
       <VoiceLineLayer />
@@ -149,11 +147,6 @@ export function GameBoard() {
         {/* 喋血悬赏池 */}
         <BountyPool amount={gameState.bountyPool} />
 
-        {/* 黑市 */}
-        {gameState.phase === GamePhase.DRAW_MARKET && (
-          <Market cards={gameState.marketCards} />
-        )}
-
         {/* 封锁区显示 */}
         {opponent.blockadeZone && (
           <motion.div
@@ -216,11 +209,18 @@ export function GameBoard() {
           <Hand
             cards={localPlayer.hand}
             blockedRank={opponent.blockadeZone ? opponent.blockadeZone.rank : undefined}
-            onCardClick={isMyTurn ? (card) => {
-              if (card.rank === CardRank.FLASH) {
+            onCardClick={(card) => {
+              // 阶段组件优先接管
+              const handler = useGameStore.getState().handClickHandler;
+              if (handler) {
+                handler(card);
+                return;
+              }
+              // 默认：己方回合 + 瞬牌 → 弹换牌
+              if (isMyTurn && card.rank === CardRank.FLASH) {
                 setFlashSwapCard(card);
               }
-            } : undefined}
+            }}
           />
         </div>
 
@@ -295,38 +295,218 @@ function UltimateButton({ hero }: { hero: HeroType }) {
   );
 }
 
-function AudioControls() {
+function SettingsMenu() {
+  const [open, setOpen] = useState(false);
+  const [showRules, setShowRules] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<null | 'SURRENDER' | 'QUIT'>(null);
   const [bgm, setBgm] = useState(isBGMPlaying());
   const [sfx, setSfx] = useState(isSFXEnabled());
 
+  const surrender = useGameStore(s => s.surrender);
+  const quitToMenu = useGameStore(s => s.quitToMenu);
+
+  const handleConfirm = () => {
+    if (confirmAction === 'SURRENDER') surrender();
+    else if (confirmAction === 'QUIT') quitToMenu();
+    setConfirmAction(null);
+    setOpen(false);
+  };
+
   return (
-    <div style={{
-      position: 'absolute', bottom: 8, left: 8,
-      display: 'flex', gap: 4, zIndex: 999,
-    }}>
-      <button
-        onClick={() => setBgm(toggleBGM())}
+    <>
+      {/* 主按钮（右上角，远离对手信息条） */}
+      <motion.button
+        onClick={() => setOpen(true)}
+        whileHover={{ scale: 1.08 }}
+        whileTap={{ scale: 0.92 }}
         style={{
-          width: 32, height: 32, borderRadius: 6,
-          border: '1px solid #444', background: 'rgba(0,0,0,0.6)',
-          color: bgm ? '#b8860b' : '#555', cursor: 'pointer', fontSize: 16,
+          position: 'absolute', top: 8, right: 8, zIndex: 999,
+          width: 36, height: 36, borderRadius: 8,
+          border: '1px solid #b8860b', background: 'rgba(0,0,0,0.7)',
+          color: '#b8860b', fontSize: 18, cursor: 'pointer',
+          boxShadow: '0 0 12px rgba(184,134,11,0.3)',
         }}
-        title={bgm ? 'BGM 开' : 'BGM 关'}
+        title="设置"
       >
-        {bgm ? '🔊' : '🔇'}
-      </button>
-      <button
-        onClick={() => setSfx(toggleSFX())}
-        style={{
-          width: 32, height: 32, borderRadius: 6,
-          border: '1px solid #444', background: 'rgba(0,0,0,0.6)',
-          color: sfx ? '#b8860b' : '#555', cursor: 'pointer', fontSize: 16,
-        }}
-        title={sfx ? '音效 开' : '音效 关'}
-      >
-        {sfx ? '🔔' : '🔕'}
-      </button>
-    </div>
+        ⚙
+      </motion.button>
+
+      {/* 菜单弹层 */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setOpen(false)}
+            style={{
+              position: 'fixed', inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+              zIndex: 9998,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 10 }}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: 280, padding: 24,
+                borderRadius: 16,
+                background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
+                border: '2px solid #b8860b',
+                boxShadow: '0 0 30px rgba(184,134,11,0.4)',
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}
+            >
+              <h3 style={{
+                color: '#b8860b', margin: 0,
+                fontFamily: '"Cinzel", serif',
+                fontSize: 16, letterSpacing: 3, textAlign: 'center',
+              }}>
+                ⚙ 设 置
+              </h3>
+
+              <SettingsRow
+                label="背景音乐"
+                value={bgm ? '🔊 开' : '🔇 关'}
+                onClick={() => setBgm(toggleBGM())}
+              />
+              <SettingsRow
+                label="音效"
+                value={sfx ? '🔔 开' : '🔕 关'}
+                onClick={() => setSfx(toggleSFX())}
+              />
+              <SettingsRow
+                label="📊 积分规则参考"
+                value="查看 →"
+                onClick={() => { setShowRules(true); setOpen(false); }}
+              />
+
+              <div style={{ height: 1, background: '#3a1f5e', margin: '4px 0' }} />
+
+              <SettingsRow
+                label="🏳️ 投降"
+                value=""
+                danger
+                onClick={() => setConfirmAction('SURRENDER')}
+              />
+              <SettingsRow
+                label="🚪 退出到主菜单"
+                value=""
+                danger
+                onClick={() => setConfirmAction('QUIT')}
+              />
+
+              <button
+                onClick={() => setOpen(false)}
+                style={{
+                  marginTop: 8, padding: '8px 0',
+                  borderRadius: 6, border: '1px solid #666',
+                  background: 'transparent', color: '#aaa',
+                  cursor: 'pointer', fontSize: 12,
+                }}
+              >
+                关闭
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 二次确认对话框 */}
+      <AnimatePresence>
+        {confirmAction && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 10001,
+              background: 'rgba(0,0,0,0.85)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              style={{
+                padding: 24, borderRadius: 12,
+                background: 'linear-gradient(180deg, #2a0d0d, #1a0000)',
+                border: '2px solid #e74c3c',
+                width: 300, textAlign: 'center',
+              }}
+            >
+              <div style={{
+                color: '#e74c3c', fontFamily: '"Cinzel", serif',
+                fontSize: 16, fontWeight: 700, marginBottom: 14, letterSpacing: 2,
+              }}>
+                {confirmAction === 'SURRENDER' ? '确认投降？' : '确认退出？'}
+              </div>
+              <div style={{ color: '#aaa', fontSize: 12, marginBottom: 16 }}>
+                {confirmAction === 'SURRENDER'
+                  ? '本局将判负，对手获得胜利。'
+                  : '当前对局进度将丢失。'}
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                <button
+                  onClick={handleConfirm}
+                  style={{
+                    padding: '8px 20px', borderRadius: 6,
+                    border: '1px solid #e74c3c',
+                    background: 'rgba(231,76,60,0.2)',
+                    color: '#e74c3c', fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  确认
+                </button>
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  style={{
+                    padding: '8px 20px', borderRadius: 6,
+                    border: '1px solid #666',
+                    background: 'transparent', color: '#aaa', cursor: 'pointer',
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 规则浮窗 */}
+      <AnimatePresence>
+        {showRules && <ScoringRulesPanel onClose={() => setShowRules(false)} />}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function SettingsRow({
+  label, value, onClick, danger = false,
+}: {
+  label: string; value: string; onClick: () => void; danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '8px 12px',
+        background: 'rgba(255,255,255,0.03)',
+        border: `1px solid ${danger ? '#e74c3c40' : '#3a1f5e'}`,
+        borderRadius: 8,
+        color: danger ? '#e74c3c' : '#ccc',
+        fontSize: 13, cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      <span>{label}</span>
+      <span style={{ color: danger ? '#e74c3c' : '#b8860b', fontSize: 12 }}>{value}</span>
+    </button>
   );
 }
 
@@ -371,9 +551,7 @@ function TurnHUD({ isMyTurn, phase }: { isMyTurn: boolean; phase: GamePhase }) {
   );
 }
 
-function ScoringRulesButton() {
-  const [show, setShow] = useState(false);
-
+function ScoringRulesPanel({ onClose }: { onClose: () => void }) {
   const combos = [
     { name: '大顺', rule: 'A+B+C+D+E+F 各一', mult: '×3', example: '(6+5+4+3+2+1)×3 = 63', icon: '🌟' },
     { name: '四条', rule: '4张相同等级', mult: '×4', example: '4×A = 6×4×4 = 96', icon: '💎' },
@@ -384,95 +562,76 @@ function ScoringRulesButton() {
   ];
 
   return (
-    <>
-      <button
-        onClick={() => setShow(true)}
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 10000,
+      }}
+    >
+      <motion.div
+        initial={{ scale: 0.85 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.85 }}
+        onClick={e => e.stopPropagation()}
         style={{
-          position: 'absolute', top: 8, left: 8,
-          width: 32, height: 32, borderRadius: 6,
-          border: '1px solid #444', background: 'rgba(0,0,0,0.6)',
-          color: '#b8860b', cursor: 'pointer', fontSize: 16,
-          zIndex: 999,
+          background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
+          border: '2px solid #b8860b', borderRadius: 16,
+          padding: 24, maxWidth: 420, width: '90%',
         }}
-        title="积分规则"
       >
-        📊
-      </button>
-
-      <AnimatePresence>
-        {show && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShow(false)}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              zIndex: 10000, pointerEvents: 'auto',
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.85 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.85 }}
-              onClick={e => e.stopPropagation()}
-              style={{
-                background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
-                border: '2px solid #b8860b', borderRadius: 16,
-                padding: 24, maxWidth: 420, width: '90%',
-              }}
-            >
-              <h3 style={{
-                color: '#b8860b', fontFamily: '"Cinzel", serif',
-                margin: '0 0 16px', textAlign: 'center', fontSize: 18,
-              }}>
-                📊 咏唱积分组合表
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {combos.map((c, i) => (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid #2a1a3e',
-                  }}>
-                    <span style={{ fontSize: 18, width: 28 }}>{c.icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: '#ffd700', fontWeight: 700, fontSize: 14 }}>{c.name}</span>
-                        <span style={{ color: '#ff8c00', fontWeight: 700, fontSize: 13 }}>{c.mult}</span>
-                      </div>
-                      <div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>{c.rule}</div>
-                      <div style={{ color: '#666', fontSize: 10, marginTop: 1, fontStyle: 'italic' }}>例: {c.example}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,140,0,0.08)', border: '1px solid #ff8c0040' }}>
-                <div style={{ color: '#ff8c00', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>⚡ 特殊规则</div>
-                <div style={{ color: '#888', fontSize: 10, lineHeight: 1.6 }}>
-                  • F弑神：F {'>'} A（无论正常/反转）<br/>
-                  • 瞬 (FLASH)：功能牌，吸收对手攻击牌<br/>
-                  • 前期衰减：前几回合咏唱得分打折<br/>
-                  • 胜利条件：155分 或 牌库耗尽→魔力对撞
+        <h3 style={{
+          color: '#b8860b', fontFamily: '"Cinzel", serif',
+          margin: '0 0 16px', textAlign: 'center', fontSize: 18,
+        }}>
+          📊 咏唱积分组合表
+        </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {combos.map((c, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 12px', borderRadius: 8,
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid #2a1a3e',
+            }}>
+              <span style={{ fontSize: 18, width: 28 }}>{c.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#ffd700', fontWeight: 700, fontSize: 14 }}>{c.name}</span>
+                  <span style={{ color: '#ff8c00', fontWeight: 700, fontSize: 13 }}>{c.mult}</span>
                 </div>
+                <div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>{c.rule}</div>
+                <div style={{ color: '#666', fontSize: 10, marginTop: 1, fontStyle: 'italic' }}>例: {c.example}</div>
               </div>
-              <button
-                onClick={() => setShow(false)}
-                style={{
-                  display: 'block', margin: '14px auto 0', padding: '8px 24px',
-                  borderRadius: 6, border: '1px solid #666',
-                  background: 'transparent', color: '#888',
-                  cursor: 'pointer', fontSize: 12,
-                }}
-              >
-                关闭
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,140,0,0.08)', border: '1px solid #ff8c0040' }}>
+          <div style={{ color: '#ff8c00', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>⚡ 特殊规则</div>
+          <div style={{ color: '#888', fontSize: 10, lineHeight: 1.6 }}>
+            • F弑神：F {'>'} A（无论正常/反转）<br/>
+            • 瞬 (FLASH)：任意阶段可换 1-3 张手牌<br/>
+            • 封锁：被封锁 rank 入组合每张扣 baseScore×3 分<br/>
+            • 前期衰减：前几回合咏唱得分打折<br/>
+            • 胜利条件：155分 或 牌库耗尽→魔力对撞
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            display: 'block', margin: '14px auto 0', padding: '8px 24px',
+            borderRadius: 6, border: '1px solid #666',
+            background: 'transparent', color: '#888',
+            cursor: 'pointer', fontSize: 12,
+          }}
+        >
+          关闭
+        </button>
+      </motion.div>
+    </motion.div>
   );
 }

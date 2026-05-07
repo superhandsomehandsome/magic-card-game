@@ -163,38 +163,59 @@ export class AIPlayer {
       return;
     }
 
-    // 决策: 60% 概率发起突袭
-    const shouldAmbush = Math.random() < 0.6 && me.hand.length > 1;
-    if (!shouldAmbush) {
-      this.scheduleAction(() => this.engine.nextPhase(), 300);
+    const candidates = me.hand.filter(c => c.rank !== CardRank.FLASH);
+
+    // 第一次突袭：决定是否打
+    if (me.ambushesThisTurn === 0) {
+      const shouldAmbush = Math.random() < 0.6 && me.hand.length > 1 && candidates.length > 0;
+      if (!shouldAmbush) {
+        this.scheduleAction(() => this.engine.nextPhase(), 300);
+        return;
+      }
+      this.executeAmbush(candidates);
       return;
     }
 
-    // 选择: 优先用 A/F 这种特殊牌发起 + 50%概率说谎
-    const candidates = me.hand.filter(c => c.rank !== CardRank.FLASH);
+    // 第二次突袭：需 ≥ 2 张非瞬牌，且 30% 概率发起
+    if (me.ambushesThisTurn === 1) {
+      const wantsSecond = Math.random() < 0.3 && candidates.length >= 2;
+      if (!wantsSecond) {
+        this.scheduleAction(() => this.engine.nextPhase(), 300);
+        return;
+      }
+      // 弃最低分牌 + 第二低或最高分作攻击牌
+      const sortedAsc = [...candidates].sort((a, b) => a.baseScore - b.baseScore);
+      const discardCard = sortedAsc[0];
+      const attackCandidates = sortedAsc.slice(1);
+      this.executeAmbush(attackCandidates, discardCard.id);
+      return;
+    }
+  }
+
+  private executeAmbush(candidates: ICard[], discardCardId?: string): void {
     if (candidates.length === 0) {
       this.scheduleAction(() => this.engine.nextPhase(), 300);
       return;
     }
-
     const card = candidates[Math.floor(Math.random() * candidates.length)];
-    const declarationStrategy = Math.random();
+    const r = Math.random();
     let declaration: AmbushDeclaration | null = null;
 
-    if (declarationStrategy < 0.4) {
-      // 沉默
+    if (r < 0.4) {
       declaration = null;
-    } else if (declarationStrategy < 0.7) {
-      // 说真话
+    } else if (r < 0.7) {
       declaration = card.rank;
     } else {
-      // 说谎: 随机一个不同的 rank
       const ranks = [CardRank.A, CardRank.B, CardRank.C, CardRank.D, CardRank.E, CardRank.F];
-      const lies = ranks.filter(r => r !== card.rank);
+      const lies = ranks.filter(r2 => r2 !== card.rank);
       declaration = lies[Math.floor(Math.random() * lies.length)];
     }
 
-    this.engine.declareAmbush(this.aiPlayerId, card.id, declaration);
+    const ok = this.engine.declareAmbush(this.aiPlayerId, card.id, declaration, discardCardId);
+    if (!ok) {
+      // 失败兜底：直接进入下一阶段
+      this.scheduleAction(() => this.engine.nextPhase(), 300);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════

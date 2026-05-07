@@ -53,6 +53,24 @@ function App() {
   const [myHero, setMyHero] = useState<HeroType | null>(null);
   const matchStartedRef = useRef(false);
 
+  // 退出到主菜单时 (gameState 被 store 清空)：自动回 LOBBY
+  useEffect(() => {
+    if (stage === 'PLAYING' && !gameState) {
+      const t = setTimeout(() => {
+        // 只在不是 GUEST 等同步态时切回
+        const { networkMode } = useGameStore.getState();
+        if (networkMode === 'LOCAL') {
+          matchStartedRef.current = false;
+          setMyHero(null);
+          setOpponentHero(null);
+          setMode(null);
+          setStage('LOBBY');
+        }
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [stage, gameState]);
+
   // ═══════════════════════════════════════════════════════════
   //  联网模式: 监听对手英雄选择
   // ═══════════════════════════════════════════════════════════

@@ -1,14 +1,19 @@
 /**
- * 阶段2：突袭与虚实之言 — 系统最高复杂度环节
- * 攻击方宣告 + 防守方抉择
+ * 阶段2：突袭与虚实之言
+ *
+ * 攻击方流程：
+ *   - 第 1 次突袭：直接点底部手牌 → 弹宣告 modal
+ *   - 第 2 次突袭：先点"先弃 1 张"按钮 → 选弃牌 → 再选攻击牌 → 宣告
+ * 防守方流程：
+ *   - 选择 [拆穿 / 怯战 / 迎战(选牌)]
  */
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard, AmbushDeclaration, IAmbushState } from '../../types/game';
 import { CardRank, GamePhase } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
-import { getCardDisplayName, getRankColor, compareCards } from '../../utils/deck';
+import { getCardDisplayName, compareCards } from '../../utils/deck';
 
 interface AmbushResult {
   choice: string;
@@ -17,18 +22,35 @@ interface AmbushResult {
   declaration: AmbushDeclaration | null;
 }
 
+type AmbushStep = 'PICK_ATTACK' | 'PICK_DISCARD' | 'DECLARE';
+
 export function AmbushPhase() {
-  const { gameState, localPlayerId, declareAmbush, respondAmbush, advancePhase, selectedCards, selectCard, clearSelection, engine } = useGameStore();
-  const [selectedAmbushCard, setSelectedAmbushCard] = useState<string | null>(null);
-  const [declaration, setDeclaration] = useState<AmbushDeclaration | null>(null);
-  const [showDeclareModal, setShowDeclareModal] = useState(false);
+  const {
+    gameState, localPlayerId, declareAmbush, respondAmbush, advancePhase,
+    engine, setHandClickHandler,
+  } = useGameStore();
+
+  const [step, setStep] = useState<AmbushStep>('PICK_ATTACK');
+  const [selectedAttackId, setSelectedAttackId] = useState<string | null>(null);
+  const [selectedDiscardId, setSelectedDiscardId] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AmbushResult | null>(null);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const player = gameState?.players[localPlayerId];
+  const isMyTurn = gameState?.currentTurnPlayerId === localPlayerId;
+  const isDefending = gameState?.phase === GamePhase.AMBUSH_DEFEND &&
+    gameState.ambushState?.defenderId === localPlayerId;
+  const ambushCount = player?.ambushesThisTurn ?? 0;
+  const isSecondAmbush = ambushCount === 1;
+
+  // 监听突袭结果
   useEffect(() => {
     if (!engine) return;
     const handleResolved = (data: AmbushResult) => {
       setLastResult(data);
+      setStep('PICK_ATTACK');
+      setSelectedAttackId(null);
+      setSelectedDiscardId(null);
       if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
       resultTimerRef.current = setTimeout(() => setLastResult(null), 3500);
     };
@@ -39,50 +61,81 @@ export function AmbushPhase() {
     };
   }, [engine]);
 
-  if (!gameState) return null;
-
-  const player = gameState.players[localPlayerId];
-  const isMyTurn = gameState.currentTurnPlayerId === localPlayerId;
-  const isDefending = gameState.phase === GamePhase.AMBUSH_DEFEND &&
-    gameState.ambushState?.defenderId === localPlayerId;
-
-  // ═══════════════════════════════════════════════════════════
-  //  攻击方视角：宣告突袭
-  // ═══════════════════════════════════════════════════════════
-
-  const handleSelectAmbushCard = (card: ICard) => {
-    setSelectedAmbushCard(card.id);
-    setShowDeclareModal(true);
-  };
-
-  const handleDeclare = (decl: AmbushDeclaration | null) => {
-    if (!selectedAmbushCard) return;
-    setDeclaration(decl);
-    const success = declareAmbush(selectedAmbushCard, decl);
-    if (success) {
-      setShowDeclareModal(false);
-      setSelectedAmbushCard(null);
+  // 注册底部手牌点击 handler
+  useEffect(() => {
+    if (!isMyTurn || gameState?.phase !== GamePhase.AMBUSH_DECLARE) {
+      setHandClickHandler(null);
+      return;
     }
-  };
+    setHandClickHandler((card: ICard) => {
+      if (step === 'PICK_DISCARD') {
+        setSelectedDiscardId(card.id);
+        return;
+      }
+      // PICK_ATTACK
+      // FLASH 不能用作攻击牌
+      if (card.rank === CardRank.FLASH) return;
+      // 第二次突袭必须先选弃牌
+      if (isSecondAmbush && !selectedDiscardId) {
+        setStep('PICK_DISCARD');
+        return;
+      }
+      // 不能用同一张作为弃牌和攻击牌
+      if (selectedDiscardId && card.id === selectedDiscardId) return;
+      setSelectedAttackId(card.id);
+      setStep('DECLARE');
+    });
+    return () => setHandClickHandler(null);
+  }, [isMyTurn, gameState?.phase, step, isSecondAmbush, selectedDiscardId, setHandClickHandler]);
 
-  // ═══════════════════════════════════════════════════════════
-  //  防守方视角：抉择
-  // ═══════════════════════════════════════════════════════════
+  if (!gameState || !player) return null;
 
-  const handleDefendChoice = (choice: 'FOLD' | 'CALL_BLUFF' | 'DEFEND', cardId?: string) => {
-    respondAmbush(choice, cardId);
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  //  渲染
-  // ═══════════════════════════════════════════════════════════
-
+  // ─────────────────────────── 防守方视角 ───────────────────────────
   if (isDefending && gameState.ambushState) {
     return <DefenderView
       ambushState={gameState.ambushState}
-      hand={player.hand}
-      onChoice={handleDefendChoice}
+      onChoice={(choice, cardId) => respondAmbush(choice, cardId)}
     />;
+  }
+
+  // ─────────────────────────── 攻击方视角 ───────────────────────────
+  const handleDeclare = (decl: AmbushDeclaration | null) => {
+    if (!selectedAttackId) return;
+    const ok = declareAmbush(selectedAttackId, decl, selectedDiscardId || undefined);
+    if (!ok) {
+      // 失败：重置
+      setStep('PICK_ATTACK');
+      setSelectedAttackId(null);
+      setSelectedDiscardId(null);
+    }
+  };
+
+  const cancel = () => {
+    setStep('PICK_ATTACK');
+    setSelectedAttackId(null);
+    setSelectedDiscardId(null);
+  };
+
+  const canSecondAmbush = isSecondAmbush && player.hand.filter(c => c.rank !== CardRank.FLASH).length >= 2;
+
+  // 不是己方回合或非 AMBUSH_DECLARE → 等待 / 显示结果
+  if (!isMyTurn || gameState.phase !== GamePhase.AMBUSH_DECLARE) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 16 }}
+      >
+        <AnimatePresence>
+          {lastResult && <AmbushResultPanel result={lastResult} isInverted={gameState.isInverted} />}
+        </AnimatePresence>
+        {!isMyTurn && (
+          <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
+            🤖 对手在突袭阶段…
+          </div>
+        )}
+      </motion.div>
+    );
   }
 
   return (
@@ -93,146 +146,155 @@ export function AmbushPhase() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 16,
-        padding: 16,
+        gap: 12,
+        padding: 12,
       }}
     >
-      {/* 上次突袭结算结果展示 */}
       <AnimatePresence>
-        {lastResult && (
-          <AmbushResultPanel result={lastResult} isInverted={gameState.isInverted} />
-        )}
+        {lastResult && <AmbushResultPanel result={lastResult} isInverted={gameState.isInverted} />}
       </AnimatePresence>
 
-      {isMyTurn && gameState.phase === GamePhase.AMBUSH_DECLARE && (
-        <>
-          <div style={{
-            color: '#ff4500',
-            fontFamily: '"Cinzel", serif',
-            fontSize: 16,
-            fontWeight: 700,
-          }}>
-            ⚡ 选择一张牌发起突袭 ({player.ambushesThisTurn}/{2})
-          </div>
+      {/* 状态条 */}
+      <div style={{
+        color: '#ff4500', fontFamily: '"Cinzel", serif',
+        fontSize: 14, fontWeight: 700, letterSpacing: 2,
+      }}>
+        ⚡ 突袭 ({ambushCount}/2)
+      </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-            {player.hand.map(card => (
-              <Card
-                key={card.id}
-                card={card}
-                size="sm"
-                isSelected={selectedAmbushCard === card.id}
-                onClick={handleSelectAmbushCard}
-              />
-            ))}
-          </div>
+      {/* 步骤指引 */}
+      {step === 'PICK_ATTACK' && !isSecondAmbush && (
+        <div style={{ color: '#aaa', fontSize: 12 }}>
+          点击底部手牌选择攻击牌
+        </div>
+      )}
 
+      {step === 'PICK_ATTACK' && isSecondAmbush && (
+        <motion.div
+          animate={{ opacity: [0.7, 1, 0.7] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          style={{
+            color: '#ff8c00', fontSize: 13, padding: '6px 14px',
+            borderRadius: 6, border: '1px solid #ff8c00',
+            background: 'rgba(255,140,0,0.1)', textAlign: 'center',
+          }}
+        >
+          ⚠ 第二次突袭：先选 1 张牌弃置作代价
+        </motion.div>
+      )}
+
+      {step === 'PICK_DISCARD' && (
+        <div style={{ color: '#ff8c00', fontSize: 12 }}>
+          点击下方一张牌作为弃牌代价（点击同一张可取消）
+        </div>
+      )}
+
+      {/* 已选弃牌预览（第二次突袭） */}
+      {isSecondAmbush && selectedDiscardId && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '6px 12px', borderRadius: 8,
+          background: 'rgba(255,140,0,0.1)',
+          border: '1px solid #ff8c0080',
+        }}>
+          <span style={{ color: '#ff8c00', fontSize: 11 }}>弃牌代价 →</span>
+          {(() => {
+            const c = player.hand.find(h => h.id === selectedDiscardId);
+            return c ? <Card card={c} size="sm" /> : null;
+          })()}
+          <button
+            onClick={() => { setSelectedDiscardId(null); setStep('PICK_ATTACK'); }}
+            style={{
+              padding: '4px 10px', fontSize: 11, borderRadius: 4,
+              border: '1px solid #888', background: 'transparent',
+              color: '#aaa', cursor: 'pointer',
+            }}
+          >
+            取消
+          </button>
+        </div>
+      )}
+
+      {/* 当弃牌选完，进入 PICK_ATTACK */}
+      {step === 'PICK_DISCARD' && (
+        <button
+          onClick={() => {
+            if (selectedDiscardId) setStep('PICK_ATTACK');
+          }}
+          disabled={!selectedDiscardId}
+          style={{
+            padding: '6px 16px', borderRadius: 6,
+            border: `1px solid ${selectedDiscardId ? '#ff4500' : '#444'}`,
+            background: selectedDiscardId ? 'rgba(255,69,0,0.15)' : '#222',
+            color: selectedDiscardId ? '#ff4500' : '#555',
+            fontSize: 12, fontWeight: 700,
+            cursor: selectedDiscardId ? 'pointer' : 'not-allowed',
+          }}
+        >
+          ✓ 确认弃牌 → 选攻击牌
+        </button>
+      )}
+
+      {/* 跳过突袭 / 第二次突袭按钮 */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {ambushCount === 0 && (
           <motion.button
             onClick={() => advancePhase()}
+            whileHover={{ scale: 1.05 }}
             style={{
-              padding: '10px 24px',
-              borderRadius: 8,
+              padding: '8px 18px',
+              borderRadius: 6,
               border: '1px solid #666',
               background: 'transparent',
               color: '#999',
-              cursor: 'pointer',
-              marginTop: 8,
+              cursor: 'pointer', fontSize: 12,
             }}
-            whileHover={{ scale: 1.05 }}
           >
             跳过突袭 → 咏唱阶段
           </motion.button>
-        </>
-      )}
+        )}
 
-      {/* 宣告弹窗 */}
+        {ambushCount === 1 && step === 'PICK_ATTACK' && (
+          <>
+            <motion.button
+              onClick={() => advancePhase()}
+              whileHover={{ scale: 1.05 }}
+              style={{
+                padding: '8px 18px', borderRadius: 6,
+                border: '1px solid #666', background: 'transparent',
+                color: '#999', cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              结束突袭 → 咏唱阶段
+            </motion.button>
+            {canSecondAmbush && (
+              <motion.button
+                onClick={() => setStep('PICK_DISCARD')}
+                whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(255,69,0,0.5)' }}
+                style={{
+                  padding: '8px 18px', borderRadius: 6,
+                  border: '1px solid #ff4500',
+                  background: 'linear-gradient(180deg, #4a1a0a, #2a0d05)',
+                  color: '#ff4500', fontWeight: 700,
+                  cursor: 'pointer', fontSize: 12,
+                  fontFamily: '"Cinzel", serif', letterSpacing: 1,
+                }}
+              >
+                ⚡ 第二次突袭（弃 1 张）
+              </motion.button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 宣告 modal */}
       <AnimatePresence>
-        {showDeclareModal && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            style={{
-              position: 'fixed',
-              top: 0, left: 0, right: 0, bottom: 0,
-              background: 'rgba(0,0,0,0.85)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-            }}
-          >
-            <div style={{
-              background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
-              border: '2px solid #ff4500',
-              borderRadius: 16,
-              padding: 32,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 20,
-            }}>
-              <h3 style={{ color: '#ff4500', fontFamily: '"Cinzel", serif', margin: 0 }}>
-                ⚡ 虚实之言 ⚡
-              </h3>
-              <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>
-                宣告你的牌等级，或保持沉默
-              </p>
-
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-                {[CardRank.A, CardRank.B, CardRank.C, CardRank.D, CardRank.E, CardRank.F].map(rank => (
-                  <motion.button
-                    key={rank}
-                    onClick={() => handleDeclare(rank)}
-                    style={{
-                      width: 50, height: 50,
-                      borderRadius: 8,
-                      border: '1px solid #b8860b',
-                      background: '#1a0b2e',
-                      color: '#ffd700',
-                      fontWeight: 900,
-                      fontSize: 18,
-                      cursor: 'pointer',
-                    }}
-                    whileHover={{ scale: 1.1, boxShadow: '0 0 15px rgba(255,215,0,0.5)' }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    {getCardDisplayName(rank)}
-                  </motion.button>
-                ))}
-              </div>
-
-              <motion.button
-                onClick={() => handleDeclare(null)}
-                style={{
-                  padding: '10px 32px',
-                  borderRadius: 8,
-                  border: '1px solid #666',
-                  background: 'transparent',
-                  color: '#888',
-                  fontSize: 14,
-                  cursor: 'pointer',
-                }}
-                whileHover={{ scale: 1.05 }}
-              >
-                🤫 保持沉默
-              </motion.button>
-
-              <motion.button
-                onClick={() => { setShowDeclareModal(false); setSelectedAmbushCard(null); }}
-                style={{
-                  padding: '8px 20px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#666',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                }}
-              >
-                取消
-              </motion.button>
-            </div>
-          </motion.div>
+        {step === 'DECLARE' && selectedAttackId && (
+          <DeclareModal
+            attackCard={player.hand.find(c => c.id === selectedAttackId)!}
+            onDeclare={handleDeclare}
+            onCancel={cancel}
+          />
         )}
       </AnimatePresence>
     </motion.div>
@@ -240,38 +302,138 @@ export function AmbushPhase() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  防守方视角子组件
+//  宣告弹窗
+// ═══════════════════════════════════════════════════════════
+
+function DeclareModal({
+  attackCard, onDeclare, onCancel,
+}: {
+  attackCard: ICard;
+  onDeclare: (d: AmbushDeclaration | null) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.85 }}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.85)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div style={{
+        background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
+        border: '2px solid #ff4500',
+        borderRadius: 16, padding: 24,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+        maxWidth: 380,
+      }}>
+        <h3 style={{
+          color: '#ff4500', fontFamily: '"Cinzel", serif',
+          margin: 0, letterSpacing: 3,
+        }}>
+          ⚡ 虚实之言 ⚡
+        </h3>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: '#888', fontSize: 11 }}>暗扣：</span>
+          <Card card={attackCard} size="sm" />
+        </div>
+
+        <p style={{ color: '#aaa', fontSize: 12, margin: 0, textAlign: 'center' }}>
+          宣告这张牌的等级（可说谎），或保持沉默
+        </p>
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {[CardRank.A, CardRank.B, CardRank.C, CardRank.D, CardRank.E, CardRank.F].map(rank => (
+            <motion.button
+              key={rank}
+              onClick={() => onDeclare(rank)}
+              style={{
+                width: 44, height: 44, borderRadius: 6,
+                border: '1px solid #b8860b',
+                background: '#1a0b2e', color: '#ffd700',
+                fontWeight: 900, fontSize: 16,
+                cursor: 'pointer',
+                fontFamily: '"Cinzel", serif',
+              }}
+              whileHover={{ scale: 1.1, boxShadow: '0 0 12px rgba(255,215,0,0.5)' }}
+              whileTap={{ scale: 0.9 }}
+            >
+              {getCardDisplayName(rank)}
+            </motion.button>
+          ))}
+        </div>
+
+        <motion.button
+          onClick={() => onDeclare(null)}
+          whileHover={{ scale: 1.05 }}
+          style={{
+            padding: '8px 24px', borderRadius: 6,
+            border: '1px solid #666', background: 'transparent',
+            color: '#aaa', fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          🤫 保持沉默
+        </motion.button>
+
+        <button
+          onClick={onCancel}
+          style={{
+            padding: '4px 12px', fontSize: 11,
+            border: 'none', background: 'transparent',
+            color: '#666', cursor: 'pointer',
+          }}
+        >
+          取消
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  防守方视角
 // ═══════════════════════════════════════════════════════════
 
 interface DefenderViewProps {
   ambushState: IAmbushState;
-  hand: ICard[];
   onChoice: (choice: 'FOLD' | 'CALL_BLUFF' | 'DEFEND', cardId?: string) => void;
 }
 
-function DefenderView({ ambushState, hand, onChoice }: DefenderViewProps) {
+function DefenderView({ ambushState, onChoice }: DefenderViewProps) {
+  const { gameState, localPlayerId, setHandClickHandler } = useGameStore();
   const [selectedDefendCard, setSelectedDefendCard] = useState<string | null>(null);
   const hasDeclaration = ambushState.declaration !== null && ambushState.declaration !== 'SILENT';
+
+  const player = gameState?.players[localPlayerId];
+
+  // 注册手牌点击：选迎战牌
+  useEffect(() => {
+    setHandClickHandler((card: ICard) => {
+      setSelectedDefendCard(card.id);
+    });
+    return () => setHandClickHandler(null);
+  }, [setHandClickHandler]);
+
+  if (!player) return null;
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 20,
-        padding: 24,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: 16, padding: 16,
       }}
     >
-      {/* 警告闪烁 */}
       <motion.div
         style={{
-          color: '#ff0000',
-          fontFamily: '"Cinzel", serif',
-          fontSize: 20,
-          fontWeight: 900,
+          color: '#ff0000', fontFamily: '"Cinzel", serif',
+          fontSize: 18, fontWeight: 900,
           textShadow: '0 0 20px rgba(255,0,0,0.8)',
         }}
         animate={{
@@ -284,48 +446,56 @@ function DefenderView({ ambushState, hand, onChoice }: DefenderViewProps) {
       </motion.div>
 
       {hasDeclaration && (
-        <div style={{ color: '#ffd700', fontSize: 14 }}>
+        <div style={{ color: '#ffd700', fontSize: 13 }}>
           对手宣告：这是一张 <strong>{getCardDisplayName(ambushState.declaration as CardRank)}</strong>
         </div>
       )}
 
-      {/* 抉择按钮 */}
-      <div style={{ display: 'flex', gap: 12 }}>
+      {/* 选中的迎战牌预览 */}
+      {selectedDefendCard && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 12px', borderRadius: 6,
+          background: 'rgba(46,204,113,0.1)', border: '1px solid #2ecc7180',
+        }}>
+          <span style={{ color: '#2ecc71', fontSize: 11 }}>已选迎战牌 →</span>
+          {(() => {
+            const c = player.hand.find(h => h.id === selectedDefendCard);
+            return c ? <Card card={c} size="sm" /> : null;
+          })()}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
         <motion.button
           onClick={() => onChoice('FOLD')}
-          style={{
-            padding: '14px 24px',
-            borderRadius: 8,
-            border: '2px solid #666',
-            background: 'linear-gradient(180deg, #2a2a2a, #1a1a1a)',
-            color: '#aaa',
-            fontWeight: 700,
-            fontSize: 14,
-            cursor: 'pointer',
-          }}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          style={{
+            padding: '12px 20px', borderRadius: 8,
+            border: '2px solid #666',
+            background: 'linear-gradient(180deg, #2a2a2a, #1a1a1a)',
+            color: '#aaa', fontWeight: 700, fontSize: 13,
+            cursor: 'pointer',
+          }}
         >
-          😰 怯战 (Fold)
+          😰 怯战
         </motion.button>
 
         {hasDeclaration && (
           <motion.button
             onClick={() => onChoice('CALL_BLUFF')}
-            style={{
-              padding: '14px 24px',
-              borderRadius: 8,
-              border: '2px solid #ff6347',
-              background: 'linear-gradient(180deg, #4a1a1a, #2a0d0d)',
-              color: '#ff6347',
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: 'pointer',
-            }}
             whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(255,99,71,0.5)' }}
             whileTap={{ scale: 0.95 }}
+            style={{
+              padding: '12px 20px', borderRadius: 8,
+              border: '2px solid #ff6347',
+              background: 'linear-gradient(180deg, #4a1a1a, #2a0d0d)',
+              color: '#ff6347', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer',
+            }}
           >
-            🔥 拆穿 (Call Bluff)
+            🔥 拆穿
           </motion.button>
         )}
 
@@ -334,37 +504,24 @@ function DefenderView({ ambushState, hand, onChoice }: DefenderViewProps) {
             if (selectedDefendCard) onChoice('DEFEND', selectedDefendCard);
           }}
           disabled={!selectedDefendCard}
+          whileHover={selectedDefendCard ? { scale: 1.05 } : undefined}
           style={{
-            padding: '14px 24px',
-            borderRadius: 8,
+            padding: '12px 20px', borderRadius: 8,
             border: '2px solid #2ecc71',
             background: selectedDefendCard
               ? 'linear-gradient(180deg, #1a4a2e, #0d2818)'
               : '#222',
-            color: '#2ecc71',
-            fontWeight: 700,
-            fontSize: 14,
+            color: '#2ecc71', fontWeight: 700, fontSize: 13,
             cursor: selectedDefendCard ? 'pointer' : 'not-allowed',
             opacity: selectedDefendCard ? 1 : 0.5,
           }}
-          whileHover={selectedDefendCard ? { scale: 1.05 } : {}}
         >
-          ⚔️ 迎战 (Defend)
+          ⚔️ 迎战
         </motion.button>
       </div>
 
-      {/* 选择迎战牌 */}
-      <div style={{ color: '#888', fontSize: 12 }}>选择一张牌迎战：</div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-        {hand.map(card => (
-          <Card
-            key={card.id}
-            card={card}
-            size="sm"
-            isSelected={selectedDefendCard === card.id}
-            onClick={(c) => setSelectedDefendCard(c.id)}
-          />
-        ))}
+      <div style={{ color: '#888', fontSize: 11 }}>
+        点击下方手牌选择迎战牌
       </div>
     </motion.div>
   );
@@ -415,33 +572,30 @@ function AmbushResultPanel({ result, isInverted }: { result: AmbushResult; isInv
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.9 }}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-        padding: '16px 24px', borderRadius: 12,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+        padding: '12px 18px', borderRadius: 10,
         background: 'rgba(13,0,24,0.95)',
         border: `2px solid ${resultColor}40`,
-        boxShadow: `0 0 20px ${resultColor}30`,
-        width: '100%', maxWidth: 400,
+        boxShadow: `0 0 18px ${resultColor}30`,
       }}
     >
       <div style={{
-        color: '#888', fontSize: 11, letterSpacing: 2,
+        color: '#888', fontSize: 10, letterSpacing: 2,
         fontFamily: '"Cinzel", serif',
       }}>
         上次突袭结算
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        {/* 攻击方牌 */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
           <Card card={atkCard} size="sm" />
           <span style={{ color: '#b8860b', fontSize: 10 }}>攻击方</span>
         </div>
 
-        <span style={{ color: resultColor, fontSize: 24, fontWeight: 900 }}>⚔</span>
+        <span style={{ color: resultColor, fontSize: 22, fontWeight: 900 }}>⚔</span>
 
-        {/* 防守方牌 */}
         {defCard ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
             <Card card={defCard} size="sm" />
             <span style={{ color: '#e74c3c', fontSize: 10 }}>防守方</span>
           </div>
@@ -459,11 +613,10 @@ function AmbushResultPanel({ result, isInverted }: { result: AmbushResult; isInv
 
       <motion.div
         style={{
-          color: resultColor, fontSize: 14, fontWeight: 700,
-          textShadow: `0 0 10px ${resultColor}60`,
-          textAlign: 'center',
+          color: resultColor, fontSize: 13, fontWeight: 700,
+          textShadow: `0 0 10px ${resultColor}60`, textAlign: 'center',
         }}
-        animate={{ opacity: [0.8, 1, 0.8] }}
+        animate={{ opacity: [0.85, 1, 0.85] }}
         transition={{ duration: 1.5, repeat: Infinity }}
       >
         {resultText}
