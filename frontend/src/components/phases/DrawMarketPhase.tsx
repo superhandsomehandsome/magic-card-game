@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
+import { aggregateEffectsFor } from '../../core/decrees';
 
 export function DrawMarketPhase() {
   const {
@@ -53,10 +54,24 @@ export function DrawMarketPhase() {
 
   if (!gameState || !player) return null;
 
+  // 计算当前玩家的法案效果 (破产法案: priceMult=0 → 白嫖)
+  const effects = isMyTurn ? aggregateEffectsFor(gameState, localPlayerId) : null;
+  const priceMult = effects?.marketPriceMultiplier ?? 1;
+  const isFree = priceMult === 0; // 是否白嫖模式
+
+  // 某张牌的有效价格
+  const effectivePrice = (card: ICard) => Math.round(card.baseScore * priceMult);
+
   const handleSelectMarket = (card: ICard) => {
     if (!isMyTurn) return;
+
+    // 白嫖模式: 直接一键购买, 无需支付流程
+    if (isFree) {
+      buyMarketCard(card.id, []);
+      return;
+    }
+
     if (buyingCard?.id === card.id) {
-      // 取消选择
       setBuyingCard(null);
       clearSelection();
       return;
@@ -79,7 +94,7 @@ export function DrawMarketPhase() {
     return sum + (c?.baseScore ?? 0);
   }, 0);
 
-  const enough = buyingCard && paymentTotal >= buyingCard.baseScore;
+  const enough = buyingCard && paymentTotal >= effectivePrice(buyingCard);
 
   return (
     <motion.div
@@ -147,14 +162,19 @@ export function DrawMarketPhase() {
               marginTop: 4,
               padding: '2px 6px',
               borderRadius: 4,
-              background: buyingCard?.id === card.id ? '#ffd700' : 'rgba(0,0,0,0.6)',
-              color: buyingCard?.id === card.id ? '#1a0b2e' : '#b8860b',
+              background: isFree
+                ? 'rgba(46,204,113,0.25)'
+                : (buyingCard?.id === card.id ? '#ffd700' : 'rgba(0,0,0,0.6)'),
+              color: isFree
+                ? '#2ecc71'
+                : (buyingCard?.id === card.id ? '#1a0b2e' : '#b8860b'),
               fontSize: 11, fontWeight: 700,
               textAlign: 'center',
               fontFamily: 'monospace',
-              border: '1px solid #b8860b',
+              border: isFree ? '1px solid #2ecc71' : '1px solid #b8860b',
+              boxShadow: isFree ? '0 0 6px rgba(46,204,113,0.4)' : 'none',
             }}>
-              💰 {card.baseScore}
+              {isFree ? '🆓 免费' : `💰 ${effectivePrice(card)}`}
             </div>
           </motion.div>
         ))}
@@ -169,9 +189,9 @@ export function DrawMarketPhase() {
         ))}
       </div>
 
-      {/* 购买面板（仅在选中目标卡时显示） */}
+      {/* 购买面板（白嫖模式时不显示; 普通模式选中后显示） */}
       <AnimatePresence>
-        {buyingCard && isMyTurn && (
+        {buyingCard && isMyTurn && !isFree && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -188,14 +208,14 @@ export function DrawMarketPhase() {
             }}
           >
             <div style={{ color: '#888', fontSize: 11, letterSpacing: 2 }}>
-              点击下方手牌凑足 <b style={{ color: '#ffd700' }}>{buyingCard.baseScore}</b> 分支付
+              点击下方手牌凑足 <b style={{ color: '#ffd700' }}>{effectivePrice(buyingCard)}</b> 分支付
             </div>
             <div style={{
               fontSize: 18, fontWeight: 900, fontFamily: 'monospace',
               color: enough ? '#2ecc71' : '#e74c3c',
               textShadow: enough ? '0 0 10px rgba(46,204,113,0.6)' : 'none',
             }}>
-              {paymentTotal} / {buyingCard.baseScore}
+              {paymentTotal} / {effectivePrice(buyingCard)}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <motion.button
@@ -229,6 +249,24 @@ export function DrawMarketPhase() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 白嫖提示条 */}
+      {isFree && isMyTurn && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{
+            padding: '8px 20px', borderRadius: 8,
+            background: 'rgba(46,204,113,0.15)',
+            border: '1px solid #2ecc71',
+            color: '#2ecc71',
+            fontSize: 13, fontWeight: 700, letterSpacing: 2,
+            boxShadow: '0 0 12px rgba(46,204,113,0.3)',
+          }}
+        >
+          🆓 破产法案：点击任意黑市牌即可免费获得
+        </motion.div>
+      )}
 
       {/* 继续按钮 */}
       {hasDrawn && isMyTurn && !buyingCard && (
