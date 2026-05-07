@@ -1138,8 +1138,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       durationMs: 800,
     });
 
-    // 过牌奖励
-    const reward = this.drawFromDeck(1);
+    // 过牌奖励 (从1张升至2张, 加速牌库消耗)
+    const reward = this.drawFromDeck(2);
     player.hand.push(...reward);
 
     this.addLog(`${player.name} 咏唱得分 +${actualScore}${actualScore < score ? ` (衰减前: ${score})` : ''}`);
@@ -1391,7 +1391,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   private checkWinCondition(): void {
     for (const player of Object.values(this.state.players)) {
       if (player.score >= GAME_CONSTANTS.WIN_SCORE) {
-        this.declareWinner(player.id, '155分斩杀');
+        this.declareWinner(player.id, `${GAME_CONSTANTS.WIN_SCORE}分斩杀`);
         return;
       }
     }

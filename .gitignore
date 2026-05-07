@@ -15,3 +15,5 @@ build/
 *.swo
 # Local simulation / debug logs
 sim_*.txt
+# tmp commit msg files
+.commit-msg.tmp

@@ -1,5 +1,5 @@
 /**
- * 计分进度条组件 — 温度计风格，155分爆表碎裂
+ * 计分进度条组件 — 温度计风格，达到 WIN_SCORE 爆表碎裂
  */
 import { motion } from 'framer-motion';
 import { GAME_CONSTANTS } from '../../types/game';
@@ -73,7 +73,7 @@ export function ScoreBar({ score, playerName, heroColor, side }: ScoreBarProps) 
           animate={{ width: `${percentage}%` }}
           transition={{ type: 'spring', stiffness: 100, damping: 15 }}
         />
-        {/* 155分刻度线 */}
+        {/* WIN_SCORE 刻度线 */}
         <div style={{
           position: 'absolute',
           right: 0,

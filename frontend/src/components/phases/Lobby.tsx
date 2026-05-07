@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { GAME_CONSTANTS } from '../../types/game';
 
 export type LobbyMode = 'CREATE_ROOM' | 'JOIN_ROOM' | 'VS_AI';
 
@@ -244,7 +245,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
     },
     {
       title: '🏆 胜利条件',
-      content: '• 任一方总分率先达到 155 分\n• 牌库抽空进入【魔力对撞】定胜负',
+      content: `• 任一方总分率先达到 ${GAME_CONSTANTS.WIN_SCORE} 分\n• 牌库抽空进入【魔力对撞】定胜负`,
     },
     {
       title: '🔄 回合流程',
