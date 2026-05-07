@@ -21,6 +21,8 @@ import { VictoryScreen } from '../vfx/VictoryScreen';
 import { VoiceLineLayer } from '../vfx/VoiceLine';
 import { ScoreToast } from '../vfx/ScoreToast';
 import { FlashSwapModal } from './FlashSwapModal';
+import { DecreeContestModal } from '../decree/DecreeContestModal';
+import { DecreeArchive } from '../decree/DecreeArchive';
 import type { ICard } from '../../types/game';
 import { CardRank } from '../../types/game';
 import { HeroType } from '../../types/game';
@@ -73,6 +75,12 @@ export function GameBoard() {
 
       {/* 设置菜单（统一收纳音效/规则/投降/退出） */}
       <SettingsMenu />
+
+      {/* 深渊档案库（左侧抽屉） */}
+      <DecreeArchive />
+
+      {/* 法案争夺模态（DECREE_CONTEST 阶段时全屏覆盖） */}
+      {gameState.phase === GamePhase.DECREE_CONTEST && <DecreeContestModal />}
 
       {/* 英雄台词层 */}
       <VoiceLineLayer />

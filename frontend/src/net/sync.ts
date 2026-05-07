@@ -42,7 +42,9 @@ export type PlayerActionKind =
   | 'ROLL_FATE_DICE'
   | 'COLLISION_ACTION'
   | 'SET_COLLISION_ORDER'
-  | 'FLASH_SWAP';
+  | 'FLASH_SWAP'
+  | 'DECREE_OPT_IN'
+  | 'DECREE_BID';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
@@ -76,6 +78,11 @@ const HOST_RELAY_EVENTS = [
   'AMBUSH_RESOLVED',
   'SCORE_CHANGED',
   'DECK_EMPTY',
+  'DECREE_CONTEST_STARTED',
+  'DECREE_INTENT_RESOLVED',
+  'DECREE_BID_RESOLVED',
+  'DECREE_AWARDED',
+  'SUPREME_DECREE_APPLIED',
 ] as const;
 
 export class HostSync {
@@ -106,8 +113,10 @@ export class HostSync {
     // 深拷贝, 然后做差异化覆写
     const masked = JSON.parse(JSON.stringify(raw)) as IGameState;
 
+    // 检测裸露法案：双方明牌；其它情况隐藏对手手牌
+    const exposeHands = this.checkExposeHands(masked);
     for (const [pid, player] of Object.entries(masked.players)) {
-      if (pid !== this.guestPlayerId) {
+      if (pid !== this.guestPlayerId && !exposeHands) {
         player.hand = player.hand.map(c => makeHiddenCard(c.id));
       }
     }
@@ -120,7 +129,42 @@ export class HostSync {
         a.defenderCard = makeHiddenCard(a.defenderCard.id);
       }
     }
+
+    // 法案争夺双盲：抉择期未全部完成 → 隐藏对手 optIn；
+    // 暗标期未全部完成 → 隐藏对手 bids 内容
+    if (masked.decreeContest) {
+      const ctx = masked.decreeContest;
+      if (ctx.step === 'OPT_IN') {
+        for (const pid of Object.keys(ctx.optIn)) {
+          if (pid !== this.guestPlayerId) ctx.optIn[pid] = null;
+        }
+      }
+      if (ctx.step === 'BIDDING') {
+        for (const pid of Object.keys(ctx.bids)) {
+          if (pid !== this.guestPlayerId && ctx.bids[pid]) {
+            // 对手仅显示提交了几张, 内容遮蔽
+            const count = (ctx.bids[pid] as string[]).length;
+            ctx.bids[pid] = new Array(count).fill('HIDDEN');
+            ctx.bidPower[pid] = 0;
+            ctx.bidComboType[pid] = null;
+          }
+        }
+      }
+    }
+
     return masked;
+  }
+
+  private checkExposeHands(state: IGameState): boolean {
+    if (state.supremeDecree) {
+      return !!state.supremeDecree.debuff.exposeHands || !!state.supremeDecree.buff.exposeHands;
+    }
+    for (const p of Object.values(state.players)) {
+      for (const d of p.activeDecrees || []) {
+        if (d.debuff.exposeHands || d.buff.exposeHands) return true;
+      }
+    }
+    return false;
   }
 
   private bindEngine(): void {
@@ -234,6 +278,18 @@ export class HostSync {
             playerId,
             p.flashCardId as string,
             (p.swapCardIds as string[]) || [],
+          );
+          break;
+        case 'DECREE_OPT_IN':
+          this.engine.submitDecreeOptIn(
+            playerId,
+            p.choice as 'CONTEST' | 'PASS',
+          );
+          break;
+        case 'DECREE_BID':
+          this.engine.submitDecreeBid(
+            playerId,
+            (p.cardIds as string[]) || [],
           );
           break;
       }

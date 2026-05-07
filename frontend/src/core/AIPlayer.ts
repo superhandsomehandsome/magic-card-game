@@ -7,12 +7,13 @@
  * 设计原则：纯逻辑层，不依赖 UI；通过 GameEngine 的公共 API 操作。
  */
 import type { GameEngine } from './GameEngine';
-import type { ICard, IPlayerState, IGameState } from '../types/game';
+import type { ICard, IPlayerState, IGameState, IDecree } from '../types/game';
 import {
   GamePhase, CardRank, GAME_CONSTANTS,
 } from '../types/game';
 import type { AmbushDeclaration } from '../types/game';
 import { detectCombos, getBlockedRank } from '../utils/scoring';
+import { aggregateEffectsFor, calcBidPower } from './decrees';
 
 /** AI 基础行动延迟（毫秒）— 调小可整体提速 */
 const AI_BASE_DELAY_MS = 500;
@@ -49,6 +50,12 @@ export class AIPlayer {
   private onPhaseChanged(phase: GamePhase): void {
     const state = this.engine.getState();
 
+    // 法案争夺 (双方都需要参与)
+    if (phase === GamePhase.DECREE_CONTEST) {
+      this.handleDecreeContest();
+      return;
+    }
+
     // 防守方决策 (无论谁的回合)
     if (phase === GamePhase.AMBUSH_DEFEND &&
         state.ambushState?.defenderId === this.aiPlayerId) {
@@ -79,6 +86,163 @@ export class AIPlayer {
         this.handleCollision();
         break;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  法案争夺 (Decree Contest)
+  // ═══════════════════════════════════════════════════════════
+
+  private handleDecreeContest(): void {
+    const state = this.engine.getState();
+    const ctx = state.decreeContest;
+    if (!ctx) return;
+
+    // OPT_IN: 决定争夺/放弃
+    if (ctx.step === 'OPT_IN' && ctx.optIn[this.aiPlayerId] === null) {
+      const choice = this.evaluateDecreeOptIn(ctx.decree);
+      this.scheduleAction(() => {
+        this.engine.submitDecreeOptIn(this.aiPlayerId, choice);
+      }, 800 + Math.random() * 1500); // 0.8-2.3s 模拟思考
+      return;
+    }
+
+    // BIDDING: 选 1-3 张牌出价
+    if (ctx.step === 'BIDDING' && ctx.bids[this.aiPlayerId] === null) {
+      const cards = this.pickBidCards(state, ctx.decree);
+      this.scheduleAction(() => {
+        if (cards.length === 0) {
+          // 没牌可竞标 → 自动放弃
+          this.engine.submitDecreeBid(this.aiPlayerId, []);
+        } else {
+          this.engine.submitDecreeBid(this.aiPlayerId, cards.map(c => c.id));
+        }
+      }, 1000 + Math.random() * 2000); // 1-3s 思考
+      return;
+    }
+  }
+
+  /** 评估法案对自己的价值 → 决定 CONTEST/PASS */
+  private evaluateDecreeOptIn(decree: IDecree): 'CONTEST' | 'PASS' {
+    // 简单启发：根据法案类别和当前状态决定。给一个 0-1 的"想要度"。
+    let desire = 0.5;
+
+    const state = this.engine.getState();
+    const me = state.players[this.aiPlayerId];
+    const opp = this.getOpponent(state);
+
+    // 落后则更激进
+    if (me.score < opp.score - 20) desire += 0.2;
+    if (me.score > opp.score + 20) desire -= 0.1;
+
+    // 类别偏好
+    switch (decree.category) {
+      case 'ECONOMY':
+        // 暴食/破产：抽牌强力，想要
+        desire += 0.15;
+        break;
+      case 'AMBUSH':
+        // 突袭法案：当己方手牌少且落后时较弱
+        if (me.hand.length < 4) desire -= 0.1;
+        else desire += 0.1;
+        break;
+      case 'CHANT':
+        // 咏唱法案：手牌足时强力
+        desire += me.hand.length >= 5 ? 0.15 : -0.05;
+        break;
+      case 'TEMPO':
+        // 过载：节奏掌控，中性偏弱
+        desire -= 0.1;
+        break;
+    }
+
+    // debuff 严重程度大致权重
+    const debuffStr = decree.debuff;
+    if (debuffStr.handLimitDelta && debuffStr.handLimitDelta < -2) desire -= 0.15;
+    if (debuffStr.forbidStraights) desire -= 0.1;
+    if (debuffStr.requireAmbushWinForChant) desire -= 0.15;
+
+    desire += (Math.random() - 0.5) * 0.2; // 抖动
+    return desire > 0.5 ? 'CONTEST' : 'PASS';
+  }
+
+  /** 选竞标卡：尽量出小牌 + 尝试凑组合奖励 */
+  private pickBidCards(state: IGameState, _decree: IDecree): ICard[] {
+    void _decree;
+    const me = state.players[this.aiPlayerId];
+    const valid = me.hand.filter(c => c.rank !== CardRank.FLASH && !c.isPhantom);
+    if (valid.length === 0) return [];
+    if (valid.length === 1) return valid;
+
+    // 评估几种组合策略，挑战力高且消耗小的
+    const candidates: { cards: ICard[]; total: number; cost: number }[] = [];
+
+    // 策略 A: 单张最低
+    const sortedAsc = [...valid].sort((a, b) => a.baseScore - b.baseScore);
+    candidates.push({
+      cards: [sortedAsc[0]],
+      total: calcBidPower([sortedAsc[0]], state.isInverted).total,
+      cost: sortedAsc[0].baseScore,
+    });
+
+    // 策略 B: 最低 2 张
+    if (sortedAsc.length >= 2) {
+      const cards = [sortedAsc[0], sortedAsc[1]];
+      candidates.push({
+        cards,
+        total: calcBidPower(cards, state.isInverted).total,
+        cost: cards.reduce((s, c) => s + c.baseScore, 0),
+      });
+    }
+
+    // 策略 C: 凑三同
+    const rankGroups = new Map<CardRank, ICard[]>();
+    for (const c of valid) {
+      const arr = rankGroups.get(c.rank) || [];
+      arr.push(c);
+      rankGroups.set(c.rank, arr);
+    }
+    for (const [, group] of rankGroups) {
+      if (group.length >= 3) {
+        const cards = group.slice(0, 3);
+        candidates.push({
+          cards,
+          total: calcBidPower(cards, state.isInverted).total,
+          cost: cards.reduce((s, c) => s + c.baseScore, 0),
+        });
+      } else if (group.length === 2) {
+        // 凑对子 + 1 张散牌
+        const extra = sortedAsc.find(c => c.rank !== group[0].rank);
+        if (extra) {
+          const cards = [...group, extra];
+          candidates.push({
+            cards,
+            total: calcBidPower(cards, state.isInverted).total,
+            cost: cards.reduce((s, c) => s + c.baseScore, 0),
+          });
+        }
+      }
+    }
+
+    // 策略 D: 三阶序列
+    const ranks = [...new Set(valid.map(c => c.rank))].sort((a, b) => a - b);
+    for (let i = 0; i + 2 < ranks.length; i++) {
+      if (ranks[i + 1] === ranks[i] + 1 && ranks[i + 2] === ranks[i] + 2) {
+        const cards = [
+          valid.find(c => c.rank === ranks[i])!,
+          valid.find(c => c.rank === ranks[i + 1])!,
+          valid.find(c => c.rank === ranks[i + 2])!,
+        ];
+        candidates.push({
+          cards,
+          total: calcBidPower(cards, state.isInverted).total,
+          cost: cards.reduce((s, c) => s + c.baseScore, 0),
+        });
+      }
+    }
+
+    // 选战力 / 损耗比最高的
+    candidates.sort((a, b) => (b.total / Math.max(b.cost, 1)) - (a.total / Math.max(a.cost, 1)));
+    return candidates[0].cards;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -280,8 +444,15 @@ export class AIPlayer {
     const me = state.players[this.aiPlayerId];
     const opponent = this.getOpponent(state);
     const blockedRank = getBlockedRank(opponent);
+    const effects = aggregateEffectsFor(state, this.aiPlayerId);
 
-    const combos = detectCombos(me.hand, state.isInverted, blockedRank);
+    // 傲慢 debuff: 没赢突袭就直接进入封锁
+    if (effects.requireAmbushWinForChant && !me.ambushWonThisTurn) {
+      this.scheduleAction(() => this.engine.nextPhase(), 400);
+      return;
+    }
+
+    const combos = detectCombos(me.hand, state.isInverted, blockedRank, effects);
     // 只挑净得分（含封锁罚分）正的组合
     const profitable = combos.filter(c => (c.score - (c.blockedPenalty || 0)) > 0);
     if (profitable.length === 0) {

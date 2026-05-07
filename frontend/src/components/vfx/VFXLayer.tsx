@@ -71,10 +71,14 @@ function VFXEffect({ effect }: { effect: ActiveVFX }) {
       return <AudioMute />;
     case 'DICE_ROLL':
       return <DiceRoll roll={effect.payload.roll as number} />;
-    case 'AMBUSH_BLUFF':
-      return <AmbushBluff payload={effect.payload} />;
-    case 'AMBUSH_FOLD':
-      return <AmbushFold payload={effect.payload} />;
+    case 'VFX_BID_COMBO':
+      return <BidComboBurst payload={effect.payload} />;
+    case 'GLOBAL_MUTATION':
+      return <GlobalMutation payload={effect.payload} />;
+    case 'DECREE_AWARDED':
+      return <DecreeAwarded payload={effect.payload} />;
+    case 'DECREE_VOIDED':
+      return <DecreeVoided payload={effect.payload} />;
     default:
       return null;
   }
@@ -918,6 +922,159 @@ function AmbushFold({ payload }: { payload: Record<string, unknown> }) {
           pointerEvents: 'none',
         }}
       />
+    </motion.div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  深渊法案 VFX
+// ═══════════════════════════════════════════════════════════
+
+function BidComboBurst({ payload }: { payload: Record<string, unknown> }) {
+  const combo = payload.combo as 'PAIR' | 'STRAIGHT' | 'TRIPLE';
+  const power = payload.power as number;
+  const labels: Record<string, { text: string; color: string; bonus: number }> = {
+    PAIR: { text: '双 生 共 鸣', color: '#4488ff', bonus: 6 },
+    STRAIGHT: { text: '三 阶 序 列', color: '#2ecc71', bonus: 10 },
+    TRIPLE: { text: '绝 对 狂 热', color: '#e74c3c', bonus: 12 },
+  };
+  const cfg = labels[combo];
+  if (!cfg) return null;
+
+  return (
+    <motion.div
+      initial={{ scale: 0, opacity: 0 }}
+      animate={{ scale: [0, 1.2, 1], opacity: 1 }}
+      exit={{ opacity: 0, scale: 0.6 }}
+      style={{
+        position: 'absolute',
+        top: '38%', left: '50%', transform: 'translate(-50%, -50%)',
+        textAlign: 'center', pointerEvents: 'none',
+      }}
+    >
+      <motion.div
+        animate={{
+          textShadow: [
+            `0 0 10px ${cfg.color}`,
+            `0 0 30px ${cfg.color}, 0 0 60px ${cfg.color}aa`,
+            `0 0 10px ${cfg.color}`,
+          ],
+        }}
+        transition={{ duration: 0.6, repeat: 2 }}
+        style={{
+          color: cfg.color,
+          fontSize: 42, fontWeight: 900,
+          fontFamily: '"Cinzel", serif',
+          letterSpacing: 6,
+        }}
+      >
+        {cfg.text}
+      </motion.div>
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        style={{
+          color: '#ffd700', fontSize: 22,
+          fontFamily: '"Cinzel", serif', fontWeight: 900,
+          marginTop: 12,
+          textShadow: '0 0 15px rgba(255,215,0,0.8)',
+        }}
+      >
+        +{cfg.bonus} 暴击 · 战力 {power}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function GlobalMutation({ payload }: { payload: Record<string, unknown> }) {
+  const decree = payload.decree as { name?: string };
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: [0, 1, 1, 0.7] }}
+      transition={{ duration: 3 }}
+      style={{
+        position: 'absolute', inset: 0,
+        background: 'radial-gradient(ellipse at center, rgba(139,0,0,0.45), rgba(20,0,0,0.95))',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <motion.div
+        animate={{ x: [0, -8, 8, -6, 6, -3, 3, 0] }}
+        transition={{ duration: 0.6, repeat: 3 }}
+      >
+        <div style={{
+          fontSize: 60, fontFamily: '"Cinzel", serif',
+          fontWeight: 900, color: '#e74c3c',
+          textShadow: '0 0 30px rgba(231,76,60,0.9), 0 0 60px rgba(139,0,0,0.7)',
+          letterSpacing: 8,
+        }}>
+          ⚠ 至 高 法 案 降 临 ⚠
+        </div>
+        <div style={{
+          marginTop: 18, color: '#ffd700', fontSize: 18,
+          fontFamily: '"Cinzel", serif', letterSpacing: 4,
+          textAlign: 'center',
+        }}>
+          [{decree?.name || '至高法案'}]
+        </div>
+        <div style={{
+          marginTop: 24, color: '#ccc', fontSize: 14,
+          textAlign: 'center', maxWidth: 600, lineHeight: 1.6,
+        }}>
+          私欲的尽头是同归于尽。<br />至高法则已覆盖全场！
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function DecreeAwarded({ payload }: { payload: Record<string, unknown> }) {
+  const decree = payload.decree as { name?: string; emoji?: string };
+  return (
+    <motion.div
+      initial={{ scale: 0.4, opacity: 0, y: 0 }}
+      animate={{ scale: [0.4, 1.1, 1, 0.6], opacity: [0, 1, 1, 0], y: [0, 0, -40, -180] }}
+      transition={{ duration: 1.8, ease: 'easeInOut' }}
+      style={{
+        position: 'absolute', top: '40%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        padding: '14px 28px', borderRadius: 12,
+        background: 'linear-gradient(135deg, #2a1a3e, #1a0b2e)',
+        border: '2px solid #b8860b',
+        color: '#b8860b', fontFamily: '"Cinzel", serif',
+        fontSize: 18, fontWeight: 700, letterSpacing: 3,
+        boxShadow: '0 0 30px rgba(184,134,11,0.6)',
+        textAlign: 'center', pointerEvents: 'none',
+      }}
+    >
+      <div style={{ fontSize: 32, marginBottom: 4 }}>{decree?.emoji}</div>
+      📜 {decree?.name || '法案'} 归属
+    </motion.div>
+  );
+}
+
+function DecreeVoided({ payload }: { payload: Record<string, unknown> }) {
+  const decree = payload.decree as { name?: string };
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 1 }}
+      animate={{ opacity: [0, 1, 0.5, 0], scale: [1, 1.1, 0.8, 0.4], filter: ['blur(0px)', 'blur(0px)', 'blur(8px)', 'blur(20px)'] }}
+      transition={{ duration: 1.5 }}
+      style={{
+        position: 'absolute', top: '38%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        padding: '14px 28px', borderRadius: 12,
+        background: 'linear-gradient(135deg, #1a0b0b, #0d0000)',
+        border: '2px solid #555',
+        color: '#aaa', fontFamily: '"Cinzel", serif',
+        fontSize: 16, letterSpacing: 3, pointerEvents: 'none',
+      }}
+    >
+      🔥 [{decree?.name || '法案'}] 化为灰烬
     </motion.div>
   );
 }

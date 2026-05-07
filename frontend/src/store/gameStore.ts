@@ -54,6 +54,8 @@ interface GameStore {
   collisionAction: (action: 'RAISE' | 'FOLD') => void;
   setCollisionOrder: (cardIds: string[]) => void;
   flashSwap: (flashCardId: string, swapCardIds: string[]) => void;
+  submitDecreeOptIn: (choice: 'CONTEST' | 'PASS') => void;
+  submitDecreeBid: (cardIds: string[]) => boolean;
 
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
@@ -308,6 +310,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
     engine?.flashSwap(localPlayerId, flashCardId, swapCardIds);
+  },
+
+  submitDecreeOptIn: (choice) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('DECREE_OPT_IN', { choice });
+      return;
+    }
+    engine?.submitDecreeOptIn(localPlayerId, choice);
+  },
+
+  submitDecreeBid: (cardIds) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('DECREE_BID', { cardIds });
+      return true;
+    }
+    if (!engine) return false;
+    return engine.submitDecreeBid(localPlayerId, cardIds);
   },
 
   selectCard: (cardId) => {

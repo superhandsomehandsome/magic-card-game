@@ -39,6 +39,7 @@ export interface ICard {
 export enum GamePhase {
   IDLE = 'IDLE',
   HERO_SELECT = 'HERO_SELECT',         // 英雄选择
+  DECREE_CONTEST = 'DECREE_CONTEST',   // 阶段-1：深渊法案争夺 (Round 1/4/7 开局)
   BOUNTY_ROLL = 'BOUNTY_ROLL',         // 阶段0：喋血悬赏 (The Blood Bounty)
   DRAW_MARKET = 'DRAW_MARKET',         // 阶段1：汲取与黑市
   AMBUSH_DECLARE = 'AMBUSH_DECLARE',   // 阶段2：突袭-攻击方宣告 (Bluff)
@@ -46,7 +47,7 @@ export enum GamePhase {
   CHANT_SCORE = 'CHANT_SCORE',         // 阶段3：咏唱计分 (Chant)
   BLOCKADE_END = 'BLOCKADE_END',       // 阶段4：封锁与结束
   COLLISION = 'COLLISION',             // 终局：魔力对撞
-  GAME_OVER = 'GAME_OVER',            // 终局对撞或 155分斩杀
+  GAME_OVER = 'GAME_OVER',            // 终局对撞或 180分斩杀
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -70,18 +71,37 @@ export interface IGameState {
   collisionState: ICollisionState | null;
   consecutiveTimeouts: Record<string, number>; // AFK 检测
   log: IGameLog[];
+
+  /** 双方都完成咏唱+封锁后递增。决定第 1/4/7/10 回合的法案触发 */
+  roundNumber: number;
+  /** 当前法案争夺子状态 (仅 phase==DECREE_CONTEST 时非空) */
+  decreeContest: IDecreeContestState | null;
+  /** 历来出现过的法案及其归属 (用于第10回合至高法案缝合) */
+  offeredDecrees: IOfferedDecree[];
+  /** 第10回合生成的至高法案 (强制全局共享) */
+  supremeDecree: IDecree | null;
+  /** 已经触发过法案争夺的 round 标记 (避免重复触发) */
+  decreeRoundsTriggered: number[];
 }
 
 export interface IPlayerState {
   id: string;
   name: string;
   hero: HeroType;
-  score: number;               // 目标 155 分
+  score: number;               // 目标 180 分
   hand: ICard[];               // 上限 8 张
   blockadeZone: ICard | null;  // 封锁区
+  /** Imprisonment 法案：可封锁相邻的第 2 个 rank */
+  blockadeZone2: ICard | null;
   hasUsedUltimate: boolean;
   ambushesThisTurn: number;    // 本回合突袭次数(上限2)
   marketBuysThisTurn: number;  // 本回合黑市购买次数(怪盗无限制,其他人限1)
+  /** 法案争夺中赢得/分配到的私有法案 (第10回合后被至高法案抹除) */
+  activeDecrees: IDecree[];
+  /** Bankruptcy 累计：每次白嫖一张牌，永久 -1 手牌上限 */
+  handLimitDecay: number;
+  /** Pride 标记：本回合是否已经赢过一次突袭 (用于解除咏唱锁) */
+  ambushWonThisTurn: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -141,7 +161,11 @@ export type ActionType =
   | 'COLLISION_CLASH'   // 对撞碰撞
   | 'AMBUSH_BLUFF'      // 拆穿结算 (切牌动画)
   | 'AMBUSH_FOLD'       // 怯战结算 (窃取动画)
-  | 'FLASH_SWAP';       // 瞬换牌特效
+  | 'FLASH_SWAP'        // 瞬换牌特效
+  | 'VFX_BID_COMBO'     // 暗标组合触发 (祭坛连线发光 + 血字弹幕)
+  | 'GLOBAL_MUTATION'   // 第10回合至高法案降临
+  | 'DECREE_AWARDED'    // 法案归属时的卷轴飞入特效
+  | 'DECREE_VOIDED';    // 法案作废 (灰烬)
 
 export interface IActionCommand {
   type: ActionType;
@@ -205,7 +229,7 @@ export interface IGameLog {
 // ═══════════════════════════════════════════════════════════
 
 export const GAME_CONSTANTS = {
-  WIN_SCORE: 155,
+  WIN_SCORE: 180,
   HAND_LIMIT: 8,
   MARKET_SIZE: 3,
   MAX_AMBUSH_PER_TURN: 2,
@@ -238,7 +262,98 @@ export const GAME_CONSTANTS = {
   MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗无限制)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣
   EARLY_COMBO_TURN_THRESHOLD: 3, // "早期"回合阈值
+
+  // ═══ 法案争夺 (Decree Contest) ═══
+  DECREE_OPT_IN_TIMER_MS: 10000,    // 抉择期 10s
+  DECREE_BID_TIMER_MS: 10000,       // 暗标期 10s
+  DECREE_TRIGGER_ROUNDS: [1, 4, 7] as const,
+  DECREE_SUPREME_ROUND: 10,
+  DECREE_BID_PAIR_BONUS: 6,
+  DECREE_BID_STRAIGHT_BONUS: 10,
+  DECREE_BID_TRIPLE_BONUS: 12,      // 用户调整：18 → 12
 } as const;
+
+// ═══════════════════════════════════════════════════════════
+//  12. 深渊法案 (Decree System)
+// ═══════════════════════════════════════════════════════════
+
+/** 法案能修改的引擎钩子点。所有字段均为 optional，由聚合工具按字段类型合并。 */
+export interface IDecreeEffect {
+  // —— 黑市/抽牌 ——
+  marketBuyBonusDraw?: number;          // 暴食 buff: 黑市买后 +N 抽
+  marketPriceMultiplier?: number;       // 破产 buff: 价格 ×0=白嫖
+  marketBuyHandLimitDecay?: number;     // 破产 debuff: 每买 -N 上限
+  // —— 手牌上限/溢出 ——
+  handLimitDelta?: number;              // 禁锢/暴食 debuff: 上限 -N
+  handOverflowPenalty?: number;         // 暴食 debuff: 超限扣 N
+  handOverflowThreshold?: number;       // 暴食 debuff: 超限阈值
+  // —— 咏唱/组合 ——
+  blueGreenComboBonus?: number;         // 傲慢 buff: 蓝/绿组合 +N
+  greenComboMultiplier?: number;        // 偏执 buff: 绿组合 ×N
+  forbidStraights?: boolean;            // 偏执 debuff: 禁顺子
+  requireAmbushWinForChant?: boolean;   // 傲慢 debuff: 须先赢突袭
+  // —— 突袭/心理战 ——
+  ambushTieScoresEach?: number;         // 死斗 buff: 平局双方 +N
+  ambushFoldStealCount?: number;        // 死斗 debuff: 怯战被偷 N 张 (默认1)
+  ambushBluffUnchallengedBonus?: number;// 愚者 buff: 未拆穿 +N
+  ambushBluffCaughtPenaltyMult?: number;// 愚者 debuff: 拆穿罚 ×N
+  ambushBluffCaughtBurnHand?: number;   // 愚者 debuff: 拆穿额外烧 N 张
+  ambushDefendWinDrain?: number;        // 荆棘 buff: 防胜吸 N 分
+  ambushAttackFailGiveCard?: boolean;   // 荆棘 debuff: 攻击败=牌归对方手牌
+  ambushDeicideCritBonus?: number;      // 弑神 buff: F>A 额外 +N
+  ambushFFailedSelfPenalty?: number;    // 弑神 debuff: F 失手扣 N
+  ambushFFailedDestroyF?: boolean;      // 弑神 debuff: F 失手粉碎 F
+  ambushWinExtraDestroy?: boolean;      // 裸露 buff: 胜方额外销毁 1 张
+  // —— 封锁 ——
+  blockadeExtraRank?: boolean;          // 禁锢 buff: 多封 1 个相邻 rank
+  // —— 瞬 ——
+  flashAsWildcard?: boolean;            // 虚无 buff: 瞬作万能
+  flashUsePenalty?: number;             // 虚无 debuff: 用瞬扣 N
+  // —— 计时器/节奏 ——
+  turnTimerMs?: number;                 // 过载 debuff: 倒计时改 N ms
+  turnTimerSkipPenalty?: number;        // 过载 debuff: 超时罚 N
+  fastEndTurnBonusScore?: number;       // 过载 buff: 极速结束 +N
+  fastEndTurnThresholdMs?: number;      // 过载 buff: 阈值 (从启动算起 N ms 内)
+  // —— 视区/信息战 ——
+  exposeHands?: boolean;                // 裸露 debuff: 双方明牌
+}
+
+/** 一个具体的深渊法案 */
+export interface IDecree {
+  id: string;             // e.g. "GLUTTONY"
+  name: string;           // 中文名: "暴食法案"
+  emoji: string;          // 卷轴图标 emoji
+  category: 'ECONOMY' | 'AMBUSH' | 'CHANT' | 'TEMPO';
+  buffText: string;
+  debuffText: string;
+  buff: IDecreeEffect;
+  debuff: IDecreeEffect;
+}
+
+/** 法案争夺 4 步状态机的子状态 */
+export interface IDecreeContestState {
+  step: 'OPT_IN' | 'INTENT_RESOLVE' | 'BIDDING' | 'BID_RESOLVE';
+  decree: IDecree;
+  triggeringRound: number; // 1, 4, 7
+  optIn: Record<string, 'CONTEST' | 'PASS' | null>;
+  bids: Record<string, string[] | null>; // cardId 列表 / null = 未提交
+  bidComboType: Record<string, IDecreeBidCombo | null>;
+  bidPower: Record<string, number>;
+  /** 阶段倒计时截止时间戳 (Date.now()+10000) */
+  deadline: number;
+  /** 已结算的归属 ('VOID'=作废 / 'TIE'=平局撕裂 / playerId) */
+  outcome: 'VOID' | 'TIE' | string | null;
+}
+
+export type IDecreeBidCombo = 'SCATTER' | 'PAIR' | 'STRAIGHT' | 'TRIPLE';
+
+/** 历来出现过的法案 (用于第10回合至高法案缝合) */
+export interface IOfferedDecree {
+  round: number;
+  decree: IDecree;
+  /** 归属：playerId | 'VOID' (双方放弃 / 平局撕裂) */
+  ownerId: string | 'VOID';
+}
 
 // ═══════════════════════════════════════════════════════════
 //  11. 英雄台词系统 (Voice Line System)

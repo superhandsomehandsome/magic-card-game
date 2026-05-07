@@ -1,23 +1,31 @@
 /**
  * 咏唱计分 — 组合检测系统
  */
-import type { ICard, IComboResult, IPlayerState } from '../types/game';
+import type { ICard, IComboResult, IPlayerState, IDecreeEffect } from '../types/game';
 import { CardRank, ComboType } from '../types/game';
 import { getEffectiveScore } from './deck';
 
 /**
  * 检测玩家手牌中所有可用组合
+ * @param effects 玩家当前生效的法案修饰器（傲慢/偏执 等）
  */
-export function detectCombos(hand: ICard[], isInverted: boolean, blockedRank: CardRank | null): IComboResult[] {
+export function detectCombos(
+  hand: ICard[],
+  isInverted: boolean,
+  blockedRank: CardRank | null,
+  effects: IDecreeEffect = {},
+): IComboResult[] {
   const combos: IComboResult[] = [];
   // 封锁机制改为「扣分」：仍允许使用被封锁 rank，但每张该 rank 牌组合后扣 baseScore × 3 分
   const availableCards = hand;
 
-  const grandStraight = detectGrandStraight(availableCards, isInverted);
-  if (grandStraight) combos.push(grandStraight);
-
-  const smallStraights = detectSmallStraights(availableCards, isInverted);
-  combos.push(...smallStraights);
+  // 偏执 debuff: 禁止顺子组合 (大顺/小顺)
+  if (!effects.forbidStraights) {
+    const grandStraight = detectGrandStraight(availableCards, isInverted);
+    if (grandStraight) combos.push(grandStraight);
+    const smallStraights = detectSmallStraights(availableCards, isInverted);
+    combos.push(...smallStraights);
+  }
 
   const fourOfKinds = detectNOfKind(availableCards, 4, isInverted);
   combos.push(...fourOfKinds);
@@ -30,6 +38,25 @@ export function detectCombos(hand: ICard[], isInverted: boolean, blockedRank: Ca
 
   const pairs = detectNOfKind(availableCards, 2, isInverted);
   combos.push(...pairs);
+
+  // 法案得分修饰：傲慢 (蓝/绿区组合 +N) / 偏执 (绿区 ×N)
+  const blueGreenBonus = effects.blueGreenComboBonus || 0;
+  const greenMult = effects.greenComboMultiplier;
+  const BLUE_GREEN_TYPES: ComboType[] = [
+    ComboType.SMALL_STRAIGHT, ComboType.THREE_OF_KIND,
+    ComboType.FOUR_OF_KIND, ComboType.FULL_HOUSE,
+  ];
+  const GREEN_TYPES: ComboType[] = [
+    ComboType.THREE_OF_KIND, ComboType.FOUR_OF_KIND, ComboType.FULL_HOUSE,
+  ];
+  for (const combo of combos) {
+    if (greenMult && GREEN_TYPES.includes(combo.type)) {
+      combo.score = combo.score * greenMult;
+    }
+    if (blueGreenBonus && BLUE_GREEN_TYPES.includes(combo.type)) {
+      combo.score += blueGreenBonus;
+    }
+  }
 
   // 计算每个组合的封锁罚分
   if (blockedRank !== null) {

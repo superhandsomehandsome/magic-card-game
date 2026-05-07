@@ -12,6 +12,7 @@ import { useGameStore } from '../../store/gameStore';
 import { detectCombos, getBlockedRank } from '../../utils/scoring';
 import { getCardDisplayName, getEffectiveScore } from '../../utils/deck';
 import { Card } from '../board/Card';
+import { aggregateEffectsFor } from '../../core/decrees';
 
 const COMBO_NAMES: Record<ComboType, { name: string; icon: string; description: string }> = {
   [ComboType.GRAND_STRAIGHT]: { name: '大顺', icon: '🌟', description: 'A-B-C-D-E-F 各一张 (×3)' },
@@ -37,9 +38,13 @@ export function ChantPhase() {
   const blockedRank = getBlockedRank(opponent);
   const isWeaver = player.hero === HeroType.WEAVER;
 
+  const effects = useMemo(
+    () => aggregateEffectsFor(gameState, localPlayerId),
+    [gameState, localPlayerId],
+  );
   const combos = useMemo(() => {
-    return detectCombos(player.hand, gameState.isInverted, blockedRank);
-  }, [player.hand, gameState.isInverted, blockedRank]);
+    return detectCombos(player.hand, gameState.isInverted, blockedRank, effects);
+  }, [player.hand, gameState.isInverted, blockedRank, effects]);
 
   // 按类型分组用于分差对比
   const combosByType = useMemo(() => {
@@ -52,8 +57,12 @@ export function ChantPhase() {
     return grouped;
   }, [combos]);
 
+  // 傲慢法案 debuff: 须先在突袭中获胜
+  const prideLocked = effects.requireAmbushWinForChant && !player.ambushWonThisTurn;
+
   const handleComboClick = (combo: IComboResult) => {
     if (!isMyTurn) return;
+    if (prideLocked) return;
     if (selectedCombo === combo) {
       // 第二次点击同一个组合 → 直接提交
       submitCombo(combo.cards.map(c => c.id), combo.score);
@@ -122,6 +131,25 @@ export function ChantPhase() {
         >
           🔮 命运骰子 (每回合1次)
         </motion.button>
+      )}
+
+      {/* 傲慢法案锁定提示 */}
+      {prideLocked && (
+        <motion.div
+          style={{
+            color: '#e74c3c',
+            fontSize: 12, fontWeight: 700,
+            padding: '6px 14px', borderRadius: 4,
+            border: '1px solid #e74c3c',
+            background: 'rgba(231,76,60,0.15)',
+            fontFamily: '"Cinzel", serif',
+            letterSpacing: 2,
+          }}
+          animate={{ opacity: [0.7, 1, 0.7] }}
+          transition={{ duration: 1.2, repeat: Infinity }}
+        >
+          👑 傲慢法案：须本回合先在突袭中获胜，否则禁止咏唱
+        </motion.div>
       )}
 
       {/* 衰减提示 */}

@@ -19,6 +19,7 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
 
   return (
     <motion.div
+      className="hand-scroll-x"
       style={{
         display: 'flex',
         gap: 'clamp(4px, 0.6vw, 8px)',
@@ -26,6 +27,8 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
         alignItems: 'flex-end',
         padding: 'clamp(8px, 1.5vh, 16px) 0',
         perspective: 1000,
+        // 竖屏下手牌可能溢出，提供横向滚动 fallback
+        maxWidth: '100%',
       }}
     >
       <AnimatePresence mode="popLayout">

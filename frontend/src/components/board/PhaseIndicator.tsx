@@ -11,6 +11,7 @@ interface PhaseIndicatorProps {
 const PHASE_INFO: Record<GamePhase, { label: string; icon: string; color: string }> = {
   [GamePhase.IDLE]: { label: '准备中', icon: '⏳', color: '#666' },
   [GamePhase.HERO_SELECT]: { label: '英雄选择', icon: '⚔️', color: '#ffd700' },
+  [GamePhase.DECREE_CONTEST]: { label: '法案争夺', icon: '📜', color: '#e74c3c' },
   [GamePhase.BOUNTY_ROLL]: { label: '喋血悬赏', icon: '🎲', color: '#8b0000' },
   [GamePhase.DRAW_MARKET]: { label: '汲取与黑市', icon: '🃏', color: '#b8860b' },
   [GamePhase.AMBUSH_DECLARE]: { label: '突袭宣告', icon: '⚡', color: '#ff4500' },
