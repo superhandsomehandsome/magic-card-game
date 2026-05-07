@@ -85,28 +85,77 @@ export function getCardDisplayName(rank: CardRank): string {
   }
 }
 
+/**
+ * 卡牌主题色 (用于文字、副标题等)
+ * 配色参考 V5 旧版 [圣物/元素/中坚/基础/低阶/杂鱼] 风格
+ */
 export function getRankColor(rank: CardRank): string {
   switch (rank) {
-    case CardRank.A: return '#ffd700';     // 金色 — 最强
-    case CardRank.B: return '#e0a0ff';     // 亮紫 — 次强
-    case CardRank.C: return '#ff6b6b';     // 珊瑚红 — 中上
-    case CardRank.D: return '#f0a050';     // 暖橙 — 中等
-    case CardRank.E: return '#6a8caf';     // 灰蓝 — 较弱
-    case CardRank.F: return '#556b6b';     // 暗灰绿 — 最弱
-    case CardRank.FLASH: return '#00ffff'; // 青色 — 功能牌
+    case CardRank.A: return '#D4AF37';     // 暗金（圣物）
+    case CardRank.B: return '#7B9DFF';     // 蓝（元素）
+    case CardRank.C: return '#4CAF50';     // 翠绿（中坚）
+    case CardRank.D: return '#A1887F';     // 棕褐（基础）
+    case CardRank.E: return '#78909C';     // 蓝灰（低阶）
+    case CardRank.F: return '#9E9E9E';     // 灰（杂鱼）
+    case CardRank.FLASH: return '#CE93D8'; // 紫（瞬）
     default: return '#ffffff';
   }
 }
 
+/**
+ * 卡牌正面渐变背景 (160deg 三色渐变)
+ */
+export function getRankBackground(rank: CardRank): string {
+  switch (rank) {
+    case CardRank.A: return 'linear-gradient(160deg, #4A0E17, #721C24, #4A0E17)';
+    case CardRank.B: return 'linear-gradient(160deg, #0D1B3E, #1A237E, #0D1B3E)';
+    case CardRank.C: return 'linear-gradient(160deg, #0D2818, #1B5E20, #0D2818)';
+    case CardRank.D: return 'linear-gradient(160deg, #2C1A10, #4E342E, #2C1A10)';
+    case CardRank.E: return 'linear-gradient(160deg, #1E2328, #2C3E50, #1E2328)';
+    case CardRank.F: return 'linear-gradient(160deg, #2C2F33, #4B4C50, #2C2F33)';
+    case CardRank.FLASH: return 'linear-gradient(160deg, #1A0033, #4A148C, #1A0033)';
+    default: return 'linear-gradient(180deg, #0d0018 0%, #1a0b2e 100%)';
+  }
+}
+
+/** 边框色 */
+export function getRankBorder(rank: CardRank): string {
+  switch (rank) {
+    case CardRank.A: return '#8B6914';
+    case CardRank.B: return '#3A5ABA';
+    case CardRank.C: return '#2E7D32';
+    case CardRank.D: return '#5D4037';
+    case CardRank.E: return '#455A64';
+    case CardRank.F: return '#616161';
+    case CardRank.FLASH: return '#7B1FA2';
+    default: return '#3a1f5e';
+  }
+}
+
+/** 副标题（卡牌底部小字） */
+export function getRankSubtitle(rank: CardRank): string {
+  switch (rank) {
+    case CardRank.A: return '圣物';
+    case CardRank.B: return '元素';
+    case CardRank.C: return '中坚';
+    case CardRank.D: return '基础';
+    case CardRank.E: return '低阶';
+    case CardRank.F: return '杂鱼';
+    case CardRank.FLASH: return '瞬';
+    default: return '?';
+  }
+}
+
+/** 发光强度（用于 A/B 等高级牌） */
 export function getRankGlow(rank: CardRank): string {
   switch (rank) {
-    case CardRank.A: return '0 0 12px rgba(255,215,0,0.6), 0 0 24px rgba(255,215,0,0.3)';
-    case CardRank.B: return '0 0 10px rgba(224,160,255,0.5), 0 0 20px rgba(224,160,255,0.2)';
-    case CardRank.C: return '0 0 8px rgba(255,107,107,0.4)';
-    case CardRank.D: return '0 0 6px rgba(240,160,80,0.3)';
+    case CardRank.A: return '0 0 18px rgba(139,105,20,0.5), 0 0 36px rgba(139,105,20,0.25)';
+    case CardRank.B: return '0 0 12px rgba(58,90,186,0.4)';
+    case CardRank.C: return '0 0 8px rgba(46,125,50,0.3)';
+    case CardRank.D: return 'none';
     case CardRank.E: return 'none';
     case CardRank.F: return 'none';
-    case CardRank.FLASH: return '0 0 10px rgba(0,255,255,0.5), 0 0 20px rgba(0,255,255,0.2)';
+    case CardRank.FLASH: return '0 0 14px rgba(123,31,162,0.5)';
     default: return 'none';
   }
 }

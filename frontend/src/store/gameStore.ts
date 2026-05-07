@@ -49,6 +49,8 @@ interface GameStore {
   useUltimate: () => boolean;
   rollFateDice: () => boolean;
   collisionAction: (action: 'RAISE' | 'FOLD') => void;
+  setCollisionOrder: (cardIds: string[]) => void;
+  flashSwap: (flashCardId: string, swapCardIds: string[]) => void;
 
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
@@ -272,6 +274,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
     engine?.collisionAction(localPlayerId, action);
+  },
+
+  setCollisionOrder: (cardIds) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('SET_COLLISION_ORDER', { cardIds });
+      return;
+    }
+    engine?.setCollisionOrder(localPlayerId, cardIds);
+  },
+
+  flashSwap: (flashCardId, swapCardIds) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('FLASH_SWAP', { flashCardId, swapCardIds });
+      return;
+    }
+    engine?.flashSwap(localPlayerId, flashCardId, swapCardIds);
   },
 
   selectCard: (cardId) => {

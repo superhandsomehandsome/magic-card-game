@@ -87,6 +87,19 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
+  /** 加/减分并广播 SCORE_CHANGED 事件，统一供 UI 显示 toast */
+  private addScore(playerId: string, delta: number, source: string): void {
+    const player = this.getPlayer(playerId);
+    if (!player) return;
+    player.score += delta;
+    this.emit('SCORE_CHANGED', {
+      playerId,
+      delta,
+      source,
+      newScore: player.score,
+    });
+  }
+
   public pushAction(action: IActionCommand): void {
     this.actionQueue.push(action);
     this.emit('ACTION_QUEUED', action);
@@ -326,17 +339,34 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const attacker = this.getPlayer(ambush.attackerId);
     const defender = this.getPlayer(defenderId);
 
+    let winnerId: string | null = null;
+
     switch (choice) {
       case 'FOLD':
         this.resolveAmbushFold(attacker, defender, ambush);
+        winnerId = attacker.id;
         break;
-      case 'CALL_BLUFF':
+      case 'CALL_BLUFF': {
+        const declaredRank = ambush.declaration;
+        const isTruthful = declaredRank !== null && declaredRank !== 'SILENT'
+          && declaredRank === ambush.attackCard.rank;
+        // 拆穿失败 = 攻击方赢；拆穿成功 = 防守方赢
+        winnerId = isTruthful ? attacker.id : defender.id;
         this.resolveAmbushCallBluff(attacker, defender, ambush);
         break;
-      case 'DEFEND':
+      }
+      case 'DEFEND': {
         if (!defenderCardId) return;
+        const defCard = defender.hand.find(c => c.id === defenderCardId);
+        if (defCard) {
+          const result = compareCards(ambush.attackCard.rank, defCard.rank, this.state.isInverted);
+          if (result > 0) winnerId = attacker.id;
+          else if (result < 0) winnerId = defender.id;
+          else winnerId = null;
+        }
         this.resolveAmbushDefendClash(attacker, defender, ambush, defenderCardId);
         break;
+      }
     }
 
     ambush.resolved = true;
@@ -345,6 +375,9 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       attackCard: ambush.attackCard,
       defenderCard: ambush.defenderCard,
       declaration: ambush.declaration,
+      winnerId,
+      attackerId: attacker.id,
+      defenderId: defender.id,
     };
     this.state.ambushState = null;
     this.state.phase = GamePhase.AMBUSH_DECLARE;
@@ -359,10 +392,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     ambush: IAmbushState
   ): void {
     // 攻击方独吞 bountyPool
-    attacker.score += this.state.bountyPool;
+    const foldBounty = this.state.bountyPool;
+    if (foldBounty > 0) {
+      this.addScore(attacker.id, foldBounty, '独吞悬赏 (对方怯战)');
+    }
     this.pushAction({
       type: 'SCORE_BURST',
-      payload: { playerId: attacker.id, amount: this.state.bountyPool, reason: '独吞悬赏' },
+      payload: { playerId: attacker.id, amount: foldBounty, reason: '独吞悬赏' },
       durationMs: 800,
     });
     this.state.bountyPool = 0;
@@ -382,6 +418,15 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       });
     }
 
+    this.pushAction({
+      type: 'AMBUSH_FOLD',
+      payload: {
+        attackerName: attacker.name,
+        defenderName: defender.name,
+        bountyAmount: attacker.score, // already added above
+      },
+      durationMs: 1500,
+    });
     this.addLog(`${defender.name} 怯战！${attacker.name} 独吞悬赏并偷取1牌`);
   }
 
@@ -398,24 +443,27 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
     if (isTruthful) {
       // 说真话被拆穿：防守方被重罚
-      defender.score -= GAME_CONSTANTS.BLUFF_PENALTY;
+      this.addScore(defender.id, -GAME_CONSTANTS.BLUFF_PENALTY, '拆穿失败惩罚');
       this.state.discardPile.push(ambush.attackCard);
       this.addLog(`拆穿失败！${attacker.name} 说真话，${defender.name} -${GAME_CONSTANTS.BLUFF_PENALTY}分`);
     } else {
       // 说谎被拆穿：攻击方被重罚
-      attacker.score -= GAME_CONSTANTS.BLUFF_PENALTY;
+      this.addScore(attacker.id, -GAME_CONSTANTS.BLUFF_PENALTY, '说谎被拆穿');
       defender.hand.push(ambush.attackCard);
       this.addLog(`拆穿成功！${attacker.name} 说谎，-${GAME_CONSTANTS.BLUFF_PENALTY}分，牌归防守方`);
     }
 
     this.pushAction({
-      type: 'CARD_CLASH',
+      type: 'AMBUSH_BLUFF',
       payload: {
         attackCard: ambush.attackCard,
+        declared: declaredRank,
         isTruthful,
         penalizedId: isTruthful ? defender.id : attacker.id,
+        attackerName: attacker.name,
+        defenderName: defender.name,
       },
-      durationMs: 1200,
+      durationMs: 1800,
     });
   }
 
@@ -482,12 +530,15 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       const winCard = result > 0 ? atkCard : defCard;
 
       // 赢家抽1偷1 + 独吞 bountyPool
-      winner.score += this.state.bountyPool;
+      const winBounty = this.state.bountyPool;
+      if (winBounty > 0) {
+        this.addScore(winner.id, winBounty, '拼点胜利 (悬赏)');
+      }
 
       // A赢额外+20，B赢额外+10
       const effectiveScore = getEffectiveScore(winCard.rank, this.state.isInverted);
-      if (effectiveScore === 6) winner.score += GAME_CONSTANTS.A_WIN_BONUS;
-      else if (effectiveScore === 5) winner.score += GAME_CONSTANTS.B_WIN_BONUS;
+      if (effectiveScore === 6) this.addScore(winner.id, GAME_CONSTANTS.A_WIN_BONUS, 'A 牌威压');
+      else if (effectiveScore === 5) this.addScore(winner.id, GAME_CONSTANTS.B_WIN_BONUS, 'B 牌强袭');
 
       this.pushAction({
         type: 'SCORE_BURST',
@@ -537,18 +588,33 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     });
 
     // 应用早期得分衰减 (推动更多对撞终局)
-    const actualScore = this.applyChantScoreDecay(score);
-    player.score += actualScore;
+    const decayed = this.applyChantScoreDecay(score);
+    // 计算封锁罚分（若使用了被对手封锁的 rank）
+    const opponent = Object.values(this.state.players).find(p => p.id !== playerId);
+    const blockedRank = opponent?.blockadeZone?.rank ?? null;
+    const blockedPenalty = blockedRank !== null
+      ? usedCards
+          .filter(c => c.rank === blockedRank)
+          .reduce((s, c) => s + c.baseScore * 3, 0)
+      : 0;
+    const actualScore = decayed - blockedPenalty;
+
+    if (actualScore !== 0) {
+      this.addScore(playerId, actualScore,
+        blockedPenalty > 0
+          ? `咏唱得分 (含封锁罚 -${blockedPenalty})`
+          : '咏唱得分');
+    }
     this.state.discardPile.push(...usedCards);
 
     this.pushAction({
       type: 'COMBO_HIGHLIGHT',
-      payload: { cards: usedCards, score: actualScore, originalScore: score },
+      payload: { cards: usedCards, score: actualScore, originalScore: score, blockedPenalty },
       durationMs: 600,
     });
     this.pushAction({
       type: 'SCORE_BURST',
-      payload: { playerId, amount: actualScore, reason: '咏唱得分' },
+      payload: { playerId, amount: actualScore, reason: blockedPenalty > 0 ? '咏唱-封锁罚' : '咏唱得分' },
       durationMs: 800,
     });
 
@@ -593,6 +659,88 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         this.state.discardPile.push(card);
       }
     });
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+  }
+
+  /**
+   * 瞬换牌 — 任意阶段（除 AMBUSH_DEFEND 防守方未抉择）可用
+   * 弃掉「瞬」+ 1~3 张选定牌，从牌库随机抽相同总数(swapCardIds.length)的新牌补回手牌
+   */
+  public flashSwap(playerId: string, flashCardId: string, swapCardIds: string[]): void {
+    const player = this.getPlayer(playerId);
+    if (!player) return;
+
+    // 只允许己方回合，且阶段不是攻击方刚刚发起突袭等待防守
+    if (this.state.currentTurnPlayerId !== playerId &&
+        !(this.state.phase === GamePhase.AMBUSH_DEFEND &&
+          this.state.ambushState?.defenderId === playerId)) {
+      return;
+    }
+
+    const flashCard = player.hand.find(c => c.id === flashCardId);
+    if (!flashCard || flashCard.rank !== CardRank.FLASH) return;
+    if (swapCardIds.length < 1 || swapCardIds.length > 3) return;
+
+    const swapCards: ICard[] = [];
+    swapCardIds.forEach(id => {
+      const c = player.hand.find(card => card.id === id);
+      if (c && c.id !== flashCardId) swapCards.push(c);
+    });
+    if (swapCards.length === 0) return;
+
+    // 弃掉瞬 + 选中的牌
+    const allDiscardIds = new Set([flashCardId, ...swapCards.map(c => c.id)]);
+    player.hand = player.hand.filter(c => !allDiscardIds.has(c.id));
+    this.state.discardPile.push(flashCard, ...swapCards);
+
+    // 从牌库抽相同数量（仅按选中数，不补瞬本身）
+    const newCards = this.drawFromDeck(swapCards.length);
+    player.hand.push(...newCards);
+
+    this.pushAction({
+      type: 'FLASH_SWAP',
+      payload: {
+        playerId, oldCount: swapCards.length,
+        newCards: newCards.map(c => c.id),
+      },
+      durationMs: 800,
+    });
+
+    this.addLog(`${player.name} 使用「瞬」换牌 ${swapCards.length} 张`);
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+  }
+
+  /**
+   * 终局对撞：玩家确认揭牌顺序（排兵布阵）
+   * 只能在 revealedCards 全空时调用
+   */
+  public setCollisionOrder(playerId: string, cardIds: string[]): void {
+    const collision = this.state.collisionState;
+    if (!collision) return;
+    // 仅允许在尚未开始翻牌时调整
+    const totalRevealed = Object.values(collision.revealedCards)
+      .reduce((s, arr) => s + arr.length, 0);
+    if (totalRevealed > 0) return;
+
+    const playerCards = collision.playerCards[playerId];
+    if (!playerCards) return;
+
+    // 按 cardIds 顺序重排
+    const idMap = new Map(playerCards.map(c => [c.id, c]));
+    const reordered: ICard[] = [];
+    for (const id of cardIds) {
+      const c = idMap.get(id);
+      if (c) reordered.push(c);
+    }
+    // 如果有遗漏的牌（未被列入 cardIds），追加到末尾
+    for (const c of playerCards) {
+      if (!cardIds.includes(c.id)) reordered.push(c);
+    }
+    collision.playerCards[playerId] = reordered;
+
+    if (!collision.orderConfirmed) collision.orderConfirmed = {};
+    collision.orderConfirmed[playerId] = true;
+
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 

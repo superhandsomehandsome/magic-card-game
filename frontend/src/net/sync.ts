@@ -40,7 +40,9 @@ export type PlayerActionKind =
   | 'DISCARD_EXCESS'
   | 'USE_ULTIMATE'
   | 'ROLL_FATE_DICE'
-  | 'COLLISION_ACTION';
+  | 'COLLISION_ACTION'
+  | 'SET_COLLISION_ORDER'
+  | 'FLASH_SWAP';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
@@ -223,6 +225,16 @@ export class HostSync {
           break;
         case 'COLLISION_ACTION':
           this.engine.collisionAction(playerId, p.action as 'RAISE' | 'FOLD');
+          break;
+        case 'SET_COLLISION_ORDER':
+          this.engine.setCollisionOrder(playerId, (p.cardIds as string[]) || []);
+          break;
+        case 'FLASH_SWAP':
+          this.engine.flashSwap(
+            playerId,
+            p.flashCardId as string,
+            (p.swapCardIds as string[]) || [],
+          );
           break;
       }
     } catch (e) {

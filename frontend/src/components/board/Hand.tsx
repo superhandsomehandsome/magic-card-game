@@ -9,28 +9,29 @@ import { useGameStore } from '../../store/gameStore';
 interface HandProps {
   cards: ICard[];
   isOpponent?: boolean;
-  disabledRanks?: number[];
+  /** 被对手封锁的 rank — 不再禁用，仅做罚分标记 */
+  blockedRank?: number;
   onCardClick?: (card: ICard) => void;
 }
 
-export function Hand({ cards, isOpponent = false, disabledRanks = [], onCardClick }: HandProps) {
+export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: HandProps) {
   const selectedCards = useGameStore(s => s.selectedCards);
 
   return (
     <motion.div
       style={{
         display: 'flex',
-        gap: 8,
+        gap: 'clamp(4px, 0.6vw, 8px)',
         justifyContent: 'center',
         alignItems: 'flex-end',
-        padding: '16px 0',
+        padding: 'clamp(8px, 1.5vh, 16px) 0',
         perspective: 1000,
       }}
     >
       <AnimatePresence mode="popLayout">
         {cards.map((card, index) => {
           const isSelected = selectedCards.includes(card.id);
-          const isDisabled = disabledRanks.includes(card.rank);
+          const isBlocked = blockedRank !== undefined && card.rank === blockedRank;
           const rotation = (index - (cards.length - 1) / 2) * 3;
 
           return (
@@ -51,10 +52,9 @@ export function Hand({ cards, isOpponent = false, disabledRanks = [], onCardClic
                 card={card}
                 isFaceDown={isOpponent}
                 isSelected={isSelected}
-                isDisabled={isDisabled}
-                disabledReason={isDisabled ? '被规则封锁' : undefined}
+                isBlocked={isBlocked}
                 isPhantom={card.isPhantom}
-                onClick={onCardClick}
+                onClick={isOpponent ? undefined : onCardClick}
                 size="md"
               />
             </motion.div>

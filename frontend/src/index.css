@@ -66,3 +66,67 @@ button:focus-visible {
   pointer-events: none;
   z-index: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════
+ *  移动端适配 — 强制横屏 + 缩放
+ * ═══════════════════════════════════════════════════════════ */
+
+/* 竖屏阻拦层 — 仅在移动设备竖屏时显示 */
+@media screen and (orientation: portrait) and (max-width: 900px) {
+  #root::after {
+    content: '📱  请将手机横向放置  →  📱';
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: radial-gradient(ellipse at center, #1a0b2e 0%, #000 100%);
+    color: #b8860b;
+    font-family: 'Cinzel', serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    animation: rotateHint 2s ease-in-out infinite;
+    text-shadow: 0 0 20px rgba(184,134,11,0.6);
+  }
+}
+
+@keyframes rotateHint {
+  0%, 100% { letter-spacing: 3px; }
+  50%      { letter-spacing: 6px; opacity: 0.8; }
+}
+
+/* 小屏幕收紧布局 */
+@media screen and (max-width: 1024px) {
+  html, body, #root {
+    font-size: 14px;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  html, body, #root {
+    font-size: 12px;
+  }
+  /* 缩放整体 UI 留出空间 */
+  .card {
+    transform-origin: bottom center;
+  }
+}
+
+/* 高 DPI 横屏特殊优化 */
+@media screen and (orientation: landscape) and (max-height: 500px) {
+  html, body, #root {
+    font-size: 11px;
+  }
+}
+
+/* 防止移动端拉拽 / 缩放 */
+html, body {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}

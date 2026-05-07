@@ -160,7 +160,9 @@ export function ChantPhase() {
           width: '100%', maxWidth: 500,
         }}>
           {combos.map((combo, i) => {
-            const actualScore = Math.floor(combo.score * decayInfo.multiplier);
+            const decayedScore = Math.floor(combo.score * decayInfo.multiplier);
+            const penalty = combo.blockedPenalty || 0;
+            const netScore = decayedScore - penalty;
             const info = COMBO_NAMES[combo.type];
             const sameTypeCombos = combosByType.get(combo.type) || [];
 
@@ -173,6 +175,7 @@ export function ChantPhase() {
                   border: selectedCombo === combo ? '2px solid #ffd700' : '1px solid #3a1f5e',
                   background: 'rgba(26, 11, 46, 0.9)',
                   cursor: isMyTurn ? 'pointer' : 'default',
+                  opacity: netScore <= 0 ? 0.7 : 1,
                 }}
                 onClick={() => handleComboClick(combo)}
                 whileHover={isMyTurn ? { scale: 1.01, borderColor: '#b8860b' } : {}}
@@ -191,16 +194,29 @@ export function ChantPhase() {
                       {info.description}
                     </span>
                   </div>
-                  <motion.span
-                    style={{
-                      color: '#ffd700', fontWeight: 900, fontSize: 18,
-                      fontFamily: 'monospace',
-                    }}
-                    animate={{ scale: [1, 1.05, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  >
-                    +{actualScore}
-                  </motion.span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {penalty > 0 && (
+                      <span style={{
+                        color: '#e74c3c', fontWeight: 700, fontSize: 12,
+                        padding: '1px 6px', borderRadius: 4,
+                        background: 'rgba(231,76,60,0.15)',
+                        border: '1px solid #e74c3c80',
+                      }}>
+                        −{penalty} 封锁罚
+                      </span>
+                    )}
+                    <motion.span
+                      style={{
+                        color: netScore > 0 ? '#ffd700' : '#e74c3c',
+                        fontWeight: 900, fontSize: 18,
+                        fontFamily: 'monospace',
+                      }}
+                      animate={{ scale: [1, 1.05, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    >
+                      {netScore >= 0 ? '+' : ''}{netScore}
+                    </motion.span>
+                  </div>
                 </div>
 
                 {/* 详细构成: 类似 "3×A + 2×B" */}
@@ -226,7 +242,7 @@ export function ChantPhase() {
                     </div>
                     {sameTypeCombos.map((c, j) => {
                       const cScore = Math.floor(c.score * decayInfo.multiplier);
-                      const diff = cScore - actualScore;
+                      const diff = cScore - netScore;
                       return (
                         <div key={j} style={{
                           display: 'flex', alignItems: 'center', gap: 8,
@@ -265,7 +281,7 @@ export function ChantPhase() {
               animate={{ opacity: 1, x: 0 }}
               style={{ color: '#ffd700', fontSize: 13 }}
             >
-              已选中 {COMBO_NAMES[selectedCombo.type].icon} {COMBO_NAMES[selectedCombo.type].name} (+{Math.floor(selectedCombo.score * decayInfo.multiplier)})
+              已选中 {COMBO_NAMES[selectedCombo.type].icon} {COMBO_NAMES[selectedCombo.type].name} (+{Math.floor(selectedCombo.score * decayInfo.multiplier) - (selectedCombo.blockedPenalty || 0)})
               <span style={{ color: '#888', fontSize: 11, marginLeft: 8 }}>再次点击提交</span>
             </motion.div>
             <motion.button

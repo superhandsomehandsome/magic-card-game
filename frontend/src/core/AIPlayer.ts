@@ -14,6 +14,9 @@ import {
 import type { AmbushDeclaration } from '../types/game';
 import { detectCombos, getBlockedRank } from '../utils/scoring';
 
+/** AI 基础行动延迟（毫秒）— 调小可整体提速 */
+const AI_BASE_DELAY_MS = 500;
+
 export class AIPlayer {
   private engine: GameEngine;
   private aiPlayerId: string;
@@ -34,7 +37,7 @@ export class AIPlayer {
     });
   }
 
-  private scheduleAction(fn: () => void, delayMs = 1200): void {
+  private scheduleAction(fn: () => void, delayMs = AI_BASE_DELAY_MS): void {
     if (this.actionTimer) clearTimeout(this.actionTimer);
     this.actionTimer = setTimeout(fn, delayMs);
   }
@@ -58,7 +61,7 @@ export class AIPlayer {
 
     switch (phase) {
       case GamePhase.BOUNTY_ROLL:
-        this.scheduleAction(() => this.engine.nextPhase(), 1500);
+        this.scheduleAction(() => this.engine.nextPhase(), 600);
         break;
       case GamePhase.DRAW_MARKET:
         this.handleDrawMarket();
@@ -72,7 +75,38 @@ export class AIPlayer {
       case GamePhase.BLOCKADE_END:
         this.handleBlockade();
         break;
+      case GamePhase.COLLISION:
+        this.handleCollision();
+        break;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  终局：对撞
+  // ═══════════════════════════════════════════════════════════
+  private handleCollision(): void {
+    const state = this.engine.getState();
+    const collision = state.collisionState;
+    if (!collision) return;
+
+    // 排兵布阵步骤：AI 自动按高分排前面，立即确认
+    if (!collision.orderConfirmed?.[this.aiPlayerId]) {
+      const cards = collision.playerCards[this.aiPlayerId] || [];
+      const ordered = [...cards].sort((a, b) => b.baseScore - a.baseScore);
+      this.scheduleAction(() => {
+        this.engine.setCollisionOrder(this.aiPlayerId, ordered.map(c => c.id));
+      }, 700);
+      return;
+    }
+
+    // 加注/退缩：80% 加注，劣势时 30% 退缩
+    if (state.currentTurnPlayerId !== this.aiPlayerId) return;
+    const me = state.players[this.aiPlayerId];
+    const opp = this.getOpponent(state);
+    const r = Math.random();
+    const losing = me.score < opp.score - 30;
+    const action: 'RAISE' | 'FOLD' = (losing && r < 0.3) ? 'FOLD' : 'RAISE';
+    this.scheduleAction(() => this.engine.collisionAction(this.aiPlayerId, action), 800);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -99,8 +133,8 @@ export class AIPlayer {
         }
       }
 
-      this.scheduleAction(() => this.engine.nextPhase(), 800);
-    }, 800);
+      this.scheduleAction(() => this.engine.nextPhase(), 400);
+    }, 400);
   }
 
   private pickPaymentCards(hand: ICard[], targetScore: number): ICard[] {
@@ -125,21 +159,21 @@ export class AIPlayer {
     const me = state.players[this.aiPlayerId];
 
     if (me.ambushesThisTurn >= GAME_CONSTANTS.MAX_AMBUSH_PER_TURN) {
-      this.scheduleAction(() => this.engine.nextPhase(), 600);
+      this.scheduleAction(() => this.engine.nextPhase(), 300);
       return;
     }
 
     // 决策: 60% 概率发起突袭
     const shouldAmbush = Math.random() < 0.6 && me.hand.length > 1;
     if (!shouldAmbush) {
-      this.scheduleAction(() => this.engine.nextPhase(), 600);
+      this.scheduleAction(() => this.engine.nextPhase(), 300);
       return;
     }
 
     // 选择: 优先用 A/F 这种特殊牌发起 + 50%概率说谎
     const candidates = me.hand.filter(c => c.rank !== CardRank.FLASH);
     if (candidates.length === 0) {
-      this.scheduleAction(() => this.engine.nextPhase(), 600);
+      this.scheduleAction(() => this.engine.nextPhase(), 300);
       return;
     }
 
@@ -183,7 +217,7 @@ export class AIPlayer {
     if (me.hand.length === 0) {
       this.scheduleAction(() => {
         this.engine.resolveAmbushDefend(this.aiPlayerId, 'FOLD');
-      }, 1200);
+      }, 600);
       return;
     }
 
@@ -192,7 +226,7 @@ export class AIPlayer {
     if (hasDeclaration && r < 0.3) {
       this.scheduleAction(() => {
         this.engine.resolveAmbushDefend(this.aiPlayerId, 'CALL_BLUFF');
-      }, 1500);
+      }, 800);
       return;
     }
 
@@ -206,14 +240,14 @@ export class AIPlayer {
       const defCard = sorted[0];
       this.scheduleAction(() => {
         this.engine.resolveAmbushDefend(this.aiPlayerId, 'DEFEND', defCard.id);
-      }, 1500);
+      }, 800);
       return;
     }
 
     // 怯战
     this.scheduleAction(() => {
       this.engine.resolveAmbushDefend(this.aiPlayerId, 'FOLD');
-    }, 1200);
+    }, 600);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -227,21 +261,25 @@ export class AIPlayer {
     const blockedRank = getBlockedRank(opponent);
 
     const combos = detectCombos(me.hand, state.isInverted, blockedRank);
-    if (combos.length === 0) {
-      this.scheduleAction(() => this.engine.nextPhase(), 800);
+    // 只挑净得分（含封锁罚分）正的组合
+    const profitable = combos.filter(c => (c.score - (c.blockedPenalty || 0)) > 0);
+    if (profitable.length === 0) {
+      this.scheduleAction(() => this.engine.nextPhase(), 400);
       return;
     }
 
-    // 选最高分组合
-    const best = combos.sort((a, b) => b.score - a.score)[0];
+    // 选净得分最高的组合
+    const best = profitable.sort(
+      (a, b) => (b.score - (b.blockedPenalty || 0)) - (a.score - (a.blockedPenalty || 0)),
+    )[0];
     this.scheduleAction(() => {
       this.engine.submitComboScore(
         this.aiPlayerId,
         best.cards.map(c => c.id),
         best.score
       );
-      this.scheduleAction(() => this.engine.nextPhase(), 1000);
-    }, 1200);
+      this.scheduleAction(() => this.engine.nextPhase(), 500);
+    }, 600);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -290,10 +328,10 @@ export class AIPlayer {
     if (target) {
       this.scheduleAction(() => {
         this.engine.placeBlockade(this.aiPlayerId, target.id);
-        this.scheduleAction(() => this.engine.nextPhase(), 1000);
-      }, 1000);
+        this.scheduleAction(() => this.engine.nextPhase(), 500);
+      }, 500);
     } else {
-      this.scheduleAction(() => this.engine.nextPhase(), 800);
+      this.scheduleAction(() => this.engine.nextPhase(), 400);
     }
   }
 

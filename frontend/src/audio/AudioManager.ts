@@ -21,6 +21,10 @@ function getCtx(): AudioContext | null {
   return ctx;
 }
 
+/** 全局音量增益（音效更突出） */
+const SFX_GAIN = 1.6;
+const clamp = (v: number) => Math.min(1.0, Math.max(0, v));
+
 function tone(
   freq: number, type: OscillatorType, duration: number, volume: number,
   opts: { slide?: number } = {},
@@ -35,10 +39,12 @@ function tone(
     osc.type = type;
     osc.frequency.setValueAtTime(freq, c.currentTime);
     if (opts.slide) osc.frequency.linearRampToValueAtTime(opts.slide, c.currentTime + duration);
-    gain.gain.setValueAtTime(volume, c.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration);
+    const v = clamp(volume * SFX_GAIN);
+    gain.gain.setValueAtTime(v, c.currentTime);
+    // 衰减时间略加长，使音效尾韵更饱满
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration * 1.2);
     osc.start(c.currentTime);
-    osc.stop(c.currentTime + duration);
+    osc.stop(c.currentTime + duration * 1.2);
   } catch { /* noop */ }
 }
 
@@ -59,8 +65,9 @@ function noise(duration: number, volume: number) {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(c.destination);
-    gain.gain.setValueAtTime(volume, c.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration);
+    const v = clamp(volume * SFX_GAIN);
+    gain.gain.setValueAtTime(v, c.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration * 1.2);
     src.start();
   } catch { /* noop */ }
 }

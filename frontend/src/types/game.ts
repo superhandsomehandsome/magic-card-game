@@ -112,6 +112,8 @@ export interface ICollisionState {
   revealedCards: Record<string, ICard[]>;
   pot: number;
   foldedPlayer: string | null;
+  /** 排兵布阵：玩家是否已确认揭牌顺序 */
+  orderConfirmed?: Record<string, boolean>;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -136,7 +138,10 @@ export type ActionType =
   | 'DICE_ROLL'         // 骰子翻滚
   | 'PHANTOM_COIN'      // 怪盗金币特效
   | 'FATE_DICE'         // 命运骰子特效
-  | 'COLLISION_CLASH';  // 对撞碰撞
+  | 'COLLISION_CLASH'   // 对撞碰撞
+  | 'AMBUSH_BLUFF'      // 拆穿结算 (切牌动画)
+  | 'AMBUSH_FOLD'       // 怯战结算 (窃取动画)
+  | 'FLASH_SWAP';       // 瞬换牌特效
 
 export interface IActionCommand {
   type: ActionType;
@@ -178,7 +183,10 @@ export enum ComboType {
 export interface IComboResult {
   type: ComboType;
   cards: ICard[];
+  /** 组合原始得分（含倍率，未减衰减/罚分） */
   score: number;
+  /** 封锁罚分：被对手封锁 rank 的每张牌 baseScore × 3 */
+  blockedPenalty?: number;
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 
 export function BountyRollPhase() {
-  const advancePhase = useGameStore(s => s.advancePhase);
+  const { advancePhase, gameState, localPlayerId } = useGameStore();
+  const isMyTurn = gameState?.currentTurnPlayerId === localPlayerId;
 
   return (
     <motion.div
@@ -44,25 +45,31 @@ export function BountyRollPhase() {
         🎲
       </motion.div>
 
-      <motion.button
-        onClick={() => advancePhase()}
-        style={{
-          padding: '12px 32px',
-          borderRadius: 8,
-          border: '1px solid #b8860b',
-          background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
-          color: '#b8860b',
-          fontFamily: '"Cinzel", serif',
-          fontWeight: 700,
-          fontSize: 14,
-          cursor: 'pointer',
-          letterSpacing: 1,
-        }}
-        whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(184,134,11,0.5)' }}
-        whileTap={{ scale: 0.95 }}
-      >
-        继续
-      </motion.button>
+      {isMyTurn ? (
+        <motion.button
+          onClick={() => advancePhase()}
+          style={{
+            padding: '12px 32px',
+            borderRadius: 8,
+            border: '1px solid #b8860b',
+            background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
+            color: '#b8860b',
+            fontFamily: '"Cinzel", serif',
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: 'pointer',
+            letterSpacing: 1,
+          }}
+          whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(184,134,11,0.5)' }}
+          whileTap={{ scale: 0.95 }}
+        >
+          继续
+        </motion.button>
+      ) : (
+        <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
+          等待对手投掷悬赏骰…
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -10,33 +10,36 @@ import { getEffectiveScore } from './deck';
  */
 export function detectCombos(hand: ICard[], isInverted: boolean, blockedRank: CardRank | null): IComboResult[] {
   const combos: IComboResult[] = [];
-  const availableCards = blockedRank !== null
-    ? hand.filter(c => c.rank !== blockedRank)
-    : hand;
+  // 封锁机制改为「扣分」：仍允许使用被封锁 rank，但每张该 rank 牌组合后扣 baseScore × 3 分
+  const availableCards = hand;
 
-  // 大顺 (A-B-C-D-E-F 各一张)
   const grandStraight = detectGrandStraight(availableCards, isInverted);
   if (grandStraight) combos.push(grandStraight);
 
-  // 小顺 (连续4+张)
   const smallStraights = detectSmallStraights(availableCards, isInverted);
   combos.push(...smallStraights);
 
-  // 四条
   const fourOfKinds = detectNOfKind(availableCards, 4, isInverted);
   combos.push(...fourOfKinds);
 
-  // 葫芦 (三条+对子)
   const fullHouses = detectFullHouse(availableCards, isInverted);
   combos.push(...fullHouses);
 
-  // 三条
   const threeOfKinds = detectNOfKind(availableCards, 3, isInverted);
   combos.push(...threeOfKinds);
 
-  // 对子
   const pairs = detectNOfKind(availableCards, 2, isInverted);
   combos.push(...pairs);
+
+  // 计算每个组合的封锁罚分
+  if (blockedRank !== null) {
+    for (const combo of combos) {
+      const blockedCards = combo.cards.filter(c => c.rank === blockedRank);
+      combo.blockedPenalty = blockedCards.reduce((s, c) => s + c.baseScore * 3, 0);
+    }
+  } else {
+    for (const combo of combos) combo.blockedPenalty = 0;
+  }
 
   return combos;
 }

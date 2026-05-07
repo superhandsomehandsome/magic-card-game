@@ -124,10 +124,16 @@ export function BlockadePhase() {
                 card={card}
                 size="sm"
                 isSelected={blockadeSelected === card.id}
-                onClick={(c) => setBlockadeSelected(c.id)}
+                onClick={isMyTurn ? (c) => setBlockadeSelected(c.id) : undefined}
               />
             ))}
           </div>
+
+          {!isMyTurn && (
+            <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
+              对手正在选择封锁牌…
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 12 }}>
             {blockadeSelected && (

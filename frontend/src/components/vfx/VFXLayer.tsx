@@ -59,6 +59,10 @@ function VFXEffect({ effect }: { effect: ActiveVFX }) {
       return <ScoreBurst amount={effect.payload.amount as number} />;
     case 'CARD_CLASH':
       return <CardClash payload={effect.payload} />;
+    case 'AMBUSH_BLUFF':
+      return <AmbushBluff payload={effect.payload} />;
+    case 'AMBUSH_FOLD':
+      return <AmbushFold payload={effect.payload} />;
     case 'SLOW_MOTION':
       return <SlowMotion />;
     case 'BOUNTY_RETAINED':
@@ -67,6 +71,10 @@ function VFXEffect({ effect }: { effect: ActiveVFX }) {
       return <AudioMute />;
     case 'DICE_ROLL':
       return <DiceRoll roll={effect.payload.roll as number} />;
+    case 'AMBUSH_BLUFF':
+      return <AmbushBluff payload={effect.payload} />;
+    case 'AMBUSH_FOLD':
+      return <AmbushFold payload={effect.payload} />;
     default:
       return null;
   }
@@ -388,9 +396,36 @@ function CardClash({ payload }: { payload: Record<string, unknown> }) {
         </motion.div>
       )}
 
-      {/* F弑神特效 */}
+      {/* F弑神特效 — 全屏血色震荡 + 圆环爆裂 + 血迹喷溅 */}
       {isFSlaysA && (
         <>
+          {/* 全屏血色震荡覆层 */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.85, 0.4, 0.85, 0] }}
+            transition={{ delay: 0.6, duration: 1.5 }}
+            style={{
+              position: 'absolute', inset: 0,
+              background: 'radial-gradient(ellipse at center, rgba(139,0,0,0.7) 0%, rgba(80,0,0,0.85) 50%, rgba(0,0,0,0.95) 100%)',
+              mixBlendMode: 'screen',
+            }}
+          />
+          {/* 屏幕震动框 */}
+          <motion.div
+            initial={{ x: 0, y: 0 }}
+            animate={{
+              x: [0, -10, 12, -8, 6, -4, 2, 0],
+              y: [0, 8, -10, 6, -4, 2, 0],
+            }}
+            transition={{ delay: 0.6, duration: 0.8 }}
+            style={{
+              position: 'absolute', inset: 0,
+              border: '6px solid rgba(255,0,0,0.6)',
+              boxShadow: 'inset 0 0 80px rgba(139,0,0,0.7)',
+              pointerEvents: 'none',
+            }}
+          />
+          {/* 双重爆炸圆环 */}
           <motion.div
             initial={{ opacity: 0, scale: 0 }}
             animate={{ opacity: [0, 1, 0], scale: [0.5, 3, 5] }}
@@ -404,18 +439,53 @@ function CardClash({ payload }: { payload: Record<string, unknown> }) {
             }}
           />
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: [0, 1, 1, 0], y: [-20, -60] }}
-            transition={{ delay: 1, duration: 0.8 }}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: [0, 1, 0], scale: [0.5, 4, 7] }}
+            transition={{ delay: 0.85, duration: 1.0 }}
+            style={{
+              position: 'absolute', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 100, height: 100, borderRadius: '50%',
+              border: '2px solid #ff4444',
+              boxShadow: '0 0 60px #ff4444',
+            }}
+          />
+          {/* 血滴喷溅 */}
+          {[...Array(20)].map((_, i) => (
+            <motion.div
+              key={`blood-${i}`}
+              initial={{ x: 0, y: 0, opacity: 0, scale: 0 }}
+              animate={{
+                x: Math.cos((i / 20) * Math.PI * 2) * (180 + Math.random() * 120),
+                y: Math.sin((i / 20) * Math.PI * 2) * (180 + Math.random() * 120),
+                opacity: [0, 1, 0.7, 0],
+                scale: [0, 1.4, 1, 0.5],
+              }}
+              transition={{ delay: 0.7 + i * 0.015, duration: 0.9 }}
+              style={{
+                position: 'absolute', top: '50%', left: '50%',
+                width: 8 + Math.random() * 14,
+                height: 8 + Math.random() * 14,
+                background: i % 3 === 0 ? '#8b0000' : '#ff0000',
+                borderRadius: '50%',
+                boxShadow: '0 0 10px #8b0000',
+              }}
+            />
+          ))}
+          {/* F 弑神 文字 */}
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.6 }}
+            animate={{ opacity: [0, 1, 1, 0], y: [-20, -60], scale: [0.6, 1.4, 1.2] }}
+            transition={{ delay: 1, duration: 1.2 }}
             style={{
               position: 'absolute', top: '30%', left: '50%',
               transform: 'translateX(-50%)',
-              color: '#ff0000', fontSize: 28, fontWeight: 900,
-              textShadow: '0 0 20px rgba(255,0,0,0.8), 0 0 40px rgba(255,0,0,0.4)',
-              fontFamily: '"Cinzel", serif', letterSpacing: 4,
+              color: '#ff0000', fontSize: 36, fontWeight: 900,
+              textShadow: '0 0 30px rgba(255,0,0,1), 0 0 60px rgba(255,0,0,0.6), 0 0 90px rgba(139,0,0,0.5)',
+              fontFamily: '"Cinzel", serif', letterSpacing: 6,
             }}
           >
-            F 弑 神 !
+            ⚔ F 弑 神 ⚔
           </motion.div>
         </>
       )}
@@ -559,5 +629,295 @@ function DiceRoll({ roll }: { roll: number }) {
         {roll}
       </motion.div>
     </>
+  );
+}
+
+function AmbushBluff({ payload }: { payload: Record<string, unknown> }) {
+  const isTruthful = payload.isTruthful as boolean;
+  const declared = payload.declared as number | undefined;
+  const atkRank = (payload.attackCard as { rank?: number })?.rank;
+  const rankLabels = ['?','F','E','D','C','B','A'];
+  const atkLabel = atkRank !== undefined ? rankLabels[atkRank] || '?' : '?';
+  const declLabel = declared !== undefined ? rankLabels[declared] || '?' : '?';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.88)',
+      }}
+    >
+      {/* 标题 */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          color: '#b8860b', fontSize: 14, fontFamily: '"Cinzel", serif',
+          letterSpacing: 3, marginBottom: 8,
+        }}
+      >
+        声 明 「 {declLabel} 」
+      </motion.div>
+
+      {/* 卡牌容器 + 一刀切动画 */}
+      <div style={{
+        position: 'relative', width: 120, height: 170,
+        marginBottom: 16,
+      }}>
+        {!isTruthful ? (
+          // 拆穿成功（说谎）— 卡牌一刀切成两半
+          <>
+            {/* 上半 */}
+            <motion.div
+              initial={{ y: 0, x: 0, rotate: 0, opacity: 1 }}
+              animate={{ y: -180, x: -60, rotate: -25, opacity: 0 }}
+              transition={{ delay: 1.0, duration: 0.7, ease: 'easeOut' }}
+              style={{
+                position: 'absolute', top: 0, left: 0,
+                width: 120, height: 85,
+                background: 'linear-gradient(180deg, #4A0E17, #721C24)',
+                border: '2px solid #b8860b',
+                borderBottom: 'none',
+                borderRadius: '10px 10px 0 0',
+                clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 60%)',
+                display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                paddingTop: 12,
+                fontSize: 36, color: '#ff6347', fontWeight: 900,
+                fontFamily: '"Cinzel", serif',
+                boxShadow: '0 0 20px rgba(255,0,0,0.5)',
+              }}
+            >
+              {atkLabel}
+            </motion.div>
+            {/* 下半 */}
+            <motion.div
+              initial={{ y: 0, x: 0, rotate: 0, opacity: 1 }}
+              animate={{ y: 180, x: 60, rotate: 25, opacity: 0 }}
+              transition={{ delay: 1.0, duration: 0.7, ease: 'easeOut' }}
+              style={{
+                position: 'absolute', bottom: 0, left: 0,
+                width: 120, height: 85,
+                background: 'linear-gradient(180deg, #721C24, #4A0E17)',
+                border: '2px solid #b8860b',
+                borderTop: 'none',
+                borderRadius: '0 0 10px 10px',
+                clipPath: 'polygon(0 40%, 100% 0, 100% 100%, 0 100%)',
+                fontSize: 14, color: '#aaa',
+                fontFamily: '"Cinzel", serif',
+                display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                paddingBottom: 8,
+                boxShadow: '0 0 20px rgba(255,0,0,0.5)',
+              }}
+            >
+              圣物
+            </motion.div>
+            {/* 切割闪光斜线 */}
+            <motion.div
+              initial={{ scaleX: 0, opacity: 0 }}
+              animate={{ scaleX: [0, 1.3, 1.3, 0], opacity: [0, 1, 1, 0] }}
+              transition={{ delay: 0.8, duration: 0.6 }}
+              style={{
+                position: 'absolute', top: '50%', left: '-20%',
+                width: '140%', height: 5,
+                background: 'linear-gradient(90deg, transparent, #fff, #ff0000, #fff, transparent)',
+                boxShadow: '0 0 25px rgba(255,255,255,0.9), 0 0 50px rgba(255,0,0,0.6)',
+                transform: 'rotate(-15deg)',
+                transformOrigin: 'center',
+              }}
+            />
+            {/* 切口火花 */}
+            {[...Array(14)].map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{ x: 60, y: 85, opacity: 0, scale: 0 }}
+                animate={{
+                  x: 60 + (Math.random() - 0.5) * 200,
+                  y: 85 + (Math.random() - 0.5) * 200,
+                  opacity: [0, 1, 0],
+                  scale: [0, 1.2, 0.3],
+                  rotate: Math.random() * 360,
+                }}
+                transition={{ delay: 0.9 + i * 0.02, duration: 0.6 }}
+                style={{
+                  position: 'absolute',
+                  width: 4 + Math.random() * 6,
+                  height: 4 + Math.random() * 6,
+                  background: i % 2 ? '#ff0000' : '#ffd700',
+                  borderRadius: '50%',
+                  boxShadow: '0 0 8px currentColor',
+                }}
+              />
+            ))}
+          </>
+        ) : (
+          // 拆穿失败（说真话）— 卡牌完整翻转，绿色光芒
+          <motion.div
+            initial={{ rotateY: 180, scale: 0.6 }}
+            animate={{ rotateY: 0, scale: 1 }}
+            transition={{ duration: 0.6 }}
+            style={{
+              width: 120, height: 170, borderRadius: 10,
+              background: 'linear-gradient(180deg, #4A0E17, #721C24)',
+              border: '3px solid #2ecc71',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 30px rgba(46,204,113,0.7)',
+              fontFamily: '"Cinzel", serif',
+            }}
+          >
+            <span style={{ fontSize: 48, color: '#2ecc71', fontWeight: 900 }}>{atkLabel}</span>
+            <span style={{ fontSize: 11, color: '#2ecc71aa', marginTop: 4 }}>属实！</span>
+          </motion.div>
+        )}
+      </div>
+
+      {/* 结果文字 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.8 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 1.3, duration: 0.4 }}
+        style={{
+          color: isTruthful ? '#e74c3c' : '#ffd700',
+          fontSize: 28, fontWeight: 900,
+          fontFamily: '"Cinzel", serif',
+          textShadow: `0 0 24px ${isTruthful ? 'rgba(231,76,60,0.7)' : 'rgba(255,215,0,0.7)'}`,
+          letterSpacing: 4,
+        }}
+      >
+        {isTruthful ? '✗ 拆穿失败' : '⚔ 拆 穿 ⚔'}
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.6 }}
+        style={{ color: '#ff8c00', fontSize: 13, marginTop: 8 }}
+      >
+        {isTruthful ? '说的是真话 — 防守方 -15 分' : '识破谎言 — 攻击方 -15 分，牌归防守方'}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function AmbushFold({ payload }: { payload: Record<string, unknown> }) {
+  const attackerName = (payload.attackerName as string) || '攻击方';
+  const defenderName = (payload.defenderName as string) || '防守方';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        background: 'radial-gradient(ellipse at center, rgba(40,30,10,0.55), rgba(0,0,0,0.92))',
+      }}
+    >
+      {/* 颤抖的防守方"白旗" */}
+      <motion.div
+        initial={{ scale: 0, opacity: 0, rotate: 0 }}
+        animate={{ scale: [0, 1.2, 1], opacity: 1, rotate: [-8, 8, -6, 6, -3, 3, 0] }}
+        transition={{ duration: 0.9 }}
+        style={{ fontSize: 80, marginBottom: 20 }}
+      >
+        😰
+      </motion.div>
+
+      {/* 攻击牌从中央回流到攻击方手牌方向 */}
+      <motion.div
+        initial={{ y: 0, x: 0, scale: 1, opacity: 1, rotateZ: 0 }}
+        animate={{
+          y: [0, -200, -300],
+          x: [0, -100, -300],
+          scale: [1, 0.9, 0.4],
+          opacity: [1, 1, 0],
+          rotateZ: [0, -180, -360],
+        }}
+        transition={{ delay: 0.5, duration: 1.2, ease: 'easeIn' }}
+        style={{
+          position: 'absolute', top: '40%',
+          width: 70, height: 100, borderRadius: 8,
+          background: 'linear-gradient(135deg, #1a0b2e, #2d1b4e)',
+          border: '2px solid #b8860b',
+          boxShadow: '0 0 25px rgba(184,134,11,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#b8860b', fontFamily: '"Cinzel", serif', fontSize: 12,
+        }}
+      >
+        ↩ 收回
+      </motion.div>
+
+      {/* 偷牌阴影从对方手牌飞向攻击方 */}
+      <motion.div
+        initial={{ x: 200, y: -100, opacity: 0, scale: 0.6 }}
+        animate={{
+          x: [-200, -350],
+          y: [-100, -300],
+          opacity: [0, 0.85, 0.85, 0],
+          scale: [0.6, 1, 0.5],
+        }}
+        transition={{ delay: 1.0, duration: 1.0 }}
+        style={{
+          position: 'absolute', top: '50%',
+          width: 50, height: 70, borderRadius: 6,
+          background: 'linear-gradient(180deg, rgba(20,20,20,0.9), rgba(0,0,0,0.95))',
+          border: '1px dashed #555',
+          boxShadow: '0 0 18px rgba(0,0,0,0.6)',
+          fontSize: 11, color: '#888',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: '"Cinzel", serif',
+        }}
+      >
+        👤 偷
+      </motion.div>
+
+      {/* 主标题 */}
+      <motion.div
+        initial={{ opacity: 0, y: 10, scale: 0.8 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.3, duration: 0.5 }}
+        style={{
+          color: '#b8860b', fontSize: 28, fontWeight: 900,
+          fontFamily: '"Cinzel", serif',
+          textShadow: '0 0 20px rgba(184,134,11,0.6)',
+          letterSpacing: 4,
+        }}
+      >
+        💀 {defenderName} 怯 战
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.2 }}
+        style={{
+          color: '#ffd700', fontSize: 14, marginTop: 10,
+          fontFamily: '"Cinzel", serif', letterSpacing: 2,
+          textShadow: '0 0 10px rgba(255,215,0,0.4)',
+        }}
+      >
+        {attackerName} 收回攻击牌 · 窃取 1 张 · 独吞悬赏金
+      </motion.div>
+
+      {/* 边缘金光暗影 */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0.3, 0] }}
+        transition={{ delay: 0.4, duration: 1.6 }}
+        style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse at center, transparent 50%, rgba(184,134,11,0.3) 100%)',
+          mixBlendMode: 'screen',
+          pointerEvents: 'none',
+        }}
+      />
+    </motion.div>
   );
 }
