@@ -10,7 +10,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 import type { ICard, IDecree } from '../../types/game';
-import { CardRank } from '../../types/game';
+import { CardRank, GAME_CONSTANTS } from '../../types/game';
 import { Card } from '../board/Card';
 import { calcBidPower } from '../../core/decrees';
 import type { IDecreeContestState } from '../../types/game';
@@ -42,7 +42,15 @@ export function DecreeContestModal() {
       }}
     >
       {/* 倒计时进度条 (顶端) */}
-      <DeadlineBar deadline={ctx.deadline} totalMs={10000} key={ctx.step} />
+      <DeadlineBar
+        deadline={ctx.deadline}
+        totalMs={
+          ctx.step === 'OPT_IN'
+            ? GAME_CONSTANTS.DECREE_OPT_IN_TIMER_MS
+            : GAME_CONSTANTS.DECREE_BID_TIMER_MS
+        }
+        key={ctx.step}
+      />
 
       {/* 法案信息卡 */}
       <DecreeCard decree={decree} round={ctx.triggeringRound} />
@@ -509,50 +517,219 @@ function ResolveStep({
   const isVoid = ctx.outcome === 'VOID' || ctx.outcome === 'TIE';
   const myPower = ctx.bidPower[myId] || 0;
   const oppPower = ctx.bidPower[oppId] || 0;
+  const myCards = ctx.bidCards?.[myId] || [];
+  const oppCards = ctx.bidCards?.[oppId] || [];
+  const myCombo = ctx.bidComboType[myId];
+  const oppCombo = ctx.bidComboType[oppId];
+
+  // 翻牌时序: 0ms 双方卡背入场 → 600ms 同时翻面 → 1200ms 显示战力 → 1800ms 显示胜负
+  const [stage, setStage] = useState<0 | 1 | 2 | 3>(0);
+  useEffect(() => {
+    const t1 = setTimeout(() => setStage(1), 200);    // 卡背入场完成
+    const t2 = setTimeout(() => setStage(2), 800);    // 翻面完成 → 显示战力
+    const t3 = setTimeout(() => setStage(3), 1600);   // 显示胜负标题
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []);
 
   return (
     <motion.div
-      initial={{ scale: 0.85, opacity: 0 }}
+      initial={{ scale: 0.92, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       style={{
         display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 14,
+        alignItems: 'center', gap: 18, width: '100%', maxWidth: 720,
       }}
     >
+      {/* 双方卡牌翻牌区 */}
       <div style={{
-        fontSize: 'clamp(20px, 4vw, 32px)',
-        color: isMyWin ? '#ffd700' : isOppWin ? '#e74c3c' : '#888',
-        fontFamily: '"Cinzel", serif',
-        fontWeight: 900, letterSpacing: 6,
-        textShadow: isMyWin
-          ? '0 0 20px rgba(255,215,0,0.6)'
-          : isOppWin
-            ? '0 0 20px rgba(231,76,60,0.6)'
-            : 'none',
+        display: 'flex', justifyContent: 'space-around',
+        width: '100%', alignItems: 'center', gap: 16,
       }}>
-        {isMyWin ? `✦ ${myName || '你'} 赢得法案 ✦`
-         : isOppWin ? `☠ ${oppName || '对手'} 赢得法案 ☠`
-         : '🔥 法案撕裂作废 🔥'}
+        <BidRevealSide
+          name={myName || '你'}
+          cards={myCards}
+          combo={myCombo}
+          power={myPower}
+          stage={stage}
+          color="#ffd700"
+          isWinner={isMyWin}
+        />
+        <motion.div
+          style={{ color: '#666', fontSize: 28, fontFamily: '"Cinzel", serif', letterSpacing: 4 }}
+          animate={stage >= 2 ? { scale: [1, 1.3, 1], color: ['#666', '#e74c3c', '#666'] } : {}}
+          transition={{ duration: 0.8 }}
+        >
+          VS
+        </motion.div>
+        <BidRevealSide
+          name={oppName || '对手'}
+          cards={oppCards}
+          combo={oppCombo}
+          power={oppPower}
+          stage={stage}
+          color="#e74c3c"
+          isWinner={isOppWin}
+        />
       </div>
-      <div style={{
-        display: 'flex', gap: 24, alignItems: 'center',
-        fontFamily: '"Cinzel", serif',
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ color: '#888', fontSize: 11 }}>{myName || '你'}</div>
-          <div style={{ color: '#ffd700', fontSize: 22, fontWeight: 900 }}>{myPower}</div>
-        </div>
-        <div style={{ color: '#666', fontSize: 18 }}>VS</div>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ color: '#888', fontSize: 11 }}>{oppName || '对手'}</div>
-          <div style={{ color: '#e74c3c', fontSize: 22, fontWeight: 900 }}>{oppPower}</div>
-        </div>
-      </div>
-      <div style={{ color: '#666', fontSize: 11, fontStyle: 'italic' }}>
-        {isVoid
-          ? '提交牌全部销毁。'
-          : '法案归属，竞标牌全部销毁。'}
-      </div>
+
+      {/* 胜负标题 (stage 3 才出) */}
+      {stage >= 3 && (
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 200, damping: 12 }}
+          style={{
+            fontSize: 'clamp(20px, 4vw, 32px)',
+            color: isMyWin ? '#ffd700' : isOppWin ? '#e74c3c' : '#888',
+            fontFamily: '"Cinzel", serif',
+            fontWeight: 900, letterSpacing: 6,
+            textShadow: isMyWin
+              ? '0 0 24px rgba(255,215,0,0.7)'
+              : isOppWin
+                ? '0 0 24px rgba(231,76,60,0.7)'
+                : 'none',
+          }}
+        >
+          {isMyWin ? `✦ ${myName || '你'} 赢得法案 ✦`
+           : isOppWin ? `☠ ${oppName || '对手'} 赢得法案 ☠`
+           : '🔥 法案撕裂作废 🔥'}
+        </motion.div>
+      )}
+
+      {stage >= 3 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          style={{ color: '#888', fontSize: 11, fontStyle: 'italic' }}
+        >
+          {isVoid
+            ? (myCards.length > 0 || oppCards.length > 0
+                ? '双方提交的卡牌已全部销毁。'
+                : '双方均未出牌, 法案直接化为灰烬。')
+            : (myCards.length > 0 && oppCards.length > 0
+                ? '法案归属, 双方竞标牌沉入弃牌堆。'
+                : '对手未出牌, 你的暗标牌已退回手牌。')}
+        </motion.div>
+      )}
     </motion.div>
+  );
+}
+
+/** 单方暗标牌翻牌展示 */
+function BidRevealSide({
+  name, cards, combo, power, stage, color, isWinner,
+}: {
+  name: string;
+  cards: ICard[];
+  combo: 'SCATTER' | 'PAIR' | 'STRAIGHT' | 'TRIPLE' | null | undefined;
+  power: number;
+  stage: 0 | 1 | 2 | 3;
+  color: string;
+  isWinner: boolean;
+}) {
+  const COMBO_LABEL: Record<string, string> = {
+    PAIR: '双生共鸣 +6',
+    STRAIGHT: '三阶序列 +10',
+    TRIPLE: '绝对狂热 +12',
+  };
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+      flex: 1, minWidth: 0,
+    }}>
+      <div style={{ color: '#888', fontSize: 11, letterSpacing: 2 }}>{name}</div>
+
+      {/* 卡牌区: stage 0/1 显示卡背, stage>=2 翻到正面 */}
+      <div style={{
+        display: 'flex', gap: 6, justifyContent: 'center', minHeight: 100,
+        position: 'relative',
+      }}>
+        {cards.length === 0 ? (
+          <div style={{
+            color: '#444', fontSize: 12, fontStyle: 'italic',
+            border: '1px dashed #333', borderRadius: 6, padding: '24px 16px',
+            background: 'rgba(0,0,0,0.3)',
+          }}>
+            未出牌
+          </div>
+        ) : (
+          cards.map((c, i) => (
+            <motion.div
+              key={c.id}
+              initial={{ rotateY: 180, scale: 0.6, opacity: 0 }}
+              animate={{
+                rotateY: stage >= 2 ? 0 : 180,
+                scale: 1,
+                opacity: 1,
+              }}
+              transition={{
+                duration: 0.6,
+                delay: stage >= 2 ? 0.1 * i : 0.05 * i,
+              }}
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <Card card={c} size="sm" />
+            </motion.div>
+          ))
+        )}
+      </div>
+
+      {/* Combo 高亮 (stage >= 2) */}
+      {stage >= 2 && combo && combo !== 'SCATTER' && (
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: [0.6, 1.2, 1], opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          style={{
+            padding: '4px 14px',
+            borderRadius: 4,
+            background: 'rgba(255, 80, 80, 0.2)',
+            border: '1px solid #ff5555',
+            color: '#ffaaaa',
+            fontSize: 12,
+            fontFamily: '"Cinzel", serif',
+            letterSpacing: 2,
+            textShadow: '0 0 8px rgba(255,80,80,0.7)',
+          }}
+        >
+          ⚡ {COMBO_LABEL[combo] || combo}
+        </motion.div>
+      )}
+
+      {/* 战力数字 */}
+      <motion.div
+        initial={{ scale: 0.5, opacity: 0 }}
+        animate={stage >= 2 ? { scale: 1, opacity: 1 } : { scale: 0.5, opacity: 0 }}
+        transition={{ delay: 0.4, type: 'spring' }}
+        style={{
+          fontSize: 28, fontWeight: 900, fontFamily: 'monospace',
+          color: isWinner && stage >= 3 ? '#ffd700' : color,
+          textShadow: isWinner && stage >= 3
+            ? `0 0 18px ${color}, 0 0 28px rgba(255,215,0,0.8)`
+            : `0 0 8px ${color}`,
+        }}
+      >
+        {cards.length === 0 ? '—' : power}
+      </motion.div>
+
+      {/* 胜方光环 */}
+      {isWinner && stage >= 3 && (
+        <motion.div
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: [0, 1.4, 1], opacity: [0, 0.8, 0.4] }}
+          transition={{ duration: 1, repeat: Infinity, repeatType: 'reverse' }}
+          style={{
+            position: 'absolute',
+            width: 200, height: 200,
+            borderRadius: '50%',
+            background: `radial-gradient(circle, ${color}40, transparent)`,
+            pointerEvents: 'none',
+            marginTop: 30,
+          }}
+        />
+      )}
+    </div>
   );
 }

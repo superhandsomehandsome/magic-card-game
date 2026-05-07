@@ -40,7 +40,8 @@ export type EngineEvent =
   | 'DECREE_INTENT_RESOLVED'
   | 'DECREE_BID_RESOLVED'
   | 'DECREE_AWARDED'
-  | 'SUPREME_DECREE_APPLIED';
+  | 'SUPREME_DECREE_APPLIED'
+  | 'LOG_ADDED';
 
 // ═══════════════════════════════════════════════════════════
 //  GameEngine 类
@@ -86,6 +87,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       offeredDecrees: [],
       supremeDecree: null,
       decreeRoundsTriggered: [],
+      pendingSteal: null,
     };
   }
 
@@ -349,23 +351,42 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const pow1 = b1.length > 0 ? ctx.bidPower[p1] : -1; // 空标记为 -1
     const pow2 = b2.length > 0 ? ctx.bidPower[p2] : -1;
 
-    // 销毁双方提交的竞标卡 (沉没成本)
-    const burnCards = (pid: string, cardIds: string[]) => {
+    // 快照实际卡牌, 用于 BID_RESOLVE 翻牌动画 (即使后续 burn, UI 仍可读)
+    const cardsOf = (pid: string, cardIds: string[]): ICard[] => {
+      const player = this.getPlayer(pid);
+      return cardIds
+        .map(id => player.hand.find(c => c.id === id))
+        .filter((c): c is ICard => !!c);
+    };
+    ctx.bidCards = {
+      [p1]: cardsOf(p1, b1),
+      [p2]: cardsOf(p2, b2),
+    };
+
+    // 沉没成本规则: 仅当双方都"真正出牌"才销毁双方提交的竞标卡;
+    // 若一方超时/未出牌, 另一方的牌退回手牌 (防止恶意争夺-放弃消耗对手手牌)
+    const bothBid = b1.length > 0 && b2.length > 0;
+    const burnOrReturnCards = (pid: string, cardIds: string[], shouldBurn: boolean) => {
       if (cardIds.length === 0) return;
       const player = this.getPlayer(pid);
       const cards = cardIds.map(id => player.hand.find(c => c.id === id)).filter((c): c is ICard => !!c);
-      player.hand = player.hand.filter(c => !cardIds.includes(c.id));
-      this.state.discardPile.push(...cards);
-      cards.forEach(c => {
-        this.pushAction({
-          type: 'VFX_BURN',
-          payload: { card: c, playerId: pid, reason: '暗标沉没' },
-          durationMs: 400,
+      if (shouldBurn) {
+        player.hand = player.hand.filter(c => !cardIds.includes(c.id));
+        this.state.discardPile.push(...cards);
+        cards.forEach(c => {
+          this.pushAction({
+            type: 'VFX_BURN',
+            payload: { card: c, playerId: pid, reason: '暗标沉没' },
+            durationMs: 400,
+          });
         });
-      });
+      } else {
+        // 牌仍在手牌里(因为 submitDecreeBid 没移除), 仅记录日志
+        this.addLog(`${player.name} 的 ${cards.length} 张暗标牌因对手未出牌而退回手牌`);
+      }
     };
-    burnCards(p1, b1);
-    burnCards(p2, b2);
+    burnOrReturnCards(p1, b1, bothBid);
+    burnOrReturnCards(p2, b2, bothBid);
 
     // 翻牌 VFX：祭坛上展示双方组合
     const combo1 = ctx.bidComboType[p1];
@@ -449,14 +470,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     ctx.step = 'BID_RESOLVE'; // 锁定步骤，让 UI 展示结算
     this.emit('STATE_UPDATED', this.getStateSnapshot());
 
-    // 给玩家 2.5s 看结算，然后清空 decreeContest 推进到 BOUNTY_ROLL
+    // 给玩家 4s 看结算 (含翻牌+战力+胜负标题 3 段动画), 然后清空 decreeContest 推进到 BOUNTY_ROLL
     setTimeout(() => {
       this.state.decreeContest = null;
       this.state.phase = GamePhase.BOUNTY_ROLL;
       this.resetTimer();
       this.emit('PHASE_CHANGED', GamePhase.BOUNTY_ROLL);
       this.executeBountyRoll();
-    }, 2500);
+    }, 4000);
   }
 
   /** 第10回合：缝合并强制覆盖 */
@@ -793,16 +814,15 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       defenderEff.ambushFoldStealCount || 0,
       1,
     );
-    for (let i = 0; i < stealCount; i++) {
-      if (defender.hand.length === 0) break;
-      const stealIdx = Math.floor(Math.random() * defender.hand.length);
-      const stolen = defender.hand.splice(stealIdx, 1)[0];
-      attacker.hand.push(stolen);
-      this.pushAction({
-        type: 'CARD_STEAL',
-        payload: { fromId: defender.id, toId: attacker.id, card: stolen },
-        durationMs: 500,
-      });
+    // 改为待办式: 胜方亲手从对方手牌(面朝下)中挑选 N 张
+    const actualCount = Math.min(stealCount, defender.hand.length);
+    if (actualCount > 0) {
+      this.state.pendingSteal = {
+        chooserId: attacker.id,
+        fromPlayerId: defender.id,
+        count: actualCount,
+        reason: '怯战偷牌',
+      };
     }
 
     // 愚者 buff: 未被拆穿宣告 (攻击方有声明且对手怯战)
@@ -1282,6 +1302,42 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   // ═══════════════════════════════════════════════════════════
+  //  偷牌待办: 突袭胜方亲手挑牌
+  // ═══════════════════════════════════════════════════════════
+
+  public confirmSteal(chooserId: string, cardIds: string[]): boolean {
+    const pending = this.state.pendingSteal;
+    if (!pending || pending.chooserId !== chooserId) return false;
+    if (cardIds.length !== pending.count) return false;
+
+    const chooser = this.getPlayer(chooserId);
+    const victim = this.getPlayer(pending.fromPlayerId);
+
+    // 校验所有 cardIds 都在受害者手牌里
+    const stolen: ICard[] = [];
+    for (const cid of cardIds) {
+      const idx = victim.hand.findIndex(c => c.id === cid);
+      if (idx < 0) return false;
+      stolen.push(victim.hand[idx]);
+      victim.hand.splice(idx, 1);
+    }
+    chooser.hand.push(...stolen);
+
+    stolen.forEach(c => {
+      this.pushAction({
+        type: 'CARD_STEAL',
+        payload: { fromId: victim.id, toId: chooser.id, card: c },
+        durationMs: 600,
+      });
+    });
+
+    this.addLog(`${chooser.name} 偷取了 ${victim.name} 的 ${stolen.length} 张牌 (${pending.reason})`);
+    this.state.pendingSteal = null;
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════
   //  回合控制
   // ═══════════════════════════════════════════════════════════
 
@@ -1650,11 +1706,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   private addLog(message: string): void {
-    this.state.log.push({
+    const entry = {
       turn: this.state.turnNumber,
       phase: this.state.phase,
       message,
       timestamp: Date.now(),
-    });
+    };
+    this.state.log.push(entry);
+    this.emit('LOG_ADDED', entry);
   }
 }

@@ -41,14 +41,17 @@ export function DrawMarketPhase() {
     return () => setHandClickHandler(null);
   }, [isMyTurn, buyingCard, selectedCards, selectCard, deselectCard, setHandClickHandler]);
 
-  if (!gameState || !player) return null;
-
-  const handleDraw = () => {
-    if (!hasDrawn && isMyTurn) {
+  // 自动汲取: 进入此阶段后 600ms 自动抽牌, 玩家无需点按钮
+  useEffect(() => {
+    if (!isMyTurn || hasDrawn) return;
+    const t = setTimeout(() => {
       drawCards();
       setHasDrawn(true);
-    }
-  };
+    }, 600);
+    return () => clearTimeout(t);
+  }, [isMyTurn, hasDrawn, drawCards]);
+
+  if (!gameState || !player) return null;
 
   const handleSelectMarket = (card: ICard) => {
     if (!isMyTurn) return;
@@ -91,26 +94,24 @@ export function DrawMarketPhase() {
         padding: 12,
       }}
     >
-      {/* 抽牌按钮 */}
+      {/* 自动汲取提示 (无需点击) */}
       {!hasDrawn && isMyTurn && (
-        <motion.button
-          onClick={handleDraw}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           style={{
-            padding: '10px 26px',
-            borderRadius: 8,
-            border: '1px solid #b8860b',
-            background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
             color: '#ffd700',
             fontFamily: '"Cinzel", serif',
-            fontWeight: 700,
-            fontSize: 14,
-            cursor: 'pointer',
+            fontSize: 13,
+            letterSpacing: 2,
+            padding: '6px 16px',
+            border: '1px solid #b8860b',
+            borderRadius: 6,
+            background: 'rgba(26,11,46,0.6)',
           }}
-          whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(255,215,0,0.4)' }}
-          whileTap={{ scale: 0.95 }}
         >
-          🃏 汲取 (抽牌)
-        </motion.button>
+          🃏 汲取中...
+        </motion.div>
       )}
 
       {/* 黑市标题 */}

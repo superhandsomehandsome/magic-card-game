@@ -22,6 +22,7 @@ export class AIPlayer {
   private engine: GameEngine;
   private aiPlayerId: string;
   private actionTimer: ReturnType<typeof setTimeout> | null = null;
+  private collisionTickTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(engine: GameEngine, aiPlayerId: string) {
     this.engine = engine;
@@ -35,6 +36,20 @@ export class AIPlayer {
     });
     this.engine.on('TURN_CHANGED', () => {
       this.scheduleAction(() => this.onPhaseChanged(this.engine.getState().phase));
+    });
+    // 对撞阶段 engine 仅 emit STATE_UPDATED, 需要主动推进
+    // 用独立 timer 槽位避免被主 actionTimer 覆盖掉
+    this.engine.on('STATE_UPDATED', () => {
+      const s = this.engine.getState();
+      if (s.phase === GamePhase.COLLISION) {
+        if (this.collisionTickTimer) clearTimeout(this.collisionTickTimer);
+        this.collisionTickTimer = setTimeout(() => this.handleCollision(), 200);
+      }
+      // 偷牌待办 (AI 是 chooser 时随机挑)
+      if (s.pendingSteal && s.pendingSteal.chooserId === this.aiPlayerId) {
+        if (this.collisionTickTimer) clearTimeout(this.collisionTickTimer);
+        this.collisionTickTimer = setTimeout(() => this.handlePendingSteal(), 600);
+      }
     });
   }
 
@@ -246,6 +261,28 @@ export class AIPlayer {
   }
 
   // ═══════════════════════════════════════════════════════════
+  //  偷牌待办: AI 随机挑
+  // ═══════════════════════════════════════════════════════════
+  private handlePendingSteal(): void {
+    const state = this.engine.getState();
+    const pending = state.pendingSteal;
+    if (!pending || pending.chooserId !== this.aiPlayerId) return;
+    const victim = state.players[pending.fromPlayerId];
+    if (!victim) return;
+    // 随机挑 N 张
+    const pool = [...victim.hand];
+    const picks: string[] = [];
+    for (let i = 0; i < pending.count && pool.length > 0; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool[idx].id);
+      pool.splice(idx, 1);
+    }
+    if (picks.length === pending.count) {
+      this.engine.confirmSteal(this.aiPlayerId, picks);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   //  终局：对撞
   // ═══════════════════════════════════════════════════════════
   private handleCollision(): void {
@@ -253,24 +290,36 @@ export class AIPlayer {
     const collision = state.collisionState;
     if (!collision) return;
 
-    // 排兵布阵步骤：AI 自动按高分排前面，立即确认
+    // 排兵布阵步骤：AI 自动按高分排前面，立即确认 → 然后递归推进到 RAISE/FOLD
     if (!collision.orderConfirmed?.[this.aiPlayerId]) {
       const cards = collision.playerCards[this.aiPlayerId] || [];
       const ordered = [...cards].sort((a, b) => b.baseScore - a.baseScore);
       this.scheduleAction(() => {
         this.engine.setCollisionOrder(this.aiPlayerId, ordered.map(c => c.id));
+        // 排序确认后, 继续推进 RAISE 流程 (引擎不会再发 PHASE_CHANGED, 必须自驱)
+        this.scheduleAction(() => this.handleCollision(), 600);
       }, 700);
       return;
     }
 
+    // 检测是否还有牌可揭示 (本回合已揭示 == roundIndex+1 = 当前轮次需要的张数)
+    const myRevealed = collision.revealedCards[this.aiPlayerId]?.length ?? 0;
+    const myCardsLeft = collision.playerCards[this.aiPlayerId]?.length ?? 0;
+    const expectedRevealed = collision.roundIndex + 1;
+    if (myRevealed >= expectedRevealed || myCardsLeft === 0) return; // 等对方
+
     // 加注/退缩：80% 加注，劣势时 30% 退缩
-    if (state.currentTurnPlayerId !== this.aiPlayerId) return;
     const me = state.players[this.aiPlayerId];
     const opp = this.getOpponent(state);
     const r = Math.random();
     const losing = me.score < opp.score - 30;
     const action: 'RAISE' | 'FOLD' = (losing && r < 0.3) ? 'FOLD' : 'RAISE';
-    this.scheduleAction(() => this.engine.collisionAction(this.aiPlayerId, action), 800);
+    this.scheduleAction(() => {
+      if (this.engine.getState().phase !== GamePhase.COLLISION) return;
+      this.engine.collisionAction(this.aiPlayerId, action);
+      // 继续监听: 若回合推进而 PHASE 仍为 COLLISION, 主动检查是否需要再揭示
+      this.scheduleAction(() => this.handleCollision(), 700);
+    }, 800);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -278,10 +327,15 @@ export class AIPlayer {
   // ═══════════════════════════════════════════════════════════
 
   private handleDrawMarket(): void {
-    this.engine.drawPhaseCards(this.aiPlayerId);
+    // 抽牌 (引擎可能因 deck empty 内部转 COLLISION, 此后状态会变)
+    if (this.engine.getState().phase === GamePhase.DRAW_MARKET) {
+      this.engine.drawPhaseCards(this.aiPlayerId);
+    }
 
     this.scheduleAction(() => {
       const state = this.engine.getState();
+      // 防御: 若已离开 DRAW_MARKET (例如 deck empty 触发了 COLLISION), 直接退出
+      if (state.phase !== GamePhase.DRAW_MARKET) return;
       const me = state.players[this.aiPlayerId];
 
       // 黑市判断: 找性价比高的牌购买 (有80%手牌总分余量)
@@ -292,12 +346,16 @@ export class AIPlayer {
 
       if (target) {
         const payment = this.pickPaymentCards(me.hand, target.baseScore);
-        if (payment.length > 0) {
+        if (payment.length > 0 && this.engine.getState().phase === GamePhase.DRAW_MARKET) {
           this.engine.buyMarketCard(this.aiPlayerId, target.id, payment.map(c => c.id));
         }
       }
 
-      this.scheduleAction(() => this.engine.nextPhase(), 400);
+      this.scheduleAction(() => {
+        if (this.engine.getState().phase === GamePhase.DRAW_MARKET) {
+          this.engine.nextPhase();
+        }
+      }, 400);
     }, 400);
   }
 
@@ -538,5 +596,6 @@ export class AIPlayer {
 
   public destroy(): void {
     if (this.actionTimer) clearTimeout(this.actionTimer);
+    if (this.collisionTickTimer) clearTimeout(this.collisionTickTimer);
   }
 }

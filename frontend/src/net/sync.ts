@@ -44,7 +44,8 @@ export type PlayerActionKind =
   | 'SET_COLLISION_ORDER'
   | 'FLASH_SWAP'
   | 'DECREE_OPT_IN'
-  | 'DECREE_BID';
+  | 'DECREE_BID'
+  | 'CONFIRM_STEAL';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
@@ -83,6 +84,7 @@ const HOST_RELAY_EVENTS = [
   'DECREE_BID_RESOLVED',
   'DECREE_AWARDED',
   'SUPREME_DECREE_APPLIED',
+  'LOG_ADDED',
 ] as const;
 
 export class HostSync {
@@ -288,6 +290,12 @@ export class HostSync {
           break;
         case 'DECREE_BID':
           this.engine.submitDecreeBid(
+            playerId,
+            (p.cardIds as string[]) || [],
+          );
+          break;
+        case 'CONFIRM_STEAL':
+          this.engine.confirmSteal(
             playerId,
             (p.cardIds as string[]) || [],
           );

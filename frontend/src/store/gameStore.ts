@@ -22,6 +22,13 @@ import { HostSync, GuestSync, sendPlayerAction } from '../net/sync';
 
 export type NetworkMode = 'LOCAL' | 'HOST' | 'GUEST';
 
+/** 事件 Toast: 简短叙事提示, 仅显示最新一条 */
+export interface IEventToast {
+  id: number;
+  message: string;
+  timestamp: number;
+}
+
 interface GameStore {
   engine: GameEngine | null;
   gameState: IGameState | null;
@@ -32,6 +39,9 @@ interface GameStore {
   networkMode: NetworkMode;
   hostSync: HostSync | null;
   guestSync: GuestSync | null;
+  eventToasts: IEventToast[];
+  pushEventToast: (message: string) => void;
+  dismissEventToast: (id: number) => void;
 
   initGame: (player1Id: string, player2Id: string, hero1: HeroType, hero2: HeroType) => void;
   setLocalPlayer: (id: string) => void;
@@ -56,6 +66,7 @@ interface GameStore {
   flashSwap: (flashCardId: string, swapCardIds: string[]) => void;
   submitDecreeOptIn: (choice: 'CONTEST' | 'PASS') => void;
   submitDecreeBid: (cardIds: string[]) => boolean;
+  confirmSteal: (cardIds: string[]) => boolean;
 
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
@@ -88,6 +99,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   hostSync: null,
   guestSync: null,
   handClickHandler: null,
+  eventToasts: [],
+
+  pushEventToast: (message: string) => {
+    const toast = { id: Date.now() + Math.floor(Math.random() * 1000), message, timestamp: Date.now() };
+    set(prev => ({ eventToasts: [...prev.eventToasts.slice(-4), toast] }));
+  },
+  dismissEventToast: (id: number) => {
+    set(prev => ({ eventToasts: prev.eventToasts.filter(t => t.id !== id) }));
+  },
 
   setLocalPlayer: (id: string) => set({ localPlayerId: id }),
   setNetworkMode: (mode: NetworkMode) => set({ networkMode: mode }),
@@ -126,6 +146,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         set({ gameState: engine.getStateSnapshot() });
       });
     }
+
+    // Toast 订阅: 主机/单机/客机都需要 (客机的 LOG_ADDED 通过 onEngineEvent 重发到本地引擎)
+    engine.on('LOG_ADDED', (entry: { message: string }) => {
+      get().pushEventToast(entry.message);
+    });
 
     set({
       engine,
@@ -329,6 +354,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     if (!engine) return false;
     return engine.submitDecreeBid(localPlayerId, cardIds);
+  },
+
+  confirmSteal: (cardIds) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('CONFIRM_STEAL', { cardIds });
+      return true;
+    }
+    if (!engine) return false;
+    return engine.confirmSteal(localPlayerId, cardIds);
   },
 
   selectCard: (cardId) => {

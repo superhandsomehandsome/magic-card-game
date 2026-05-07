@@ -20,7 +20,9 @@ import { VFXLayer } from '../vfx/VFXLayer';
 import { VictoryScreen } from '../vfx/VictoryScreen';
 import { VoiceLineLayer } from '../vfx/VoiceLine';
 import { ScoreToast } from '../vfx/ScoreToast';
+import { EventToastLayer } from '../vfx/EventToastLayer';
 import { FlashSwapModal } from './FlashSwapModal';
+import { StealPickerModal } from './StealPickerModal';
 import { DecreeContestModal } from '../decree/DecreeContestModal';
 import { DecreeArchive } from '../decree/DecreeArchive';
 import type { ICard } from '../../types/game';
@@ -73,6 +75,9 @@ export function GameBoard() {
       {/* 得分浮字 (对方/我方加减分) */}
       <ScoreToast />
 
+      {/* 事件叙事 Toast (对方/系统刚刚发生了什么) */}
+      <EventToastLayer />
+
       {/* 设置菜单（统一收纳音效/规则/投降/退出） */}
       <SettingsMenu />
 
@@ -99,6 +104,9 @@ export function GameBoard() {
           onClose={() => setFlashSwapCard(null)}
         />
       )}
+
+      {/* 偷牌选择(突袭怯战胜方亲手挑) */}
+      <StealPickerModal />
 
       {/* ═══ 顶部：对手区域 ═══ */}
       <div style={{

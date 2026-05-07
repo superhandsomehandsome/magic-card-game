@@ -82,6 +82,16 @@ export interface IGameState {
   supremeDecree: IDecree | null;
   /** 已经触发过法案争夺的 round 标记 (避免重复触发) */
   decreeRoundsTriggered: number[];
+  /** 待结算的偷牌请求 (突袭怯战时由胜方亲手挑选), 为 null 时无待办 */
+  pendingSteal: IPendingSteal | null;
+}
+
+/** 偷牌待办: 胜方需从对手手牌(面朝下)中挑选 N 张 */
+export interface IPendingSteal {
+  chooserId: string;       // 谁来挑 (突袭赢家)
+  fromPlayerId: string;    // 从谁那里偷
+  count: number;           // 必须挑几张
+  reason: string;          // 日志用
 }
 
 export interface IPlayerState {
@@ -264,8 +274,8 @@ export const GAME_CONSTANTS = {
   EARLY_COMBO_TURN_THRESHOLD: 3, // "早期"回合阈值
 
   // ═══ 法案争夺 (Decree Contest) ═══
-  DECREE_OPT_IN_TIMER_MS: 10000,    // 抉择期 10s
-  DECREE_BID_TIMER_MS: 10000,       // 暗标期 10s
+  DECREE_OPT_IN_TIMER_MS: 20000,    // 抉择期 20s (足够阅读法案 buff/debuff)
+  DECREE_BID_TIMER_MS: 20000,       // 暗标期 20s
   DECREE_TRIGGER_ROUNDS: [1, 4, 7] as const,
   DECREE_SUPREME_ROUND: 10,
   DECREE_BID_PAIR_BONUS: 6,
@@ -337,6 +347,8 @@ export interface IDecreeContestState {
   triggeringRound: number; // 1, 4, 7
   optIn: Record<string, 'CONTEST' | 'PASS' | null>;
   bids: Record<string, string[] | null>; // cardId 列表 / null = 未提交
+  /** BID_RESOLVE 阶段保留的实际卡牌快照 (用于 UI 翻牌展示) */
+  bidCards?: Record<string, ICard[]>;
   bidComboType: Record<string, IDecreeBidCombo | null>;
   bidPower: Record<string, number>;
   /** 阶段倒计时截止时间戳 (Date.now()+10000) */
