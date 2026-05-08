@@ -4,7 +4,7 @@
  * 2. 加入房间 (JOIN_ROOM): 输入房间号加入
  * 3. AI 对战 (VS_AI): 立即与电脑对战
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GAME_CONSTANTS } from '../../types/game';
 
@@ -14,10 +14,36 @@ interface LobbyProps {
   onSelectMode: (mode: LobbyMode, roomCode?: string) => void;
 }
 
+function useViewport() {
+  const [vp, setVp] = useState(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    h: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }));
+  useEffect(() => {
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  return vp;
+}
+
 export function Lobby({ onSelectMode }: LobbyProps) {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState('');
+  const { w, h } = useViewport();
+
+  // 矮屏横屏（典型手机横屏）— 用左右两栏 + 缩小字号
+  const isShortLandscape = w > h && h < 500;
+  // 平板横屏 — 字号稍微缩小
+  const isMidLandscape = w > h && h >= 500 && h < 720;
+
+  const titleFontSize = isShortLandscape ? 22 : isMidLandscape ? 32 : 42;
+  const titleLetter = isShortLandscape ? 2 : isMidLandscape ? 4 : 6;
 
   const handleJoin = () => {
     if (roomCodeInput.trim().length >= 3) {
@@ -26,29 +52,26 @@ export function Lobby({ onSelectMode }: LobbyProps) {
     }
   };
 
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        padding: 32,
-        background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
-      }}
-    >
+  // 标题区
+  const titleBlock = (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    }}>
       <motion.h1
         style={{
           color: '#b8860b',
           fontFamily: '"Cinzel", serif',
-          fontSize: 42,
-          letterSpacing: 6,
+          fontSize: titleFontSize,
+          letterSpacing: titleLetter,
           textShadow: '0 0 30px rgba(184,134,11,0.6)',
           margin: 0,
-          marginBottom: 12,
+          marginBottom: isShortLandscape ? 4 : 12,
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
         }}
         animate={{
           textShadow: [
@@ -64,60 +87,88 @@ export function Lobby({ onSelectMode }: LobbyProps) {
 
       <p style={{
         color: '#888',
-        fontSize: 14,
+        fontSize: isShortLandscape ? 11 : 14,
         letterSpacing: 4,
         fontFamily: '"Cinzel", serif',
-        marginBottom: 40,
+        marginBottom: 0,
       }}>
         禁忌魔典
       </p>
 
-      {/* 三大入口 */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-        width: '100%',
-        maxWidth: 320,
-      }}>
-        <ModeButton
-          icon="🎲"
-          label="创建房间"
-          subtitle="生成房号等待对手加入"
-          color="#b8860b"
-          onClick={() => onSelectMode('CREATE_ROOM')}
-        />
-        <ModeButton
-          icon="🚪"
-          label="加入房间"
-          subtitle="输入房号与好友对战"
-          color="#9b59b6"
-          onClick={() => setShowJoinModal(true)}
-        />
-        <ModeButton
-          icon="🤖"
-          label="AI 对战"
-          subtitle="立即开始 — 对战智能 AI"
-          color="#4488ff"
-          onClick={() => onSelectMode('VS_AI')}
-        />
-        <ModeButton
-          icon="📜"
-          label="查看规则"
-          subtitle="了解卡牌、组合、英雄技能"
-          color="#666"
-          onClick={() => setShowRules(true)}
-        />
-      </div>
+      {!isShortLandscape && (
+        <p style={{
+          color: '#444',
+          fontSize: 11,
+          marginTop: 30,
+          fontStyle: 'italic',
+        }}>
+          暗影中的契约，自此立下…
+        </p>
+      )}
+    </div>
+  );
 
-      <p style={{
-        color: '#444',
-        fontSize: 11,
-        marginTop: 40,
-        fontStyle: 'italic',
-      }}>
-        暗影中的契约，自此立下…
-      </p>
+  // 按钮列
+  const buttonsBlock = (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: isShortLandscape ? 8 : 14,
+      width: '100%',
+      maxWidth: 360,
+    }}>
+      <ModeButton
+        icon="🎲"
+        label="创建房间"
+        subtitle="生成房号等待对手加入"
+        color="#b8860b"
+        compact={isShortLandscape}
+        onClick={() => onSelectMode('CREATE_ROOM')}
+      />
+      <ModeButton
+        icon="🚪"
+        label="加入房间"
+        subtitle="输入房号与好友对战"
+        color="#9b59b6"
+        compact={isShortLandscape}
+        onClick={() => setShowJoinModal(true)}
+      />
+      <ModeButton
+        icon="🤖"
+        label="AI 对战"
+        subtitle="立即开始 — 对战智能 AI"
+        color="#4488ff"
+        compact={isShortLandscape}
+        onClick={() => onSelectMode('VS_AI')}
+      />
+      <ModeButton
+        icon="📜"
+        label="查看规则"
+        subtitle="了解卡牌、组合、英雄技能"
+        color="#666"
+        compact={isShortLandscape}
+        onClick={() => setShowRules(true)}
+      />
+    </div>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        display: 'flex',
+        flexDirection: isShortLandscape ? 'row' : 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: isShortLandscape ? 40 : 0,
+        minHeight: '100vh',
+        padding: isShortLandscape ? '16px 32px' : 32,
+        background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
+      }}
+    >
+      {titleBlock}
+      {buttonsBlock}
 
       {/* 规则弹窗 */}
       <AnimatePresence>
@@ -337,26 +388,27 @@ function RulesModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ModeButton({ icon, label, subtitle, color, onClick }: {
+function ModeButton({ icon, label, subtitle, color, onClick, compact }: {
   icon: string;
   label: string;
   subtitle: string;
   color: string;
   onClick: () => void;
+  compact?: boolean;
 }) {
   return (
     <motion.button
       onClick={onClick}
       style={{
-        padding: '18px 24px',
-        borderRadius: 12,
+        padding: compact ? '8px 14px' : '18px 24px',
+        borderRadius: compact ? 8 : 12,
         border: `2px solid ${color}40`,
         background: 'linear-gradient(180deg, rgba(26,11,46,0.9), rgba(13,0,24,0.9))',
         color: '#e0e0e0',
         cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
-        gap: 16,
+        gap: compact ? 10 : 16,
         textAlign: 'left',
       }}
       whileHover={{
@@ -366,22 +418,24 @@ function ModeButton({ icon, label, subtitle, color, onClick }: {
       }}
       whileTap={{ scale: 0.97 }}
     >
-      <span style={{ fontSize: 28 }}>{icon}</span>
+      <span style={{ fontSize: compact ? 20 : 28 }}>{icon}</span>
       <div style={{ flex: 1 }}>
         <div style={{
           color,
-          fontSize: 16,
+          fontSize: compact ? 13 : 16,
           fontWeight: 700,
           fontFamily: '"Cinzel", serif',
           letterSpacing: 1,
         }}>
           {label}
         </div>
-        <div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>
-          {subtitle}
-        </div>
+        {!compact && (
+          <div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>
+            {subtitle}
+          </div>
+        )}
       </div>
-      <span style={{ color: color, fontSize: 16 }}>›</span>
+      <span style={{ color: color, fontSize: compact ? 14 : 16 }}>›</span>
     </motion.button>
   );
 }
