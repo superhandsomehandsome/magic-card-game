@@ -197,6 +197,20 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     if (next === GamePhase.BOUNTY_ROLL) {
       this.executeBountyRoll();
     }
+
+    // 命运织梦者：进入咏唱阶段自动掷骰（被动）
+    if (next === GamePhase.CHANT_SCORE) {
+      const activeId = this.state.currentTurnPlayerId;
+      const activePlayer = this.state.players[activeId];
+      if (activePlayer?.hero === HeroType.WEAVER) {
+        const strategy = this.heroStrategies.get(activeId) as { rollFateDice?: (e: IGameEngineAPI) => unknown } | undefined;
+        // 防止重复：本回合手牌里已有虚影则跳过
+        const alreadyHasPhantom = activePlayer.hand.some(c => c.isPhantom);
+        if (strategy?.rollFateDice && !alreadyHasPhantom) {
+          strategy.rollFateDice(this);
+        }
+      }
+    }
   }
 
   private shouldTriggerDecree(round: number): boolean {
@@ -470,14 +484,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     ctx.step = 'BID_RESOLVE'; // 锁定步骤，让 UI 展示结算
     this.emit('STATE_UPDATED', this.getStateSnapshot());
 
-    // 给玩家 4s 看结算 (含翻牌+战力+胜负标题 3 段动画), 然后清空 decreeContest 推进到 BOUNTY_ROLL
+    // 给玩家 6.5s 看结算 (与 BID_RESOLVE 4 段动画同步)
     setTimeout(() => {
       this.state.decreeContest = null;
       this.state.phase = GamePhase.BOUNTY_ROLL;
       this.resetTimer();
       this.emit('PHASE_CHANGED', GamePhase.BOUNTY_ROLL);
       this.executeBountyRoll();
-    }, 4000);
+    }, 6500);
   }
 
   /** 第10回合：缝合并强制覆盖 */

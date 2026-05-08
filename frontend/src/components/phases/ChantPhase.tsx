@@ -4,7 +4,7 @@
  * 点击得分区域时显示类似 "3×A + 2×B = 48分" 的构成明细，
  * 并列出同类组合的分差对比（如 3×A+2×B vs 3×B+2×F 差多少）
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard, IComboResult } from '../../types/game';
 import { ComboType, CardRank, HeroType, GAME_CONSTANTS } from '../../types/game';
@@ -13,6 +13,14 @@ import { detectCombos, getBlockedRank } from '../../utils/scoring';
 import { getCardDisplayName, getEffectiveScore } from '../../utils/deck';
 import { Card } from '../board/Card';
 import { aggregateEffectsFor } from '../../core/decrees';
+
+/** 组合签名：每次 state 更新都会产生新的 combo 引用，故用稳定签名比较 */
+function comboSig(combo: IComboResult | null): string {
+  if (!combo) return '';
+  return combo.type + '|' + combo.cards.map(c => c.id).sort().join(',');
+}
+
+const DBL_CLICK_MS = 350;
 
 const COMBO_NAMES: Record<ComboType, { name: string; icon: string; description: string }> = {
   [ComboType.GRAND_STRAIGHT]: { name: '大顺', icon: '🌟', description: 'A-B-C-D-E-F 各一张 (×3)' },
@@ -25,12 +33,33 @@ const COMBO_NAMES: Record<ComboType, { name: string; icon: string; description: 
 
 export function ChantPhase() {
   const { gameState, localPlayerId, submitCombo, advancePhase, rollFateDice, darkSacrifice, useOracle } = useGameStore();
-  const [selectedCombo, setSelectedCombo] = useState<IComboResult | null>(null);
+  const [selectedSig, setSelectedSig] = useState<string>('');
   const [showDetail, setShowDetail] = useState(false);
-  const [diceUsed, setDiceUsed] = useState(false);
   const [showSacrifice, setShowSacrifice] = useState(false);
   const [showOracle, setShowOracle] = useState(false);
   const [oracleResult, setOracleResult] = useState<{ cards: ICard[]; label: string } | null>(null);
+  const lastClickRef = useRef<{ sig: string; time: number }>({ sig: '', time: 0 });
+  const fateRolledRef = useRef<string | null>(null);
+
+  // 命运织梦者：进入咏唱阶段自动掷骰（被动）
+  useEffect(() => {
+    if (!gameState) return;
+    const player = gameState.players[localPlayerId];
+    if (!player) return;
+    if (player.hero !== HeroType.WEAVER) return;
+    if (gameState.currentTurnPlayerId !== localPlayerId) return;
+    // 当前回合 + 阶段组合做唯一 key，避免重复触发
+    const key = `${gameState.turnNumber}`;
+    if (fateRolledRef.current === key) return;
+    // 仅当本回合手牌里没有虚影牌时才掷骰
+    const hasPhantom = player.hand.some(c => c.isPhantom);
+    if (hasPhantom) {
+      fateRolledRef.current = key;
+      return;
+    }
+    fateRolledRef.current = key;
+    rollFateDice();
+  }, [gameState?.turnNumber, gameState?.currentTurnPlayerId, gameState?.phase, localPlayerId, rollFateDice]);
 
   if (!gameState) return null;
 
@@ -39,7 +68,6 @@ export function ChantPhase() {
   const opponent = gameState.players[opponentId];
   const isMyTurn = gameState.currentTurnPlayerId === localPlayerId;
   const blockedRank = getBlockedRank(opponent);
-  const isWeaver = player.hero === HeroType.WEAVER;
 
   const effects = useMemo(
     () => aggregateEffectsFor(gameState, localPlayerId),
@@ -66,20 +94,36 @@ export function ChantPhase() {
   const handleComboClick = (combo: IComboResult) => {
     if (!isMyTurn) return;
     if (prideLocked) return;
-    if (selectedCombo === combo) {
-      // 再次点击同一组合 → 收起（不提交，需点专用出牌按钮）
-      setSelectedCombo(null);
+
+    const sig = comboSig(combo);
+    const now = Date.now();
+    // 双击 → 直接出牌
+    if (lastClickRef.current.sig === sig && now - lastClickRef.current.time < DBL_CLICK_MS) {
+      lastClickRef.current = { sig: '', time: 0 };
+      handleSubmitCombo(combo);
+      return;
+    }
+    lastClickRef.current = { sig, time: now };
+
+    // 单击 → 展开/收起切换
+    if (selectedSig === sig) {
+      setSelectedSig('');
     } else {
-      // 第一次点击 → 展开详情并保持
-      setSelectedCombo(combo);
+      setSelectedSig(sig);
     }
   };
 
   const handleSubmitCombo = (combo: IComboResult) => {
     submitCombo(combo.cards.map(c => c.id), combo.score);
-    setSelectedCombo(null);
+    setSelectedSig('');
     setShowDetail(false);
   };
+
+  // 通过签名找回当前选中的 combo（避免引用相等问题）
+  const selectedCombo = useMemo(
+    () => combos.find(c => comboSig(c) === selectedSig) || null,
+    [combos, selectedSig],
+  );
 
   // 计算当前回合的衰减系数
   const decayInfo = useMemo(() => {
@@ -244,29 +288,21 @@ export function ChantPhase() {
         )}
       </AnimatePresence>
 
-      {/* 织梦者命运骰子 */}
-      {isWeaver && isMyTurn && !diceUsed && (
-        <motion.button
-          onClick={() => {
-            const ok = rollFateDice();
-            if (ok) setDiceUsed(true);
-          }}
+      {/* 织梦者：被动技能提示 */}
+      {player.hero === HeroType.WEAVER && isMyTurn && player.hand.some(c => c.isPhantom) && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
           style={{
-            padding: '10px 24px', borderRadius: 8,
-            border: '2px solid #9b59b6',
-            background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
-            color: '#c39bd3', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-            fontFamily: '"Cinzel", serif',
+            padding: '6px 14px', borderRadius: 6,
+            border: '1px solid #9b59b6',
+            background: 'rgba(155,89,182,0.12)',
+            color: '#c39bd3', fontSize: 12, fontWeight: 700,
+            fontFamily: '"Cinzel", serif', letterSpacing: 1,
           }}
-          whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(155,89,182,0.5)' }}
-          whileTap={{ scale: 0.95 }}
-          animate={{
-            boxShadow: ['0 0 5px #9b59b640', '0 0 15px #9b59b680', '0 0 5px #9b59b640'],
-          }}
-          transition={{ duration: 2, repeat: Infinity }}
         >
-          🔮 命运骰子 (每回合1次)
-        </motion.button>
+          🔮 命运骰子（被动）：本回合获得一张虚影牌（咏唱后消失）
+        </motion.div>
       )}
 
       {/* 傲慢法案锁定提示 */}
@@ -336,7 +372,7 @@ export function ChantPhase() {
                 style={{
                   padding: '12px 16px',
                   borderRadius: 10,
-                  border: selectedCombo === combo ? '2px solid #ffd700' : '1px solid #3a1f5e',
+                  border: comboSig(combo) === selectedSig ? '2px solid #ffd700' : '1px solid #3a1f5e',
                   background: 'rgba(26, 11, 46, 0.9)',
                   cursor: isMyTurn ? 'pointer' : 'default',
                   opacity: netScore <= 0 ? 0.7 : 1,
@@ -392,7 +428,7 @@ export function ChantPhase() {
                 </div>
 
                 {/* 同类组合分差对比 (有多个同类时显示) */}
-                {sameTypeCombos.length > 1 && selectedCombo === combo && (
+                {sameTypeCombos.length > 1 && comboSig(combo) === selectedSig && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}

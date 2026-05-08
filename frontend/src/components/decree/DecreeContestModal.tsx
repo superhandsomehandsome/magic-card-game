@@ -541,14 +541,21 @@ function ResolveStep({
   const myCombo = ctx.bidComboType[myId];
   const oppCombo = ctx.bidComboType[oppId];
 
-  // 翻牌时序: 0ms 双方卡背入场 → 600ms 同时翻面 → 1200ms 显示战力 → 1800ms 显示胜负
+  // 翻牌时序: 0-700ms 卡背入场 → 700-2200ms 戏剧化暂停 → 2200ms 翻面+战力 → 4200ms 胜负揭晓
+  // 总展示时长约 6 秒（与引擎 finalizeDecree 6500ms 超时同步）
   const [stage, setStage] = useState<0 | 1 | 2 | 3>(0);
   useEffect(() => {
-    const t1 = setTimeout(() => setStage(1), 200);    // 卡背入场完成
-    const t2 = setTimeout(() => setStage(2), 800);    // 翻面完成 → 显示战力
-    const t3 = setTimeout(() => setStage(3), 1600);   // 显示胜负标题
+    const t1 = setTimeout(() => setStage(1), 700);    // 卡背入场完成
+    const t2 = setTimeout(() => setStage(2), 2200);   // 翻面完成 → 显示战力
+    const t3 = setTimeout(() => setStage(3), 4200);   // 显示胜负标题
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, []);
+
+  // 当前阶段文字
+  const stageLabel = stage === 0 ? '☠ 双方暗牌入场 ☠'
+    : stage === 1 ? '⚖ 战力裁定中…'
+    : stage === 2 ? '🔥 翻面揭晓 🔥'
+    : '✦ 胜负已分 ✦';
 
   return (
     <motion.div
@@ -559,6 +566,22 @@ function ResolveStep({
         alignItems: 'center', gap: 18, width: '100%', maxWidth: 720,
       }}
     >
+      {/* 当前阶段提示横幅 */}
+      <motion.div
+        key={stage}
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          padding: '6px 18px', borderRadius: 6,
+          border: '1px solid #b8860b80',
+          background: 'rgba(184,134,11,0.12)',
+          color: '#ffd700', fontSize: 13, fontWeight: 700,
+          fontFamily: '"Cinzel", serif', letterSpacing: 3,
+        }}
+      >
+        {stageLabel}
+      </motion.div>
+
       {/* 双方卡牌翻牌区 */}
       <div style={{
         display: 'flex', justifyContent: 'space-around',

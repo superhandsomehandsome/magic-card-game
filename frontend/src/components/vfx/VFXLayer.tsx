@@ -71,6 +71,8 @@ function VFXEffect({ effect }: { effect: ActiveVFX }) {
       return <AudioMute />;
     case 'DICE_ROLL':
       return <DiceRoll roll={effect.payload.roll as number} />;
+    case 'FATE_DICE':
+      return <FateDiceRoll roll={effect.payload.roll as number} />;
     case 'VFX_BID_COMBO':
       return <BidComboBurst payload={effect.payload} />;
     case 'GLOBAL_MUTATION':
@@ -1076,5 +1078,110 @@ function DecreeVoided({ payload }: { payload: Record<string, unknown> }) {
     >
       🔥 [{decree?.name || '法案'}] 化为灰烬
     </motion.div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  命运骰子 (织梦者被动 FATE_DICE)
+// ═══════════════════════════════════════════════════════════
+
+function FateDiceRoll({ roll }: { roll: number }) {
+  // 1=F, 2=E, 3=D, 4=C, 5=B, 6=A
+  const rankLabel = ['F', 'E', 'D', 'C', 'B', 'A'][roll - 1] || '?';
+  return (
+    <>
+      {/* 紫色虚空背景 */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0.65, 0.65, 0] }}
+        transition={{ duration: 2.0 }}
+        style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse at center, rgba(75,0,130,0.7), rgba(0,0,0,0.92))',
+        }}
+      />
+      {/* 标题 */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: [0, 1, 1, 0], y: [-20, 0, 0, -10] }}
+        transition={{ duration: 2.0 }}
+        style={{
+          position: 'absolute', top: '20%', left: '50%',
+          transform: 'translateX(-50%)',
+          color: '#c39bd3', fontFamily: '"Cinzel", serif',
+          fontSize: 18, fontWeight: 900, letterSpacing: 6,
+          textShadow: '0 0 18px rgba(155,89,182,0.8)',
+          pointerEvents: 'none',
+        }}
+      >
+        🔮 命运骰子 · 织梦者被动 🔮
+      </motion.div>
+      {/* 紫色星光粒子 */}
+      {[...Array(16)].map((_, i) => (
+        <motion.div
+          key={i}
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{
+            opacity: [0, 1, 0],
+            scale: [0, 1.2, 0.4],
+            x: [(Math.random() - 0.5) * 60, (Math.random() - 0.5) * 280],
+            y: [(Math.random() - 0.5) * 60, (Math.random() - 0.5) * 280],
+          }}
+          transition={{ delay: 0.3 + i * 0.06, duration: 1.0 }}
+          style={{
+            position: 'absolute', top: '45%', left: '50%',
+            width: 6, height: 6, borderRadius: '50%',
+            background: '#c39bd3',
+            boxShadow: '0 0 10px #9b59b6',
+          }}
+        />
+      ))}
+      {/* 骰子本体（先翻滚显示数字 1-6，再定格到结果） */}
+      <motion.div
+        initial={{ opacity: 0, rotate: -180, scale: 0.3 }}
+        animate={{
+          opacity: [0, 1, 1, 1, 0],
+          rotate: [0, 540, 900, 1080, 1080],
+          scale: [0.3, 1.4, 1.2, 1.0, 0.9],
+        }}
+        transition={{ duration: 2.0, times: [0, 0.3, 0.6, 0.85, 1] }}
+        style={{
+          position: 'absolute',
+          top: '40%', left: '50%',
+          transform: 'translateX(-50%)',
+          width: 120, height: 120,
+          borderRadius: 18,
+          background: 'radial-gradient(circle, #4b0082, #1a0033)',
+          border: '3px solid #9b59b6',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          fontFamily: '"Cinzel", serif',
+          color: '#c39bd3', fontWeight: 900,
+          boxShadow: '0 0 50px rgba(155,89,182,0.8), 0 0 90px rgba(75,0,130,0.5)',
+          pointerEvents: 'none',
+        }}
+      >
+        <div style={{ fontSize: 56, lineHeight: 1, textShadow: '0 0 16px #9b59b6' }}>{roll}</div>
+        <div style={{ fontSize: 14, letterSpacing: 4, marginTop: 4, color: '#ffd700' }}>
+          → {rankLabel}
+        </div>
+      </motion.div>
+      {/* 末尾结果文字 */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0, 0, 1, 1, 0] }}
+        transition={{ duration: 2.0, times: [0, 0.4, 0.7, 0.8, 0.95, 1] }}
+        style={{
+          position: 'absolute', top: '70%', left: '50%',
+          transform: 'translateX(-50%)',
+          color: '#ffd700', fontFamily: '"Cinzel", serif',
+          fontSize: 14, fontWeight: 700, letterSpacing: 3,
+          textShadow: '0 0 12px rgba(255,215,0,0.6)',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}
+      >
+        ✦ 获得 {rankLabel} 级虚影牌（仅本回合有效）✦
+      </motion.div>
+    </>
   );
 }

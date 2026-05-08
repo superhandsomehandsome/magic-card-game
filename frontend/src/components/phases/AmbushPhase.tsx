@@ -34,6 +34,8 @@ export function AmbushPhase() {
   const [selectedDiscardId, setSelectedDiscardId] = useState<string | null>(null);
   const [showDeclare, setShowDeclare] = useState(false);
   const [lastResult, setLastResult] = useState<AmbushResult | null>(null);
+  // 二次突袭引导：'NEED_CHOICE' 弹出"是否二连"; 'PICK_DISCARD' 等弃牌; 'PICK_ATTACK' 等攻击牌; 'DECLINED' 已拒绝
+  const [secondFlow, setSecondFlow] = useState<'NEED_CHOICE' | 'PICK_DISCARD' | 'PICK_ATTACK' | 'DECLINED'>('NEED_CHOICE');
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const player = gameState?.players[localPlayerId];
@@ -43,6 +45,16 @@ export function AmbushPhase() {
   const ambushCount = player?.ambushesThisTurn ?? 0;
   const isSecondAmbush = ambushCount === 1;
   const maxAmbushReached = ambushCount >= GAME_CONSTANTS.MAX_AMBUSH_PER_TURN;
+
+  // 重置：每次突袭轮次变化时（如新回合、刚完成第一次突袭）回到选择阶段
+  useEffect(() => {
+    if (ambushCount === 0) setSecondFlow('NEED_CHOICE');
+    else if (ambushCount === 1) {
+      // 完成第一次突袭后，回到二连选择面板
+      setSecondFlow('NEED_CHOICE');
+      setSelectedDiscardId(null);
+    }
+  }, [ambushCount]);
 
   // 监听突袭结算
   useEffect(() => {
@@ -62,11 +74,20 @@ export function AmbushPhase() {
     };
   }, [engine]);
 
-  // 注册底部手牌点击（三国杀式：直接点牌操作）
+  // 注册底部手牌点击（引导式分步操作）
   useEffect(() => {
     // 防守方视角由 DefenderView 自行注册，此处不干扰
     if (isDefending) return;
     if (!isMyTurn || gameState?.phase !== GamePhase.AMBUSH_DECLARE || maxAmbushReached) {
+      setHandClickHandler(null);
+      return;
+    }
+    // 二次突袭流程进入"NEED_CHOICE"阶段时禁止点牌（等用户先点"发起二连"按钮）
+    if (isSecondAmbush && secondFlow === 'NEED_CHOICE') {
+      setHandClickHandler(null);
+      return;
+    }
+    if (isSecondAmbush && secondFlow === 'DECLINED') {
       setHandClickHandler(null);
       return;
     }
@@ -75,19 +96,27 @@ export function AmbushPhase() {
       if (card.rank === CardRank.FLASH) return;
 
       if (isSecondAmbush) {
-        // 第二次突袭：第一次点 = 弃牌代价
-        if (!selectedDiscardId) {
+        if (secondFlow === 'PICK_DISCARD') {
+          if (card.id === selectedDiscardId) {
+            // 重复点击 = 取消弃牌
+            setSelectedDiscardId(null);
+            return;
+          }
           setSelectedDiscardId(card.id);
+          setSecondFlow('PICK_ATTACK');
           return;
         }
-        // 点同一张：取消弃牌选择
-        if (card.id === selectedDiscardId) {
-          setSelectedDiscardId(null);
+        if (secondFlow === 'PICK_ATTACK') {
+          // 点已弃的牌：撤回弃牌选择
+          if (card.id === selectedDiscardId) {
+            setSelectedDiscardId(null);
+            setSecondFlow('PICK_DISCARD');
+            return;
+          }
+          setSelectedAttackId(card.id);
+          setShowDeclare(true);
           return;
         }
-        // 点另一张：作为攻击牌，进入宣告
-        setSelectedAttackId(card.id);
-        setShowDeclare(true);
         return;
       }
 
@@ -96,7 +125,7 @@ export function AmbushPhase() {
       setShowDeclare(true);
     });
     return () => setHandClickHandler(null);
-  }, [isMyTurn, isDefending, gameState?.phase, isSecondAmbush, selectedDiscardId, maxAmbushReached, setHandClickHandler]);
+  }, [isMyTurn, isDefending, gameState?.phase, isSecondAmbush, selectedDiscardId, maxAmbushReached, setHandClickHandler, secondFlow]);
 
   if (!gameState || !player) return null;
 
@@ -168,25 +197,75 @@ export function AmbushPhase() {
         ⚡ 突袭 ({ambushCount}/{GAME_CONSTANTS.MAX_AMBUSH_PER_TURN})
       </div>
 
-      {/* 步骤提示（三国杀式） */}
-      {!maxAmbushReached && (
-        <div style={{ color: '#aaa', fontSize: 12, textAlign: 'center' }}>
-          {isSecondAmbush && !selectedDiscardId && (
-            <motion.span
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-              style={{ color: '#ff8c00' }}
-            >
-              ⚠ 第二次突袭：点击一张牌作为弃牌代价
-            </motion.span>
-          )}
-          {isSecondAmbush && selectedDiscardId && (
-            <span style={{ color: '#ff4500' }}>再点击另一张牌出击</span>
-          )}
-          {!isSecondAmbush && (
-            <span>点击底部手牌选择攻击牌</span>
-          )}
-        </div>
+      {/* 大横幅指引：根据当前突袭状态动态显示 */}
+      {!maxAmbushReached && !isSecondAmbush && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{
+            padding: '10px 20px', borderRadius: 10,
+            border: '2px solid #ff4500',
+            background: 'rgba(255,69,0,0.12)',
+            color: '#ff8c00', fontSize: 14, fontWeight: 700,
+            fontFamily: '"Cinzel", serif', letterSpacing: 2,
+            textAlign: 'center',
+          }}
+        >
+          👆 点击下方手牌选择攻击牌
+        </motion.div>
+      )}
+
+      {/* 二次突袭引导：分 3 步 */}
+      {isSecondAmbush && secondFlow === 'PICK_DISCARD' && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{
+            padding: '12px 22px', borderRadius: 10,
+            border: '2px solid #ff8c00',
+            background: 'rgba(255,140,0,0.15)',
+            color: '#ffb347', fontSize: 14, fontWeight: 900,
+            fontFamily: '"Cinzel", serif', letterSpacing: 2,
+            textAlign: 'center',
+            boxShadow: '0 0 16px rgba(255,140,0,0.4)',
+          }}
+        >
+          <motion.div
+            animate={{ opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 1.2, repeat: Infinity }}
+          >
+            ⚡ 第二次突袭 · 第 1 步
+          </motion.div>
+          <div style={{ marginTop: 6, fontSize: 13, color: '#ff8c00', letterSpacing: 1 }}>
+            👆 请点击一张手牌作为<strong>弃牌代价</strong>
+          </div>
+        </motion.div>
+      )}
+
+      {isSecondAmbush && secondFlow === 'PICK_ATTACK' && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{
+            padding: '12px 22px', borderRadius: 10,
+            border: '2px solid #ff4500',
+            background: 'rgba(255,69,0,0.18)',
+            color: '#ff6347', fontSize: 14, fontWeight: 900,
+            fontFamily: '"Cinzel", serif', letterSpacing: 2,
+            textAlign: 'center',
+            boxShadow: '0 0 16px rgba(255,69,0,0.5)',
+          }}
+        >
+          <motion.div
+            animate={{ opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 1.2, repeat: Infinity }}
+          >
+            ⚡ 第二次突袭 · 第 2 步
+          </motion.div>
+          <div style={{ marginTop: 6, fontSize: 13, color: '#ff4500', letterSpacing: 1 }}>
+            👆 再选一张手牌作为<strong>攻击牌</strong>
+          </div>
+        </motion.div>
       )}
 
       {maxAmbushReached && (
@@ -195,9 +274,83 @@ export function AmbushPhase() {
         </div>
       )}
 
-      {/* 已选弃牌代价预览 */}
+      {/* 二次突袭：是否发起选择弹窗（在第一次突袭完成后弹出） */}
       <AnimatePresence>
-        {isSecondAmbush && selectedDiscardId && (
+        {isSecondAmbush && secondFlow === 'NEED_CHOICE' && !maxAmbushReached && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 5000,
+              background: 'radial-gradient(ellipse at center, rgba(40,8,8,0.85), rgba(0,0,0,0.92))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.85, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              style={{
+                background: 'linear-gradient(180deg, #1a0b2e, #0d0018)',
+                border: '2px solid #ff4500',
+                borderRadius: 16,
+                padding: 28,
+                display: 'flex', flexDirection: 'column', gap: 16,
+                alignItems: 'center', maxWidth: 380,
+                boxShadow: '0 0 40px rgba(255,69,0,0.5)',
+              }}
+            >
+              <h3 style={{
+                color: '#ff4500', fontFamily: '"Cinzel", serif',
+                margin: 0, fontSize: 20, letterSpacing: 4,
+                textShadow: '0 0 18px rgba(255,69,0,0.6)',
+              }}>
+                ⚡ 是否发起第二次突袭？
+              </h3>
+              <div style={{ color: '#ccc', fontSize: 13, textAlign: 'center', lineHeight: 1.6 }}>
+                第二次突袭需<strong style={{ color: '#ff8c00' }}>额外弃 1 张手牌</strong>作为代价，<br />
+                之后再选一张牌发起攻击。
+              </div>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <motion.button
+                  onClick={() => setSecondFlow('PICK_DISCARD')}
+                  whileHover={{ scale: 1.06, boxShadow: '0 0 20px rgba(255,69,0,0.7)' }}
+                  whileTap={{ scale: 0.95 }}
+                  style={{
+                    padding: '12px 28px', borderRadius: 10,
+                    border: '2px solid #ff4500',
+                    background: 'linear-gradient(135deg, #ff4500, #8b0000)',
+                    color: '#fff', fontWeight: 900, fontSize: 14,
+                    cursor: 'pointer', fontFamily: '"Cinzel", serif', letterSpacing: 2,
+                  }}
+                >
+                  ⚡ 发起二连
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setSecondFlow('DECLINED');
+                    advancePhase();
+                  }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  style={{
+                    padding: '12px 24px', borderRadius: 10,
+                    border: '1px solid #888',
+                    background: 'transparent',
+                    color: '#aaa', fontSize: 13, cursor: 'pointer',
+                  }}
+                >
+                  结束 → 咏唱
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 已选弃牌代价预览（PICK_ATTACK 阶段才显示） */}
+      <AnimatePresence>
+        {isSecondAmbush && secondFlow === 'PICK_ATTACK' && selectedDiscardId && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -215,20 +368,23 @@ export function AmbushPhase() {
               return c ? <Card card={c} size="sm" /> : null;
             })()}
             <button
-              onClick={() => setSelectedDiscardId(null)}
+              onClick={() => {
+                setSelectedDiscardId(null);
+                setSecondFlow('PICK_DISCARD');
+              }}
               style={{
                 padding: '4px 10px', fontSize: 11, borderRadius: 4,
                 border: '1px solid #888', background: 'transparent',
                 color: '#aaa', cursor: 'pointer',
               }}
             >
-              取消
+              重选
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 操作按钮 */}
+      {/* 操作按钮（仅第一次突袭前 / 二连选择已拒绝时显示） */}
       <div style={{ display: 'flex', gap: 8 }}>
         {ambushCount === 0 && (
           <motion.button
@@ -241,20 +397,6 @@ export function AmbushPhase() {
             }}
           >
             跳过突袭 → 咏唱阶段
-          </motion.button>
-        )}
-
-        {ambushCount >= 1 && (
-          <motion.button
-            onClick={() => advancePhase()}
-            whileHover={{ scale: 1.05 }}
-            style={{
-              padding: '8px 18px', borderRadius: 6,
-              border: '1px solid #666', background: 'transparent',
-              color: '#999', cursor: 'pointer', fontSize: 12,
-            }}
-          >
-            结束突袭 → 咏唱阶段
           </motion.button>
         )}
       </div>

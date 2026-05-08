@@ -60,7 +60,7 @@ export class WeaverStrategy implements IHeroStrategy {
     engine.pushAction({
       type: 'FATE_DICE',
       payload: { roll, card: phantomCard, playerId: this.playerId },
-      durationMs: 2000,
+      durationMs: 2200,
     });
 
     engine.emit('HERO_ABILITY_USED', {
