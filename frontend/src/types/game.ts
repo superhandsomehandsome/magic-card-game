@@ -114,8 +114,8 @@ export interface IPlayerState {
   ambushWonThisTurn: boolean;
   /** 破法者标记：被诅咒，下次咏唱 -15 分 */
   cursedNextChant: boolean;
-  /** 先知低语：本回合是否已使用 */
-  hasUsedOracleThisTurn: boolean;
+  /** 先知低语：本局是否已使用（用一次全局生效） */
+  hasUsedOracle: boolean;
   /** 黑暗献祭：本回合是否已使用 */
   hasUsedDarkSacrificeThisTurn: boolean;
 }

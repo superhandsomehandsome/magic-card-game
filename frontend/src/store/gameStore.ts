@@ -68,7 +68,7 @@ interface GameStore {
   submitDecreeBid: (cardIds: string[]) => boolean;
   confirmSteal: (cardIds: string[]) => boolean;
   darkSacrifice: (handCardId: string, pileCardId: string) => boolean;
-  useOracle: () => ICard[];
+  useOracle: (choice: 'peek_hand' | 'peek_deck' | 'peek_market') => { cards: ICard[]; error?: string };
 
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
@@ -378,10 +378,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return engine.darkSacrifice(localPlayerId, handCardId, pileCardId);
   },
 
-  useOracle: () => {
+  useOracle: (choice) => {
     const { engine, localPlayerId } = get();
-    if (!engine) return [];
-    return engine.useOracle(localPlayerId);
+    if (!engine) return { cards: [] };
+    return engine.useOracle(localPlayerId, choice);
   },
 
   selectCard: (cardId) => {

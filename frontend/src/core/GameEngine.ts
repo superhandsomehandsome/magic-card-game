@@ -1356,23 +1356,49 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  先知低语：窥视对手手牌（汲取阶段，每回合限 1 次）
+  //  先知低语：咏唱阶段三选一窥视，花费 5 分，本局一次
+  //  choice: 'peek_hand' | 'peek_deck' | 'peek_market'
   // ═══════════════════════════════════════════════════════════
 
-  public useOracle(playerId: string): ICard[] {
-    if (this.state.phase !== GamePhase.DRAW_MARKET) return [];
+  private static readonly PROPHET_COST = 5;
+  private static readonly PROPHET_PEEK_HAND_MIN_DECK = 4;
+
+  public useOracle(playerId: string, choice: 'peek_hand' | 'peek_deck' | 'peek_market'): { cards: ICard[]; error?: string } {
+    if (this.state.phase !== GamePhase.CHANT_SCORE) return { cards: [], error: '先知低语只能在咏唱阶段使用' };
     const player = this.getPlayer(playerId);
-    if (player.hasUsedOracleThisTurn) return [];
+    if (player.hasUsedOracle) return { cards: [], error: '先知低语本局已用过' };
 
-    const opponentId = this.getOpponentId(playerId);
-    const opponent = this.getPlayer(opponentId);
+    if (choice === 'peek_hand') {
+      if (this.deck.length <= GameEngine.PROPHET_PEEK_HAND_MIN_DECK) {
+        return { cards: [], error: `终局将至（牌库≤${GameEngine.PROPHET_PEEK_HAND_MIN_DECK}），无法窥探对手手牌` };
+      }
+      this.addScore(playerId, -GameEngine.PROPHET_COST, '先知低语：窥探手牌');
+      player.hasUsedOracle = true;
+      const opp = this.getPlayer(this.getOpponentId(playerId));
+      const shuffled = [...opp.hand].sort(() => Math.random() - 0.5);
+      const sample = shuffled.slice(0, Math.min(3, shuffled.length));
+      this.addLog(`🔮 ${player.name} 先知低语 — 窥探对手 ${sample.length} 张手牌 (-${GameEngine.PROPHET_COST}分)`);
+      this.emit('STATE_UPDATED', this.getStateSnapshot());
+      return { cards: sample };
+    }
 
-    player.hasUsedOracleThisTurn = true;
-    this.addLog(`🔮 ${player.name} 使用先知低语，窥视对手 ${opponent.hand.length} 张手牌`);
+    if (choice === 'peek_deck') {
+      this.addScore(playerId, -GameEngine.PROPHET_COST, '先知低语：窥视牌库');
+      player.hasUsedOracle = true;
+      // deck 末尾 = 牌库顶（pop 取顶）
+      const top3 = this.deck.slice(-3).reverse();
+      this.addLog(`🔮 ${player.name} 先知低语 — 窥视牌库顶 ${top3.length} 张 (-${GameEngine.PROPHET_COST}分)`);
+      this.emit('STATE_UPDATED', this.getStateSnapshot());
+      return { cards: top3 };
+    }
+
+    // peek_market: 查看当前黑市剩余牌
+    this.addScore(playerId, -GameEngine.PROPHET_COST, '先知低语：窥视黑市');
+    player.hasUsedOracle = true;
+    const mkt = [...this.state.marketCards];
+    this.addLog(`🔮 ${player.name} 先知低语 — 窥视黑市 ${mkt.length} 张 (-${GameEngine.PROPHET_COST}分)`);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
-
-    // 返回对手完整手牌（UI 临时展示后自动消失）
-    return [...opponent.hand];
+    return { cards: mkt };
   }
 
   public confirmSteal(chooserId: string, cardIds: string[]): boolean {
@@ -1444,8 +1470,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     current.ambushesThisTurn = 0;
     current.marketBuysThisTurn = 0;
     current.ambushWonThisTurn = false;
-    current.hasUsedOracleThisTurn = false;
     current.hasUsedDarkSacrificeThisTurn = false;
+    // hasUsedOracle 不重置（本局只能用一次）
 
     // 处理以太歌者反转倒计时
     if (this.state.isInverted) {
@@ -1748,7 +1774,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       handLimitDecay: 0,
       ambushWonThisTurn: false,
       cursedNextChant: false,
-      hasUsedOracleThisTurn: false,
+      hasUsedOracle: false,
       hasUsedDarkSacrificeThisTurn: false,
     };
   }

@@ -64,6 +64,8 @@ export function AmbushPhase() {
 
   // 注册底部手牌点击（三国杀式：直接点牌操作）
   useEffect(() => {
+    // 防守方视角由 DefenderView 自行注册，此处不干扰
+    if (isDefending) return;
     if (!isMyTurn || gameState?.phase !== GamePhase.AMBUSH_DECLARE || maxAmbushReached) {
       setHandClickHandler(null);
       return;
@@ -94,7 +96,7 @@ export function AmbushPhase() {
       setShowDeclare(true);
     });
     return () => setHandClickHandler(null);
-  }, [isMyTurn, gameState?.phase, isSecondAmbush, selectedDiscardId, maxAmbushReached, setHandClickHandler]);
+  }, [isMyTurn, isDefending, gameState?.phase, isSecondAmbush, selectedDiscardId, maxAmbushReached, setHandClickHandler]);
 
   if (!gameState || !player) return null;
 

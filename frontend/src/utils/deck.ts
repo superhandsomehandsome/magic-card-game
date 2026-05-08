@@ -15,7 +15,7 @@ export function createDeck(): ICard[] {
       deck.push({
         id: uuid(),
         rank,
-        baseScore: rank === CardRank.FLASH ? 8 : rank,
+        baseScore: rank === CardRank.FLASH ? 5 : rank,
       });
     }
   }
