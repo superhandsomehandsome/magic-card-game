@@ -66,9 +66,14 @@ export function onSocketStatus(cb: StatusCallback): () => void {
 export function getSocket(): Socket {
   if (socket) return socket;
 
+  const isFileProtocol = window.location.protocol === 'file:';
+  const RENDER_SERVER = import.meta.env.VITE_RENDER_SERVER ?? 'https://magic-card.onrender.com';
+
   const url = import.meta.env.DEV
     ? (import.meta.env.VITE_SOCKET_URL || 'http://localhost:10000')
-    : window.location.origin;
+    : isFileProtocol
+      ? RENDER_SERVER
+      : window.location.origin;
 
   setStatus('CONNECTING');
 
