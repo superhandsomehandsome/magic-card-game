@@ -75,8 +75,10 @@ export function HeroSelect({ mode = 'SOLO', opponentHero = null, onSelect, title
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        minHeight: '100vh',
-        padding: '24px 16px 120px',
+        height: '100vh',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        padding: '24px 16px 140px',
         background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
       }}
     >
