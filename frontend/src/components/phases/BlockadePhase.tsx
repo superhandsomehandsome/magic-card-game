@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { ICard } from '../../types/game';
-import { GAME_CONSTANTS } from '../../types/game';
+import { GAME_CONSTANTS, CardRank } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
 
@@ -118,7 +118,7 @@ export function BlockadePhase() {
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {player.hand.map(card => (
+            {player.hand.filter(c => c.rank !== CardRank.FLASH).map(card => (
               <Card
                 key={card.id}
                 card={card}
@@ -127,6 +127,11 @@ export function BlockadePhase() {
                 onClick={isMyTurn ? (c) => setBlockadeSelected(c.id) : undefined}
               />
             ))}
+            {player.hand.every(c => c.rank === CardRank.FLASH) && (
+              <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
+                手牌均为瞬牌，不可用于封锁
+              </div>
+            )}
           </div>
 
           {!isMyTurn && (

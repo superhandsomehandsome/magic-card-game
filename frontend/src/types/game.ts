@@ -112,6 +112,12 @@ export interface IPlayerState {
   handLimitDecay: number;
   /** Pride 标记：本回合是否已经赢过一次突袭 (用于解除咏唱锁) */
   ambushWonThisTurn: boolean;
+  /** 破法者标记：被诅咒，下次咏唱 -15 分 */
+  cursedNextChant: boolean;
+  /** 先知低语：本回合是否已使用 */
+  hasUsedOracleThisTurn: boolean;
+  /** 黑暗献祭：本回合是否已使用 */
+  hasUsedDarkSacrificeThisTurn: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════

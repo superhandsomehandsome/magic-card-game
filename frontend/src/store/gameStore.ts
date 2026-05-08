@@ -67,6 +67,8 @@ interface GameStore {
   submitDecreeOptIn: (choice: 'CONTEST' | 'PASS') => void;
   submitDecreeBid: (cardIds: string[]) => boolean;
   confirmSteal: (cardIds: string[]) => boolean;
+  darkSacrifice: (handCardId: string, pileCardId: string) => boolean;
+  useOracle: () => ICard[];
 
   selectCard: (cardId: string) => void;
   deselectCard: (cardId: string) => void;
@@ -364,6 +366,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     if (!engine) return false;
     return engine.confirmSteal(localPlayerId, cardIds);
+  },
+
+  darkSacrifice: (handCardId, pileCardId) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('DARK_SACRIFICE', { handCardId, pileCardId });
+      return true;
+    }
+    if (!engine) return false;
+    return engine.darkSacrifice(localPlayerId, handCardId, pileCardId);
+  },
+
+  useOracle: () => {
+    const { engine, localPlayerId } = get();
+    if (!engine) return [];
+    return engine.useOracle(localPlayerId);
   },
 
   selectCard: (cardId) => {

@@ -986,6 +986,17 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       const winnerEff = winner.id === attacker.id ? attackerEff : defenderEff;
       const loserEff = loser.id === attacker.id ? attackerEff : defenderEff;
 
+      // 破法者标记：攻击方赢得拼点 → 自动诅咒防守方下次咏唱
+      if (winner.id === attacker.id) {
+        loser.cursedNextChant = true;
+        this.addLog(`💀 破法者标记：${loser.name} 下次咏唱将受到 -15 诅咒`);
+        this.pushAction({
+          type: 'SCORE_BURST',
+          payload: { playerId: loser.id, amount: -15, reason: '破法者标记预警' },
+          durationMs: 600,
+        });
+      }
+
       // 赢家抽1偷1 + 独吞 bountyPool
       const winBounty = this.state.bountyPool;
       if (winBounty > 0) {
@@ -1125,6 +1136,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       this.addScore(playerId, -effects.flashUsePenalty * flashUsed, '虚无法案：组合中使用瞬');
     }
 
+    // 破法者标记诅咒：本次咏唱 -15
+    if (player.cursedNextChant) {
+      this.addScore(playerId, -15, '💀 破法者标记：咏唱诅咒');
+      player.cursedNextChant = false;
+      this.addLog(`${player.name} 的破法者诅咒触发，-15 分`);
+    }
+
     // 应用早期得分衰减 (推动更多对撞终局)
     const decayed = this.applyChantScoreDecay(score);
     // 计算封锁罚分（若使用了被对手封锁的 rank — 含 blockadeZone2）
@@ -1176,6 +1194,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const player = this.getPlayer(playerId);
     const card = player.hand.find(c => c.id === cardId);
     if (!card) return;
+    // 瞬牌不可作封锁牌
+    if (card.rank === CardRank.FLASH) {
+      this.addLog('⚡ 瞬牌不可用于封锁');
+      return;
+    }
 
     player.hand = player.hand.filter(c => c.id !== cardId);
     player.blockadeZone = card;
@@ -1305,6 +1328,53 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   //  偷牌待办: 突袭胜方亲手挑牌
   // ═══════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════
+  //  黑暗献祭：弃一换一（咏唱阶段，每回合限 1 次）
+  // ═══════════════════════════════════════════════════════════
+
+  public darkSacrifice(playerId: string, handCardId: string, pileCardId: string): boolean {
+    if (this.state.phase !== GamePhase.CHANT_SCORE) return false;
+    const player = this.getPlayer(playerId);
+    if (player.hasUsedDarkSacrificeThisTurn) return false;
+
+    const handCard = player.hand.find(c => c.id === handCardId);
+    const pileCard = this.state.discardPile.find(c => c.id === pileCardId);
+    if (!handCard || !pileCard) return false;
+
+    // 弃掉手牌
+    player.hand = player.hand.filter(c => c.id !== handCardId);
+    this.state.discardPile.push(handCard);
+
+    // 从弃牌堆取出
+    this.state.discardPile = this.state.discardPile.filter(c => c.id !== pileCardId);
+    player.hand.push(pileCard);
+
+    player.hasUsedDarkSacrificeThisTurn = true;
+    this.addLog(`🩸 ${player.name} 黑暗献祭：弃 [${CardRank[handCard.rank]}] → 取 [${CardRank[pileCard.rank]}]`);
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  先知低语：窥视对手手牌（汲取阶段，每回合限 1 次）
+  // ═══════════════════════════════════════════════════════════
+
+  public useOracle(playerId: string): ICard[] {
+    if (this.state.phase !== GamePhase.DRAW_MARKET) return [];
+    const player = this.getPlayer(playerId);
+    if (player.hasUsedOracleThisTurn) return [];
+
+    const opponentId = this.getOpponentId(playerId);
+    const opponent = this.getPlayer(opponentId);
+
+    player.hasUsedOracleThisTurn = true;
+    this.addLog(`🔮 ${player.name} 使用先知低语，窥视对手 ${opponent.hand.length} 张手牌`);
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+
+    // 返回对手完整手牌（UI 临时展示后自动消失）
+    return [...opponent.hand];
+  }
+
   public confirmSteal(chooserId: string, cardIds: string[]): boolean {
     const pending = this.state.pendingSteal;
     if (!pending || pending.chooserId !== chooserId) return false;
@@ -1374,6 +1444,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     current.ambushesThisTurn = 0;
     current.marketBuysThisTurn = 0;
     current.ambushWonThisTurn = false;
+    current.hasUsedOracleThisTurn = false;
+    current.hasUsedDarkSacrificeThisTurn = false;
 
     // 处理以太歌者反转倒计时
     if (this.state.isInverted) {
@@ -1675,6 +1747,9 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       activeDecrees: [],
       handLimitDecay: 0,
       ambushWonThisTurn: false,
+      cursedNextChant: false,
+      hasUsedOracleThisTurn: false,
+      hasUsedDarkSacrificeThisTurn: false,
     };
   }
 

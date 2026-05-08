@@ -13,15 +13,17 @@ import type { ICard } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
 import { aggregateEffectsFor } from '../../core/decrees';
+import { getCardDisplayName } from '../../utils/deck';
 
 export function DrawMarketPhase() {
   const {
     gameState, localPlayerId, drawCards, buyMarketCard, advancePhase,
     selectedCards, selectCard, deselectCard, clearSelection,
-    setHandClickHandler,
+    setHandClickHandler, useOracle,
   } = useGameStore();
   const [hasDrawn, setHasDrawn] = useState(false);
   const [buyingCard, setBuyingCard] = useState<ICard | null>(null);
+  const [oracleCards, setOracleCards] = useState<ICard[] | null>(null);
 
   const player = gameState?.players[localPlayerId];
   const isMyTurn = gameState?.currentTurnPlayerId === localPlayerId;
@@ -267,6 +269,73 @@ export function DrawMarketPhase() {
           🆓 破产法案：点击任意黑市牌即可免费获得
         </motion.div>
       )}
+
+      {/* 先知低语 */}
+      {hasDrawn && isMyTurn && !buyingCard && player && !player.hasUsedOracleThisTurn && (
+        <motion.button
+          onClick={() => {
+            const cards = useOracle();
+            if (cards.length > 0) {
+              setOracleCards(cards);
+              setTimeout(() => setOracleCards(null), 3500);
+            }
+          }}
+          whileHover={{ scale: 1.05, boxShadow: '0 0 14px rgba(147,112,219,0.6)' }}
+          style={{
+            padding: '8px 18px', borderRadius: 8,
+            border: '1px solid #9370db',
+            background: 'rgba(75,0,130,0.2)',
+            color: '#9370db', fontWeight: 700,
+            cursor: 'pointer', fontSize: 12,
+            fontFamily: '"Cinzel", serif', letterSpacing: 1,
+          }}
+        >
+          🔮 先知低语（窥视对手）
+        </motion.button>
+      )}
+
+      {/* 先知低语结果 */}
+      <AnimatePresence>
+        {oracleCards && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 8000,
+              background: 'radial-gradient(ellipse at center, rgba(75,0,130,0.8), rgba(0,0,0,0.92))',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 20,
+            }}
+          >
+            <div style={{
+              color: '#9370db', fontFamily: '"Cinzel", serif',
+              fontSize: 22, fontWeight: 900, letterSpacing: 4,
+              textShadow: '0 0 20px rgba(147,112,219,0.8)',
+            }}>
+              🔮 先知低语
+            </div>
+            <div style={{ color: '#b39ddb', fontSize: 13 }}>
+              对手手中共 {oracleCards.length} 张牌：
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {oracleCards.map(card => (
+                <motion.div
+                  key={card.id}
+                  initial={{ rotateY: -90 }}
+                  animate={{ rotateY: 0 }}
+                  transition={{ duration: 0.4, type: 'spring' }}
+                >
+                  <Card card={card} size="md" />
+                </motion.div>
+              ))}
+            </div>
+            <div style={{ color: '#7e57c2', fontSize: 12 }}>
+              画面将在 3 秒后消失…
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 继续按钮 */}
       {hasDrawn && isMyTurn && !buyingCard && (
