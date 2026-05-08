@@ -1,16 +1,17 @@
-name: 发布单机版下载包
+name: 发布游戏下载包
 
 on:
   push:
     branches: [main, master]
-  workflow_dispatch:   # 也支持手动触发
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest   # Windows 环境构建 .exe
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,38 +22,80 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: 安装依赖
+      # ── 步骤 1：构建前端单机版 ──────────────────────────
+      - name: 安装前端依赖
         working-directory: frontend
         run: npm ci
 
-      - name: 构建单机版
+      - name: 构建单机版前端
         working-directory: frontend
         run: npm run build:standalone
 
-      - name: 重命名输出文件
-        run: cp "frontend/dist-standalone/index.html" "秘术对决-单机版.html"
+      # ── 步骤 2：打 ZIP 包（备用，解压即玩）────────────────
+      - name: 打 ZIP 包
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "frontend/dist-standalone/*" -DestinationPath "秘术对决-单机版.zip" -Force
 
+      # ── 步骤 3：把前端拷进 Electron 目录 ─────────────────
+      - name: 复制前端到 Electron renderer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "electron/renderer"
+          Copy-Item -Path "frontend/dist-standalone/*" -Destination "electron/renderer/" -Recurse -Force
+
+      # ── 步骤 4：构建 Electron exe ──────────────────────
+      - name: 安装 Electron 依赖
+        working-directory: electron
+        run: npm install
+
+      - name: 构建 Windows 安装包 & 便携版
+        working-directory: electron
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 步骤 5：发布到 Release ─────────────────────────
       - name: 删除旧的 latest 发布
-        run: gh release delete latest --yes 2>/dev/null || true
+        shell: pwsh
+        run: gh release delete latest --yes 2>$null; exit 0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 创建新的 latest 发布
+        shell: pwsh
         run: |
-          gh release create latest \
-            --title "秘术对决：禁忌魔典 — 单机版" \
+          $installer = Get-ChildItem "dist-electron/*.exe" | Where-Object { $_.Name -notlike "*便携*" } | Select-Object -First 1
+          $portable  = Get-ChildItem "dist-electron/*便携*.exe" | Select-Object -First 1
+          $zip       = "秘术对决-单机版.zip"
+
+          $files = @()
+          if ($installer) { $files += $installer.FullName }
+          if ($portable)  { $files += $portable.FullName }
+          if (Test-Path $zip) { $files += $zip }
+
+          $fileArgs = $files -join " "
+
+          gh release create latest `
+            --title "秘术对决：禁忌魔典" `
             --notes "## 下载方式
 
-          1. 点击下方 **秘术对决-单机版.html** 下载
-          2. 用 Chrome / Edge / Firefox 打开该文件
-          3. 即可开始游戏（无需安装任何软件）
+          ### 推荐：安装版（双击图标即玩）
+          下载 **秘术对决 Setup *.exe** → 安装 → 桌面出现图标 → 双击开玩
 
-          **说明：**
-          - ✅ 对战 AI 完全离线可用
-          - 🌐 联机模式需要联网（连接云服务器）
-          - 推荐使用 Chrome 浏览器以获得最佳体验
-          - 手机请横屏游玩" \
-            --latest \
-            "秘术对决-单机版.html"
+          ### 备选：便携版（无需安装）
+          下载 **秘术对决-便携版.exe** → 直接双击运行
+
+          ### 备选：ZIP 解压版（适合无法运行 exe 的环境）
+          下载 **秘术对决-单机版.zip** → 解压 → 用 Chrome 打开 index.html
+
+          ---
+
+          **功能说明**
+          - AI 对战：完全离线可用
+          - 在线联机：需要联网（连接云服务器）
+          - 手机联机：用 ZIP 版，浏览器横屏打开" `
+            --latest `
+            $fileArgs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

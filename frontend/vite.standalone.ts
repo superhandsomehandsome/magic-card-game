@@ -11,9 +11,10 @@ export default defineConfig({
     react(),
     viteSingleFile(),
   ],
+  // 使用相对路径，确保从 file:// 本地打开时资源路径正确
+  base: './',
   build: {
     outDir: 'dist-standalone',
-    // 内联所有资源，不拆分 chunk
     assetsInlineLimit: 100_000_000,
     cssCodeSplit: false,
     rollupOptions: {
@@ -23,7 +24,6 @@ export default defineConfig({
     },
   },
   define: {
-    // 标记这是独立单机版构建
     'import.meta.env.VITE_STANDALONE': JSON.stringify('true'),
   },
 })

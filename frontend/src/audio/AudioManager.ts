@@ -194,7 +194,7 @@ export const SFX = {
 
 export function initBGM(): void {
   if (bgmAudio) return;
-  bgmAudio = new Audio('/bgm.mp3');
+  bgmAudio = new Audio('./bgm.mp3');
   bgmAudio.loop = true;
   bgmAudio.volume = 0.3;
 }
