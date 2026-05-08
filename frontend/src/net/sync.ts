@@ -45,7 +45,9 @@ export type PlayerActionKind =
   | 'FLASH_SWAP'
   | 'DECREE_OPT_IN'
   | 'DECREE_BID'
-  | 'CONFIRM_STEAL';
+  | 'CONFIRM_STEAL'
+  | 'DARK_SACRIFICE'
+  | 'USE_ORACLE';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
