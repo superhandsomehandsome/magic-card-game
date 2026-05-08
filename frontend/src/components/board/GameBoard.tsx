@@ -160,6 +160,33 @@ export function GameBoard() {
           <Timer timeMs={gameState.timer} />
         </div>
 
+        {/* 至高法案保护期倒计时（grace > 0 时显示） */}
+        {gameState.collisionGracePeriod > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{
+              opacity: [0.75, 1, 0.75],
+              boxShadow: [
+                '0 0 6px rgba(255,69,0,0.4)',
+                '0 0 18px rgba(255,69,0,0.8)',
+                '0 0 6px rgba(255,69,0,0.4)',
+              ],
+            }}
+            transition={{ duration: 1.6, repeat: Infinity }}
+            style={{
+              padding: '6px 16px', borderRadius: 8,
+              border: '2px solid #ff4500',
+              background: 'linear-gradient(135deg, rgba(139,0,0,0.35), rgba(75,0,130,0.25))',
+              color: '#ffb347', fontSize: 12, fontWeight: 900,
+              fontFamily: '"Cinzel", serif', letterSpacing: 3,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 14 }}>⏳</span>
+            <span>至高法案保护期 — 距离对撞 {gameState.collisionGracePeriod} 回合</span>
+          </motion.div>
+        )}
+
         {/* 喋血悬赏池 */}
         <BountyPool amount={gameState.bountyPool} />
 

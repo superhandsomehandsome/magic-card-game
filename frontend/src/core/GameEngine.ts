@@ -88,6 +88,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       supremeDecree: null,
       decreeRoundsTriggered: [],
       pendingSteal: null,
+      collisionGracePeriod: 0,
     };
   }
 
@@ -494,11 +495,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     }, 6500);
   }
 
-  /** 第10回合：缝合并强制覆盖 */
+  /** 第9回合：缝合并强制覆盖 */
   private applySupremeDecree(): void {
     const allDecrees = this.state.offeredDecrees.map(o => o.decree);
     if (allDecrees.length === 0) {
-      this.addLog('第 10 回合：未曾出现过法案，至高法案空降跳过。');
+      this.addLog(`第 ${GAME_CONSTANTS.DECREE_SUPREME_ROUND} 回合：未曾出现过法案，至高法案空降跳过。`);
       return;
     }
     const supreme = stitchSupremeDecree(allDecrees);
@@ -507,12 +508,16 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     for (const player of Object.values(this.state.players)) {
       player.activeDecrees = [];
     }
+    // 设置对撞保护期：至高法案降临后强制保留 N 个咏唱回合
+    this.state.collisionGracePeriod = GAME_CONSTANTS.COLLISION_GRACE_TURNS;
+
     this.pushAction({
       type: 'GLOBAL_MUTATION',
       payload: { decree: supreme },
       durationMs: 3000,
     });
-    this.addLog(`第 10 回合：私欲的尽头是同归于尽。至高法案 [${supreme.name}] 已覆盖全场！`);
+    this.addLog(`第 ${GAME_CONSTANTS.DECREE_SUPREME_ROUND} 回合：私欲的尽头是同归于尽。至高法案 [${supreme.name}] 已覆盖全场！`);
+    this.addLog(`⏳ 至高法案保护期生效：未来 ${GAME_CONSTANTS.COLLISION_GRACE_TURNS} 个回合内即使牌库枯竭也不会触发对撞`);
     this.emit('SUPREME_DECREE_APPLIED', { decree: supreme });
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
@@ -1499,6 +1504,22 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     // 清除虚影牌（织梦者当回合限定）
     current.hand = current.hand.filter(c => !c.isPhantom);
 
+    // 递减对撞保护期（至高法案后强制保留的回合数）
+    if (this.state.collisionGracePeriod > 0) {
+      this.state.collisionGracePeriod--;
+      if (this.state.collisionGracePeriod === 0) {
+        this.addLog('⏳ 至高法案保护期结束，牌库枯竭后将立即进入对撞');
+        // 保护期刚归零，若牌库已空则立即检查对撞
+        if (this.deck.length === 0) {
+          this.emit('DECK_EMPTY');
+          this.initiateCollision();
+          return;
+        }
+      } else {
+        this.addLog(`⏳ 至高法案保护期剩余 ${this.state.collisionGracePeriod} 回合`);
+      }
+    }
+
     // 切换玩家
     const playerIds = Object.keys(this.state.players);
     const nextId = playerIds.find(id => id !== currentId)!;
@@ -1567,6 +1588,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
   private checkDeckEmpty(): void {
     if (this.deck.length === 0) {
+      // 至高法案保护期内：即使牌库空也不立即对撞，等保护期结束
+      if (this.state.collisionGracePeriod > 0) {
+        this.addLog(`牌库已枯竭，但至高法案保护期剩余 ${this.state.collisionGracePeriod} 回合，对撞延迟`);
+        return;
+      }
       this.emit('DECK_EMPTY');
       this.initiateCollision();
     }

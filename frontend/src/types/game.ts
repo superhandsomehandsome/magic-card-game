@@ -72,18 +72,20 @@ export interface IGameState {
   consecutiveTimeouts: Record<string, number>; // AFK 检测
   log: IGameLog[];
 
-  /** 双方都完成咏唱+封锁后递增。决定第 1/4/7/10 回合的法案触发 */
+  /** 双方都完成咏唱+封锁后递增。决定第 1/4/7 回合的普通法案与第 9 回合的至高法案触发 */
   roundNumber: number;
   /** 当前法案争夺子状态 (仅 phase==DECREE_CONTEST 时非空) */
   decreeContest: IDecreeContestState | null;
-  /** 历来出现过的法案及其归属 (用于第10回合至高法案缝合) */
+  /** 历来出现过的法案及其归属 (用于第 9 回合至高法案缝合) */
   offeredDecrees: IOfferedDecree[];
-  /** 第10回合生成的至高法案 (强制全局共享) */
+  /** 第 9 回合生成的至高法案 (强制全局共享) */
   supremeDecree: IDecree | null;
   /** 已经触发过法案争夺的 round 标记 (避免重复触发) */
   decreeRoundsTriggered: number[];
   /** 待结算的偷牌请求 (突袭怯战时由胜方亲手挑选), 为 null 时无待办 */
   pendingSteal: IPendingSteal | null;
+  /** 对撞缓冲回合数。至高法案降临后保护期，>0 时即使牌库空也不立即触发对撞，每个 endTurn 递减 1 */
+  collisionGracePeriod: number;
 }
 
 /** 偷牌待办: 胜方需从对手手牌(面朝下)中挑选 N 张 */
@@ -283,7 +285,9 @@ export const GAME_CONSTANTS = {
   DECREE_OPT_IN_TIMER_MS: 20000,    // 抉择期 20s (足够阅读法案 buff/debuff)
   DECREE_BID_TIMER_MS: 20000,       // 暗标期 20s
   DECREE_TRIGGER_ROUNDS: [1, 4, 7] as const,
-  DECREE_SUPREME_ROUND: 10,
+  DECREE_SUPREME_ROUND: 9,
+  /** 至高法案触发后强制保留的咏唱回合数 (防止与对撞节奏冲突) */
+  COLLISION_GRACE_TURNS: 3,
   DECREE_BID_PAIR_BONUS: 6,
   DECREE_BID_STRAIGHT_BONUS: 10,
   DECREE_BID_TRIPLE_BONUS: 12,      // 用户调整：18 → 12
