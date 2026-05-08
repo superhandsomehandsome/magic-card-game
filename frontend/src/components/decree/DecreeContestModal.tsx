@@ -36,9 +36,15 @@ export function DecreeContestModal() {
         position: 'fixed', inset: 0, zIndex: 8000,
         background: 'radial-gradient(ellipse at center, rgba(35,8,8,0.92), rgba(0,0,0,0.97))',
         display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        padding: 'clamp(12px, 3vw, 24px)',
+        alignItems: 'center',
+        // 从顶部开始，确保进度条和法案标题不被裁掉
+        justifyContent: 'flex-start',
+        padding: 'clamp(8px, 2vw, 24px)',
+        // 给手机底部 UI（home indicator / address bar）留安全距离
+        paddingTop: 'max(clamp(8px, 2vw, 24px), env(safe-area-inset-top))',
+        paddingBottom: 'max(clamp(16px, 3vw, 32px), env(safe-area-inset-bottom))',
         overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
       }}
     >
       {/* 倒计时进度条 (顶端) */}
@@ -56,7 +62,7 @@ export function DecreeContestModal() {
       <DecreeCard decree={decree} round={ctx.triggeringRound} />
 
       {/* 步骤主体 */}
-      <div style={{ marginTop: 18, width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+      <div style={{ marginTop: 'clamp(8px, 1.5vw, 18px)', width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 1.5vw, 14px)' }}>
         {ctx.step === 'OPT_IN' && (
           <OptInStep
             myChoice={ctx.optIn[localPlayerId]}
@@ -124,6 +130,8 @@ function DeadlineBar({ deadline, totalMs }: { deadline: number; totalMs: number 
 }
 
 function DecreeCard({ decree, round }: { decree: IDecree; round: number }) {
+  // 矮屏（手机横屏）紧凑模式
+  const isShort = typeof window !== 'undefined' && window.innerHeight < 500;
   return (
     <motion.div
       initial={{ scale: 0.6, opacity: 0, y: -30 }}
@@ -131,75 +139,84 @@ function DecreeCard({ decree, round }: { decree: IDecree; round: number }) {
       transition={{ duration: 0.6, ease: 'easeOut' }}
       style={{
         width: '100%', maxWidth: 580,
-        padding: 'clamp(16px, 2.5vw, 28px)',
-        borderRadius: 16,
+        padding: isShort ? '10px 14px' : 'clamp(16px, 2.5vw, 28px)',
+        borderRadius: 12,
         background: 'linear-gradient(180deg, #261338, #170824)',
         border: '2px solid #b8860b',
         boxShadow: '0 0 40px rgba(184,134,11,0.45), inset 0 0 20px rgba(0,0,0,0.4)',
         textAlign: 'center',
       }}
     >
+      {!isShort && (
+        <div style={{
+          fontSize: 11, color: '#e74c3c',
+          fontFamily: '"Cinzel", serif',
+          letterSpacing: 4,
+          marginBottom: 6,
+        }}>
+          DECREE CONTEST · 第 {round} 回合
+        </div>
+      )}
       <div style={{
-        fontSize: 11, color: '#e74c3c',
-        fontFamily: '"Cinzel", serif',
-        letterSpacing: 4,
-        marginBottom: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: isShort ? 10 : 0,
+        flexDirection: isShort ? 'row' : 'column',
       }}>
-        DECREE CONTEST · 第 {round} 回合
+        <div style={{
+          fontSize: isShort ? 28 : 'clamp(40px, 8vw, 56px)',
+          marginBottom: isShort ? 0 : 4,
+        }}>
+          {decree.emoji}
+        </div>
+        <h2 style={{
+          margin: 0,
+          fontFamily: '"Cinzel", serif',
+          fontSize: isShort ? 16 : 'clamp(20px, 3.5vw, 28px)',
+          fontWeight: 900,
+          color: '#ffd700',
+          letterSpacing: isShort ? 2 : 6,
+          textShadow: '0 0 14px rgba(255,215,0,0.5)',
+        }}>
+          《{decree.name}》
+          {isShort && <span style={{ marginLeft: 8, fontSize: 10, color: '#e74c3c', letterSpacing: 1 }}>R{round}</span>}
+        </h2>
       </div>
       <div style={{
-        fontSize: 'clamp(40px, 8vw, 56px)',
-        marginBottom: 4,
-      }}>
-        {decree.emoji}
-      </div>
-      <h2 style={{
-        margin: 0,
-        fontFamily: '"Cinzel", serif',
-        fontSize: 'clamp(20px, 3.5vw, 28px)',
-        fontWeight: 900,
-        color: '#ffd700',
-        letterSpacing: 6,
-        textShadow: '0 0 14px rgba(255,215,0,0.5)',
-      }}>
-        《{decree.name}》
-      </h2>
-      <div style={{
-        marginTop: 16,
-        display: 'flex', gap: 12,
+        marginTop: isShort ? 8 : 16,
+        display: 'flex', gap: isShort ? 6 : 12,
         flexWrap: 'wrap', justifyContent: 'center',
       }}>
         <div style={{
-          flex: '1 1 240px', minWidth: 200,
-          padding: 12, borderRadius: 10,
+          flex: '1 1 240px', minWidth: isShort ? 160 : 200,
+          padding: isShort ? '6px 8px' : 12, borderRadius: 8,
           background: 'rgba(46,204,113,0.08)',
           border: '1px solid #2ecc7150',
           textAlign: 'left',
         }}>
           <div style={{
-            color: '#2ecc71', fontSize: 11, fontWeight: 700,
-            letterSpacing: 2, marginBottom: 6,
+            color: '#2ecc71', fontSize: 10, fontWeight: 700,
+            letterSpacing: 2, marginBottom: isShort ? 2 : 6,
           }}>
             ✦ 特 权 (BUFF)
           </div>
-          <div style={{ color: '#ddd', fontSize: 12, lineHeight: 1.5 }}>
+          <div style={{ color: '#ddd', fontSize: isShort ? 11 : 12, lineHeight: 1.4 }}>
             {decree.buffText}
           </div>
         </div>
         <div style={{
-          flex: '1 1 240px', minWidth: 200,
-          padding: 12, borderRadius: 10,
+          flex: '1 1 240px', minWidth: isShort ? 160 : 200,
+          padding: isShort ? '6px 8px' : 12, borderRadius: 8,
           background: 'rgba(231,76,60,0.08)',
           border: '1px solid #e74c3c50',
           textAlign: 'left',
         }}>
           <div style={{
-            color: '#e74c3c', fontSize: 11, fontWeight: 700,
-            letterSpacing: 2, marginBottom: 6,
+            color: '#e74c3c', fontSize: 10, fontWeight: 700,
+            letterSpacing: 2, marginBottom: isShort ? 2 : 6,
           }}>
             ☠ 毒 誓 (DEBUFF)
           </div>
-          <div style={{ color: '#ddd', fontSize: 12, lineHeight: 1.5 }}>
+          <div style={{ color: '#ddd', fontSize: isShort ? 11 : 12, lineHeight: 1.4 }}>
             {decree.debuffText}
           </div>
         </div>
@@ -220,17 +237,18 @@ function OptInStep({
   onChoose: (c: 'CONTEST' | 'PASS') => void;
 }) {
   const locked = myChoice !== null;
+  const isShort = typeof window !== 'undefined' && window.innerHeight < 500;
   return (
     <>
       <div style={{
-        color: '#ccc', fontSize: 13,
+        color: '#ccc', fontSize: isShort ? 11 : 13,
         fontFamily: '"Cinzel", serif', letterSpacing: 2,
-        marginTop: 4,
+        marginTop: isShort ? 0 : 4,
       }}>
         ▼ 双 盲 抉 择 ▼
       </div>
       <div style={{
-        display: 'flex', gap: 'clamp(12px, 3vw, 32px)',
+        display: 'flex', gap: 'clamp(10px, 3vw, 32px)',
         flexWrap: 'wrap', justifyContent: 'center',
       }}>
         <BigButton
@@ -251,7 +269,7 @@ function OptInStep({
         />
       </div>
       <div style={{
-        marginTop: 8, fontSize: 11,
+        marginTop: isShort ? 2 : 8, fontSize: isShort ? 10 : 11,
         color: oppChose ? '#ffd700' : '#666',
         fontFamily: '"Cinzel", serif', letterSpacing: 2,
       }}>
@@ -270,6 +288,7 @@ function BigButton({
   color: string; chosen: boolean; locked: boolean;
   onClick: () => void;
 }) {
+  const isShort = typeof window !== 'undefined' && window.innerHeight < 500;
   return (
     <motion.button
       onClick={() => !locked && onClick()}
@@ -281,26 +300,26 @@ function BigButton({
       }
       transition={chosen ? { duration: 1.5, repeat: Infinity } : undefined}
       style={{
-        flex: '0 0 clamp(120px, 30vw, 200px)',
-        padding: 'clamp(14px, 3vw, 26px) clamp(18px, 4vw, 32px)',
-        borderRadius: 14,
+        flex: isShort ? '0 0 130px' : '0 0 clamp(120px, 30vw, 200px)',
+        padding: isShort ? '10px 18px' : 'clamp(14px, 3vw, 26px) clamp(18px, 4vw, 32px)',
+        borderRadius: 12,
         border: `3px solid ${chosen ? color : color + '60'}`,
         background: chosen
           ? `linear-gradient(135deg, ${color}33, ${color}11)`
           : 'rgba(0,0,0,0.5)',
         color,
         fontFamily: '"Cinzel", serif',
-        fontSize: 'clamp(18px, 3vw, 26px)',
+        fontSize: isShort ? 16 : 'clamp(18px, 3vw, 26px)',
         fontWeight: 900,
-        letterSpacing: 4,
+        letterSpacing: isShort ? 2 : 4,
         cursor: locked ? 'default' : 'pointer',
         opacity: locked && !chosen ? 0.4 : 1,
       }}
     >
       <div>{label}</div>
       <div style={{
-        fontSize: 10, color: '#aaa',
-        marginTop: 6, letterSpacing: 3,
+        fontSize: isShort ? 9 : 10, color: '#aaa',
+        marginTop: isShort ? 2 : 6, letterSpacing: 3,
       }}>
         {subtitle}
       </div>
