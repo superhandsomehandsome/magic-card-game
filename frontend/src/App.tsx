@@ -24,6 +24,7 @@ import { Lobby, type LobbyMode } from './components/phases/Lobby';
 import { Room } from './components/phases/Room';
 import { HeroSelect } from './components/phases/HeroSelect';
 import { GameBoard } from './components/board/GameBoard';
+import { OrientationGate } from './components/OrientationGate';
 import { AIPlayer } from './core/AIPlayer';
 import {
   getSocket, emitHeroSelected, emitLeaveRoom, emitGameAction,
@@ -248,12 +249,15 @@ function App() {
   //  渲染
   // ═══════════════════════════════════════════════════════════
 
+  // 包装一层 OrientationGate：手机竖屏时显示"请横屏"覆盖
+  const wrap = (node: React.ReactNode) => <OrientationGate>{node}</OrientationGate>;
+
   if (stage === 'LOBBY') {
-    return <Lobby onSelectMode={handleLobbySelect} />;
+    return wrap(<Lobby onSelectMode={handleLobbySelect} />);
   }
 
   if (stage === 'ROOM' && (mode === 'CREATE_ROOM' || mode === 'JOIN_ROOM')) {
-    return (
+    return wrap(
       <Room
         mode={mode}
         initialRoomCode={mode === 'JOIN_ROOM' ? roomCode : undefined}
@@ -271,7 +275,7 @@ function App() {
 
     // 选完后等待对手
     if (isOnline && myHero && !opponentHero) {
-      return (
+      return wrap(
         <div style={{
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
@@ -295,7 +299,7 @@ function App() {
 
     // 双方都选好但还没开局 (常见于 GUEST 等 HOST 发 NET_INIT)
     if (isOnline && myHero && opponentHero && stage === 'HERO_SELECT') {
-      return (
+      return wrap(
         <div style={{
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
@@ -323,7 +327,7 @@ function App() {
       );
     }
 
-    return (
+    return wrap(
       <HeroSelect
         mode="SOLO"
         opponentHero={opponentHero}
@@ -334,12 +338,12 @@ function App() {
   }
 
   if (stage === 'PLAYING' && gameState) {
-    return <GameBoard />;
+    return wrap(<GameBoard />);
   }
 
   if (stage === 'PLAYING' && !gameState) {
     // GUEST 在等首个 STATE_SYNC
-    return (
+    return wrap(
       <div style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
