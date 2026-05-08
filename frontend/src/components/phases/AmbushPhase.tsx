@@ -1,16 +1,18 @@
 /**
  * 阶段2：突袭与虚实之言
  *
- * 攻击方流程：
+ * 攻击方流程（三国杀式直接点牌）：
  *   - 第 1 次突袭：直接点底部手牌 → 弹宣告 modal
- *   - 第 2 次突袭：先点"先弃 1 张"按钮 → 选弃牌 → 再选攻击牌 → 宣告
+ *   - 第 2 次突袭：第一次点牌 = 弃牌代价（橙色高亮）；
+ *                  再点另一张牌 = 攻击牌 → 弹宣告 modal；
+ *                  点同一张取消弃牌选择
  * 防守方流程：
  *   - 选择 [拆穿 / 怯战 / 迎战(选牌)]
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard, AmbushDeclaration, IAmbushState } from '../../types/game';
-import { CardRank, GamePhase } from '../../types/game';
+import { CardRank, GamePhase, GAME_CONSTANTS } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
 import { getCardDisplayName, compareCards } from '../../utils/deck';
@@ -22,17 +24,15 @@ interface AmbushResult {
   declaration: AmbushDeclaration | null;
 }
 
-type AmbushStep = 'PICK_ATTACK' | 'PICK_DISCARD' | 'DECLARE';
-
 export function AmbushPhase() {
   const {
     gameState, localPlayerId, declareAmbush, respondAmbush, advancePhase,
     engine, setHandClickHandler,
   } = useGameStore();
 
-  const [step, setStep] = useState<AmbushStep>('PICK_ATTACK');
   const [selectedAttackId, setSelectedAttackId] = useState<string | null>(null);
   const [selectedDiscardId, setSelectedDiscardId] = useState<string | null>(null);
+  const [showDeclare, setShowDeclare] = useState(false);
   const [lastResult, setLastResult] = useState<AmbushResult | null>(null);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -42,15 +42,16 @@ export function AmbushPhase() {
     gameState.ambushState?.defenderId === localPlayerId;
   const ambushCount = player?.ambushesThisTurn ?? 0;
   const isSecondAmbush = ambushCount === 1;
+  const maxAmbushReached = ambushCount >= GAME_CONSTANTS.MAX_AMBUSH_PER_TURN;
 
-  // 监听突袭结果
+  // 监听突袭结算
   useEffect(() => {
     if (!engine) return;
     const handleResolved = (data: AmbushResult) => {
       setLastResult(data);
-      setStep('PICK_ATTACK');
       setSelectedAttackId(null);
       setSelectedDiscardId(null);
+      setShowDeclare(false);
       if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
       resultTimerRef.current = setTimeout(() => setLastResult(null), 3500);
     };
@@ -61,32 +62,39 @@ export function AmbushPhase() {
     };
   }, [engine]);
 
-  // 注册底部手牌点击 handler
+  // 注册底部手牌点击（三国杀式：直接点牌操作）
   useEffect(() => {
-    if (!isMyTurn || gameState?.phase !== GamePhase.AMBUSH_DECLARE) {
+    if (!isMyTurn || gameState?.phase !== GamePhase.AMBUSH_DECLARE || maxAmbushReached) {
       setHandClickHandler(null);
       return;
     }
     setHandClickHandler((card: ICard) => {
-      if (step === 'PICK_DISCARD') {
-        setSelectedDiscardId(card.id);
-        return;
-      }
-      // PICK_ATTACK
-      // FLASH 不能用作攻击牌
+      // FLASH 牌不能用作攻击牌
       if (card.rank === CardRank.FLASH) return;
-      // 第二次突袭必须先选弃牌
-      if (isSecondAmbush && !selectedDiscardId) {
-        setStep('PICK_DISCARD');
+
+      if (isSecondAmbush) {
+        // 第二次突袭：第一次点 = 弃牌代价
+        if (!selectedDiscardId) {
+          setSelectedDiscardId(card.id);
+          return;
+        }
+        // 点同一张：取消弃牌选择
+        if (card.id === selectedDiscardId) {
+          setSelectedDiscardId(null);
+          return;
+        }
+        // 点另一张：作为攻击牌，进入宣告
+        setSelectedAttackId(card.id);
+        setShowDeclare(true);
         return;
       }
-      // 不能用同一张作为弃牌和攻击牌
-      if (selectedDiscardId && card.id === selectedDiscardId) return;
+
+      // 第一次突袭：直接选攻击牌进入宣告
       setSelectedAttackId(card.id);
-      setStep('DECLARE');
+      setShowDeclare(true);
     });
     return () => setHandClickHandler(null);
-  }, [isMyTurn, gameState?.phase, step, isSecondAmbush, selectedDiscardId, setHandClickHandler]);
+  }, [isMyTurn, gameState?.phase, isSecondAmbush, selectedDiscardId, maxAmbushReached, setHandClickHandler]);
 
   if (!gameState || !player) return null;
 
@@ -103,22 +111,18 @@ export function AmbushPhase() {
     if (!selectedAttackId) return;
     const ok = declareAmbush(selectedAttackId, decl, selectedDiscardId || undefined);
     if (!ok) {
-      // 失败：重置
-      setStep('PICK_ATTACK');
       setSelectedAttackId(null);
       setSelectedDiscardId(null);
+      setShowDeclare(false);
     }
   };
 
-  const cancel = () => {
-    setStep('PICK_ATTACK');
+  const cancelDeclare = () => {
     setSelectedAttackId(null);
-    setSelectedDiscardId(null);
+    setShowDeclare(false);
   };
 
-  const canSecondAmbush = isSecondAmbush && player.hand.filter(c => c.rank !== CardRank.FLASH).length >= 2;
-
-  // 不是己方回合或非 AMBUSH_DECLARE → 等待 / 显示结果
+  // 非己方回合 / 非宣告阶段 → 等待或显示结果
   if (!isMyTurn || gameState.phase !== GamePhase.AMBUSH_DECLARE) {
     return (
       <motion.div
@@ -159,141 +163,107 @@ export function AmbushPhase() {
         color: '#ff4500', fontFamily: '"Cinzel", serif',
         fontSize: 14, fontWeight: 700, letterSpacing: 2,
       }}>
-        ⚡ 突袭 ({ambushCount}/2)
+        ⚡ 突袭 ({ambushCount}/{GAME_CONSTANTS.MAX_AMBUSH_PER_TURN})
       </div>
 
-      {/* 步骤指引 */}
-      {step === 'PICK_ATTACK' && !isSecondAmbush && (
-        <div style={{ color: '#aaa', fontSize: 12 }}>
-          点击底部手牌选择攻击牌
+      {/* 步骤提示（三国杀式） */}
+      {!maxAmbushReached && (
+        <div style={{ color: '#aaa', fontSize: 12, textAlign: 'center' }}>
+          {isSecondAmbush && !selectedDiscardId && (
+            <motion.span
+              animate={{ opacity: [0.7, 1, 0.7] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              style={{ color: '#ff8c00' }}
+            >
+              ⚠ 第二次突袭：点击一张牌作为弃牌代价
+            </motion.span>
+          )}
+          {isSecondAmbush && selectedDiscardId && (
+            <span style={{ color: '#ff4500' }}>再点击另一张牌出击</span>
+          )}
+          {!isSecondAmbush && (
+            <span>点击底部手牌选择攻击牌</span>
+          )}
         </div>
       )}
 
-      {step === 'PICK_ATTACK' && isSecondAmbush && (
-        <motion.div
-          animate={{ opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          style={{
-            color: '#ff8c00', fontSize: 13, padding: '6px 14px',
-            borderRadius: 6, border: '1px solid #ff8c00',
-            background: 'rgba(255,140,0,0.1)', textAlign: 'center',
-          }}
-        >
-          ⚠ 第二次突袭：先选 1 张牌弃置作代价
-        </motion.div>
-      )}
-
-      {step === 'PICK_DISCARD' && (
-        <div style={{ color: '#ff8c00', fontSize: 12 }}>
-          点击下方一张牌作为弃牌代价（点击同一张可取消）
+      {maxAmbushReached && (
+        <div style={{ color: '#666', fontSize: 12 }}>
+          已达最大突袭次数
         </div>
       )}
 
-      {/* 已选弃牌预览（第二次突袭） */}
-      {isSecondAmbush && selectedDiscardId && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '6px 12px', borderRadius: 8,
-          background: 'rgba(255,140,0,0.1)',
-          border: '1px solid #ff8c0080',
-        }}>
-          <span style={{ color: '#ff8c00', fontSize: 11 }}>弃牌代价 →</span>
-          {(() => {
-            const c = player.hand.find(h => h.id === selectedDiscardId);
-            return c ? <Card card={c} size="sm" /> : null;
-          })()}
-          <button
-            onClick={() => { setSelectedDiscardId(null); setStep('PICK_ATTACK'); }}
+      {/* 已选弃牌代价预览 */}
+      <AnimatePresence>
+        {isSecondAmbush && selectedDiscardId && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             style={{
-              padding: '4px 10px', fontSize: 11, borderRadius: 4,
-              border: '1px solid #888', background: 'transparent',
-              color: '#aaa', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '6px 12px', borderRadius: 8,
+              background: 'rgba(255,140,0,0.1)',
+              border: '1px solid #ff8c0080',
             }}
           >
-            取消
-          </button>
-        </div>
-      )}
+            <span style={{ color: '#ff8c00', fontSize: 11 }}>弃牌代价 →</span>
+            {(() => {
+              const c = player.hand.find(h => h.id === selectedDiscardId);
+              return c ? <Card card={c} size="sm" /> : null;
+            })()}
+            <button
+              onClick={() => setSelectedDiscardId(null)}
+              style={{
+                padding: '4px 10px', fontSize: 11, borderRadius: 4,
+                border: '1px solid #888', background: 'transparent',
+                color: '#aaa', cursor: 'pointer',
+              }}
+            >
+              取消
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* 当弃牌选完，进入 PICK_ATTACK */}
-      {step === 'PICK_DISCARD' && (
-        <button
-          onClick={() => {
-            if (selectedDiscardId) setStep('PICK_ATTACK');
-          }}
-          disabled={!selectedDiscardId}
-          style={{
-            padding: '6px 16px', borderRadius: 6,
-            border: `1px solid ${selectedDiscardId ? '#ff4500' : '#444'}`,
-            background: selectedDiscardId ? 'rgba(255,69,0,0.15)' : '#222',
-            color: selectedDiscardId ? '#ff4500' : '#555',
-            fontSize: 12, fontWeight: 700,
-            cursor: selectedDiscardId ? 'pointer' : 'not-allowed',
-          }}
-        >
-          ✓ 确认弃牌 → 选攻击牌
-        </button>
-      )}
-
-      {/* 跳过突袭 / 第二次突袭按钮 */}
+      {/* 操作按钮 */}
       <div style={{ display: 'flex', gap: 8 }}>
         {ambushCount === 0 && (
           <motion.button
             onClick={() => advancePhase()}
             whileHover={{ scale: 1.05 }}
             style={{
-              padding: '8px 18px',
-              borderRadius: 6,
-              border: '1px solid #666',
-              background: 'transparent',
-              color: '#999',
-              cursor: 'pointer', fontSize: 12,
+              padding: '8px 18px', borderRadius: 6,
+              border: '1px solid #666', background: 'transparent',
+              color: '#999', cursor: 'pointer', fontSize: 12,
             }}
           >
             跳过突袭 → 咏唱阶段
           </motion.button>
         )}
 
-        {ambushCount === 1 && step === 'PICK_ATTACK' && (
-          <>
-            <motion.button
-              onClick={() => advancePhase()}
-              whileHover={{ scale: 1.05 }}
-              style={{
-                padding: '8px 18px', borderRadius: 6,
-                border: '1px solid #666', background: 'transparent',
-                color: '#999', cursor: 'pointer', fontSize: 12,
-              }}
-            >
-              结束突袭 → 咏唱阶段
-            </motion.button>
-            {canSecondAmbush && (
-              <motion.button
-                onClick={() => setStep('PICK_DISCARD')}
-                whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(255,69,0,0.5)' }}
-                style={{
-                  padding: '8px 18px', borderRadius: 6,
-                  border: '1px solid #ff4500',
-                  background: 'linear-gradient(180deg, #4a1a0a, #2a0d05)',
-                  color: '#ff4500', fontWeight: 700,
-                  cursor: 'pointer', fontSize: 12,
-                  fontFamily: '"Cinzel", serif', letterSpacing: 1,
-                }}
-              >
-                ⚡ 第二次突袭（弃 1 张）
-              </motion.button>
-            )}
-          </>
+        {ambushCount >= 1 && (
+          <motion.button
+            onClick={() => advancePhase()}
+            whileHover={{ scale: 1.05 }}
+            style={{
+              padding: '8px 18px', borderRadius: 6,
+              border: '1px solid #666', background: 'transparent',
+              color: '#999', cursor: 'pointer', fontSize: 12,
+            }}
+          >
+            结束突袭 → 咏唱阶段
+          </motion.button>
         )}
       </div>
 
       {/* 宣告 modal */}
       <AnimatePresence>
-        {step === 'DECLARE' && selectedAttackId && (
+        {showDeclare && selectedAttackId && (
           <DeclareModal
             attackCard={player.hand.find(c => c.id === selectedAttackId)!}
             onDeclare={handleDeclare}
-            onCancel={cancel}
+            onCancel={cancelDeclare}
           />
         )}
       </AnimatePresence>
