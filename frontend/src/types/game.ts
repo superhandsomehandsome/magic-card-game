@@ -272,7 +272,8 @@ export interface IGameLog {
 // ═══════════════════════════════════════════════════════════
 
 export const GAME_CONSTANTS = {
-  WIN_SCORE: 200,
+  /** 胜利分数：调高至 280 — 让游戏能撑到第 9 回合至高法案 + 终极对撞 */
+  WIN_SCORE: 280,
   HAND_LIMIT: 8,
   MARKET_SIZE: 3,
   MAX_AMBUSH_PER_TURN: 2,
@@ -288,16 +289,17 @@ export const GAME_CONSTANTS = {
   TURN_TIMER_MS: 30000,
   TIMER_WARNING_MS: 5000,
   AFK_TIMEOUT_STRIKES: 2,
+  /** 牌库总量：71 → 110。每个 rank 等比扩充，保证 18 turn(=9 round) 仍有余 */
   DECK_COMPOSITION: {
-    [CardRank.A]: 5,
-    [CardRank.B]: 6,
-    [CardRank.C]: 9,
-    [CardRank.D]: 13,
-    [CardRank.E]: 15,
-    [CardRank.F]: 18,
-    [CardRank.FLASH]: 5,
+    [CardRank.A]: 8,    // 5 → 8
+    [CardRank.B]: 10,   // 6 → 10
+    [CardRank.C]: 14,   // 9 → 14
+    [CardRank.D]: 20,   // 13 → 20
+    [CardRank.E]: 24,   // 15 → 24
+    [CardRank.F]: 26,   // 18 → 26
+    [CardRank.FLASH]: 8, // 5 → 8
   } as Record<CardRank, number>,
-  TOTAL_CARDS: 71,
+  TOTAL_CARDS: 110,
   COLLISION_SCORE_WEIGHT: 0.4,
   COLLISION_HAND_WEIGHT: 0.6,
 
