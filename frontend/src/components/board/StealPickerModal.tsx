@@ -149,15 +149,21 @@ export function StealPickerModal() {
             {/* 对方手牌（面朝下）— 玩家可点击 */}
             <div style={{
               display: 'flex',
-              gap: 12,
+              gap: 14,
               flexWrap: 'wrap',
               justifyContent: 'center',
               maxWidth: '90vw',
-              padding: 16,
-              background: 'rgba(0,0,0,0.4)',
-              borderRadius: 12,
-              border: '1px solid #b8860b80',
+              padding: 20,
+              background: 'rgba(20,5,40,0.85)',
+              borderRadius: 14,
+              border: '2px solid #ffd700',
+              boxShadow: '0 0 24px rgba(255,215,0,0.35), inset 0 0 18px rgba(120,60,200,0.25)',
             }}>
+              {targetHand.length === 0 && (
+                <div style={{ color: '#888', fontSize: 13, padding: 16 }}>
+                  对方已无手牌可偷
+                </div>
+              )}
               {targetHand.map((card, i) => {
                 const isSelected = selected.includes(card.id);
                 return (
@@ -167,40 +173,51 @@ export function StealPickerModal() {
                     whileHover={{ y: -8, scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     animate={isSelected
-                      ? { y: -16, scale: 1.08, boxShadow: '0 0 24px rgba(255,215,0,0.7)' }
+                      ? { y: -16, scale: 1.08 }
                       : { y: 0, scale: 1 }
                     }
                     initial={{ opacity: 0, y: 30 }}
-                    transition={{ delay: i * 0.05 }}
+                    transition={{ delay: i * 0.08 }}
                     style={{
-                      width: 70, height: 100,
-                      borderRadius: 8,
+                      width: 76, height: 108,
+                      borderRadius: 10,
                       cursor: 'pointer',
-                      border: isSelected ? '2px solid #ffd700' : '2px solid #9b6bdf',
+                      border: isSelected ? '3px solid #ffd700' : '2px solid #c4a0ff',
                       background: isSelected
-                        ? 'linear-gradient(135deg, #5a3060, #3a1b5e)'
-                        : 'linear-gradient(135deg, #3a1f6e, #2a1050)',
+                        ? 'linear-gradient(135deg, #6a4080, #4a2b6e)'
+                        : 'linear-gradient(135deg, #4a2f8e, #3a1f6e 50%, #2a1450)',
                       boxShadow: isSelected
-                        ? '0 0 18px rgba(255,215,0,0.5)'
-                        : '0 0 8px rgba(120,60,200,0.4)',
+                        ? '0 0 24px rgba(255,215,0,0.85), inset 0 0 14px rgba(255,215,0,0.4)'
+                        : '0 0 14px rgba(180,140,255,0.7), inset 0 0 10px rgba(180,140,255,0.25)',
                       display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'center',
                       position: 'relative',
+                      gap: 4,
                     }}
                   >
-                    {/* 卡背图案 */}
+                    {/* 卡背图案 + 编号让卡片明显 */}
                     <div style={{
                       fontFamily: '"Cinzel", serif',
-                      color: isSelected ? '#ffd700' : '#c4a0ff',
+                      color: isSelected ? '#ffd700' : '#e8d4ff',
                       textShadow: isSelected
-                        ? '0 0 12px rgba(255,215,0,0.9)'
-                        : '0 0 8px rgba(180,140,255,0.8)',
-                      fontSize: 26,
+                        ? '0 0 14px rgba(255,215,0,1)'
+                        : '0 0 12px rgba(220,180,255,1)',
+                      fontSize: 30,
                       fontWeight: 900,
                       letterSpacing: 1,
+                      lineHeight: 1,
                     }}>
                       ✦
+                    </div>
+                    <div style={{
+                      fontFamily: 'monospace',
+                      color: isSelected ? '#ffd700' : '#b8a0e0',
+                      fontSize: 11,
+                      letterSpacing: 1,
+                    }}>
+                      #{i + 1}
                     </div>
                     {isSelected && (
                       <motion.div

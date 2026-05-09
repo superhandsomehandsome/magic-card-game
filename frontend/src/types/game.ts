@@ -120,6 +120,8 @@ export interface IPlayerState {
   hasUsedOracle: boolean;
   /** 黑暗献祭：本回合是否已使用 */
   hasUsedDarkSacrificeThisTurn: boolean;
+  /** 本回合从黑市免费拿牌的次数（黑市奇妙夜专用） */
+  freeMarketDrawsThisTurn: number;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -143,14 +145,37 @@ export interface IAmbushState {
 
 export type CollisionRound = 'FLOP' | 'TURN' | 'RIVER';
 
+/** 对撞子阶段：选牌 → 排序 → 下注 → 逐对翻牌 → 结算 */
+export type CollisionStep =
+  | 'PICK'        // 双方从手牌挑选 3 张
+  | 'BETTING'     // 下注阶段（最高 20）
+  | 'REVEAL_1'    // 揭第 1 对
+  | 'REVEAL_2'    // 揭第 2 对
+  | 'REVEAL_3'    // 揭第 3 对
+  | 'DONE';       // 结算完成
+
 export interface ICollisionState {
+  step: CollisionStep;
+  /** 旧字段保留兼容 */
   round: CollisionRound;
   roundIndex: number;
-  playerCards: Record<string, ICard[]>;  // 每玩家暗阵
+  /** 每玩家选定的 3 张牌（已排序，索引 0=第一对, 1=第二对, 2=第三对） */
+  playerCards: Record<string, ICard[]>;
+  /** 已翻开的牌（每对翻完后追加） */
   revealedCards: Record<string, ICard[]>;
+  /** 每对翻牌的"赢家"快照, idx 0/1/2，'TIE' 表示平局 */
+  pairWinners: Array<string | 'TIE'>;
+  /** 每对的累计底池（平局滚雪球） */
+  pairPot: number[];
+  /** 玩家本次对撞已选定 3 张并确认 */
+  pickConfirmed: Record<string, boolean>;
+  /** 每位玩家的下注（最高 20） */
+  bets: Record<string, number>;
+  /** 玩家是否确认下注 */
+  betConfirmed: Record<string, boolean>;
   pot: number;
   foldedPlayer: string | null;
-  /** 排兵布阵：玩家是否已确认揭牌顺序 */
+  /** 排兵布阵：玩家是否已确认揭牌顺序（兼容旧字段） */
   orderConfirmed?: Record<string, boolean>;
 }
 
@@ -252,10 +277,14 @@ export const GAME_CONSTANTS = {
   MARKET_SIZE: 3,
   MAX_AMBUSH_PER_TURN: 2,
   BLUFF_PENALTY: 15,
-  BOUNTY_MULTIPLIER: 5,
+  BOUNTY_MULTIPLIER: 3,
   A_WIN_BONUS: 20,
   B_WIN_BONUS: 10,
   INVERSION_DURATION: 2,
+  /** 怀战时悬赏池给突袭者的倍率（再放大让突袭更值得） */
+  FOLD_BOUNTY_BONUS_MULT: 1.5,
+  /** 奥术怪盗每回合黑市最大购买数 */
+  PHANTOM_MARKET_LIMIT: 2,
   TURN_TIMER_MS: 30000,
   TIMER_WARNING_MS: 5000,
   AFK_TIMEOUT_STRIKES: 2,
@@ -275,9 +304,9 @@ export const GAME_CONSTANTS = {
   // ═══ 平衡调整：压低前期得分，推动更多对撞 ═══
   CHANT_SCORE_DECAY: 0.7,        // 咏唱得分衰减系数 (前5回合内)
   CHANT_FULL_POWER_TURN: 5,      // 从第N回合起咏唱得分恢复100%
-  BOUNTY_CAP: 20,                // 悬赏池单次上限 (避免前期暴利)
-  DRAW_PER_TURN: 2,              // 每回合抽牌数 (恢复至2, 加快牌库消耗 → 提高对撞概率)
-  MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗无限制)
+  BOUNTY_CAP: 15,                // 悬赏池单次上限 (避免前期暴利) — 降低
+  DRAW_PER_TURN: 1,              // 每回合抽牌数 — 改回 1，放慢过牌
+  MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗 PHANTOM_MARKET_LIMIT)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣
   EARLY_COMBO_TURN_THRESHOLD: 3, // "早期"回合阈值
 
@@ -336,6 +365,9 @@ export interface IDecreeEffect {
   fastEndTurnThresholdMs?: number;      // 过载 buff: 阈值 (从启动算起 N ms 内)
   // —— 视区/信息战 ——
   exposeHands?: boolean;                // 裸露 debuff: 双方明牌
+
+  // —— 黑市奇妙夜 ——
+  marketFreeDrawCount?: number;          // 每回合可免费拿 N 张黑市牌（背面盲抽）
 }
 
 /** 一个具体的深渊法案 */

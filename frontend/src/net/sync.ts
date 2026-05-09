@@ -47,7 +47,11 @@ export type PlayerActionKind =
   | 'DECREE_BID'
   | 'CONFIRM_STEAL'
   | 'DARK_SACRIFICE'
-  | 'USE_ORACLE';
+  | 'USE_ORACLE'
+  | 'COLLISION_PICK_CARDS'
+  | 'COLLISION_PLACE_BET'
+  | 'COLLISION_REVEAL'
+  | 'CLAIM_FREE_MARKET';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
@@ -301,6 +305,18 @@ export class HostSync {
             playerId,
             (p.cardIds as string[]) || [],
           );
+          break;
+        case 'COLLISION_PICK_CARDS':
+          this.engine.collisionPickCards(playerId, (p.cardIds as string[]) || []);
+          break;
+        case 'COLLISION_PLACE_BET':
+          this.engine.collisionPlaceBet(playerId, Number(p.amount) || 0);
+          break;
+        case 'COLLISION_REVEAL':
+          this.engine.collisionReveal(playerId);
+          break;
+        case 'CLAIM_FREE_MARKET':
+          this.engine.claimFreeMarketCard(playerId);
           break;
       }
     } catch (e) {

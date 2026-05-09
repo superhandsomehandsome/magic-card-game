@@ -63,6 +63,11 @@ interface GameStore {
   rollFateDice: () => boolean;
   collisionAction: (action: 'RAISE' | 'FOLD') => void;
   setCollisionOrder: (cardIds: string[]) => void;
+  collisionPickCards: (cardIds: string[]) => boolean;
+  collisionPlaceBet: (amount: number) => boolean;
+  collisionReveal: () => boolean;
+  /** 黑市奇妙夜：从黑市背面盲抽 1 张（免费） */
+  claimFreeMarketCard: () => boolean;
   flashSwap: (flashCardId: string, swapCardIds: string[]) => void;
   submitDecreeOptIn: (choice: 'CONTEST' | 'PASS') => void;
   submitDecreeBid: (cardIds: string[]) => boolean;
@@ -104,8 +109,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   eventToasts: [],
 
   pushEventToast: (message: string) => {
-    const toast = { id: Date.now() + Math.floor(Math.random() * 1000), message, timestamp: Date.now() };
-    set(prev => ({ eventToasts: [...prev.eventToasts.slice(-4), toast] }));
+    set(prev => {
+      // 去重：3 秒内出现过相同消息则跳过
+      const recent = prev.eventToasts.filter(t => Date.now() - t.timestamp < 3000);
+      if (recent.some(t => t.message === message)) {
+        return prev;
+      }
+      const toast = { id: Date.now() + Math.floor(Math.random() * 1000), message, timestamp: Date.now() };
+      return { eventToasts: [...prev.eventToasts.slice(-3), toast] };
+    });
   },
   dismissEventToast: (id: number) => {
     set(prev => ({ eventToasts: prev.eventToasts.filter(t => t.id !== id) }));
@@ -328,6 +340,46 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
     engine?.setCollisionOrder(localPlayerId, cardIds);
+  },
+
+  collisionPickCards: (cardIds) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('COLLISION_PICK_CARDS', { cardIds });
+      return true;
+    }
+    if (!engine) return false;
+    return engine.collisionPickCards(localPlayerId, cardIds);
+  },
+
+  collisionPlaceBet: (amount) => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('COLLISION_PLACE_BET', { amount });
+      return true;
+    }
+    if (!engine) return false;
+    return engine.collisionPlaceBet(localPlayerId, amount);
+  },
+
+  collisionReveal: () => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('COLLISION_REVEAL');
+      return true;
+    }
+    if (!engine) return false;
+    return engine.collisionReveal(localPlayerId);
+  },
+
+  claimFreeMarketCard: () => {
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('CLAIM_FREE_MARKET');
+      return true;
+    }
+    if (!engine) return false;
+    return engine.claimFreeMarketCard(localPlayerId);
   },
 
   flashSwap: (flashCardId, swapCardIds) => {

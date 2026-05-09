@@ -350,17 +350,32 @@ export function AmbushPhase() {
                 第二次突袭需<strong style={{ color: '#ff8c00' }}>额外弃 1 张手牌</strong>作为代价，<br />
                 之后再选一张牌发起攻击。
               </div>
+              {player.hand.length < 2 && (
+                <div style={{
+                  color: '#e74c3c', fontSize: 12, padding: '6px 12px',
+                  border: '1px solid #e74c3c80', borderRadius: 6,
+                  background: 'rgba(231,76,60,0.12)',
+                }}>
+                  ⚠ 手牌不足 2 张，无法发起二连
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 14 }}>
                 <motion.button
                   onClick={() => setSecondFlow('PICK_DISCARD')}
-                  whileHover={{ scale: 1.06, boxShadow: '0 0 20px rgba(255,69,0,0.7)' }}
-                  whileTap={{ scale: 0.95 }}
+                  disabled={player.hand.length < 2}
+                  whileHover={player.hand.length >= 2 ? { scale: 1.06, boxShadow: '0 0 20px rgba(255,69,0,0.7)' } : undefined}
+                  whileTap={player.hand.length >= 2 ? { scale: 0.95 } : undefined}
                   style={{
                     padding: '12px 28px', borderRadius: 10,
-                    border: '2px solid #ff4500',
-                    background: 'linear-gradient(135deg, #ff4500, #8b0000)',
-                    color: '#fff', fontWeight: 900, fontSize: 14,
-                    cursor: 'pointer', fontFamily: '"Cinzel", serif', letterSpacing: 2,
+                    border: '2px solid ' + (player.hand.length >= 2 ? '#ff4500' : '#666'),
+                    background: player.hand.length >= 2
+                      ? 'linear-gradient(135deg, #ff4500, #8b0000)'
+                      : '#222',
+                    color: player.hand.length >= 2 ? '#fff' : '#666',
+                    fontWeight: 900, fontSize: 14,
+                    cursor: player.hand.length >= 2 ? 'pointer' : 'not-allowed',
+                    fontFamily: '"Cinzel", serif', letterSpacing: 2,
+                    opacity: player.hand.length >= 2 ? 1 : 0.5,
                   }}
                 >
                   ⚡ 发起二连
@@ -423,19 +438,25 @@ export function AmbushPhase() {
         )}
       </AnimatePresence>
 
-      {/* 操作按钮（仅第一次突袭前 / 二连选择已拒绝时显示） */}
+      {/* 操作按钮：在任何非"已达上限自动推进"的情况下都允许跳过 */}
       <div style={{ display: 'flex', gap: 8 }}>
-        {ambushCount === 0 && (
+        {!maxAmbushReached && (
           <motion.button
-            onClick={() => advancePhase()}
+            onClick={() => {
+              if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+              advancePhase();
+            }}
             whileHover={{ scale: 1.05 }}
             style={{
-              padding: '8px 18px', borderRadius: 6,
-              border: '1px solid #666', background: 'transparent',
-              color: '#999', cursor: 'pointer', fontSize: 12,
+              padding: '10px 22px', borderRadius: 8,
+              border: '1px solid #b8860b',
+              background: 'linear-gradient(180deg, #2d1b4e, #1a0b2e)',
+              color: '#b8860b', cursor: 'pointer', fontSize: 13,
+              fontFamily: '"Cinzel", serif', letterSpacing: 2,
+              fontWeight: 700,
             }}
           >
-            跳过突袭 → 咏唱阶段
+            ✦ 跳过突袭 → 咏唱
           </motion.button>
         )}
       </div>

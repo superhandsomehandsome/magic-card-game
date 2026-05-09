@@ -613,9 +613,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     this.validatePhase(GamePhase.DRAW_MARKET);
     const player = this.getPlayer(playerId);
 
-    // 非怪盗玩家有购买次数限制
-    if (player.hero !== HeroType.PHANTOM &&
-        player.marketBuysThisTurn >= GAME_CONSTANTS.MARKET_BUY_LIMIT) {
+    // 怪盗最多 PHANTOM_MARKET_LIMIT 次/回合，普通玩家最多 MARKET_BUY_LIMIT 次/回合
+    const limit = player.hero === HeroType.PHANTOM
+      ? GAME_CONSTANTS.PHANTOM_MARKET_LIMIT
+      : GAME_CONSTANTS.MARKET_BUY_LIMIT;
+    if (player.marketBuysThisTurn >= limit) {
       return false;
     }
 
@@ -675,6 +677,44 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     }
 
     this.addLog(`${player.name} 从黑市购得 ${CardRank[marketCard.rank]} 级牌${priceMult === 0 ? ' (白嫖)' : ''}`);
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  /**
+   * 黑市奇妙夜：从黑市背面盲抽 1 张牌（免费）
+   * 普通玩家每回合 1 张，奥术怪盗每回合 2 张
+   * 返回是否成功
+   */
+  public claimFreeMarketCard(playerId: string): boolean {
+    this.validatePhase(GamePhase.DRAW_MARKET);
+    const player = this.getPlayer(playerId);
+    const effects = aggregateEffectsFor(this.state, playerId);
+    const baseFree = effects.marketFreeDrawCount || 0;
+    if (baseFree <= 0) return false;
+    // 怪盗在黑市奇妙夜期间额外 +1
+    const maxFree = baseFree + (player.hero === HeroType.PHANTOM ? 1 : 0);
+    if (player.freeMarketDrawsThisTurn >= maxFree) return false;
+    if (this.state.marketCards.length === 0) return false;
+
+    // 随机抽 1 张（盲抽）
+    const idx = Math.floor(Math.random() * this.state.marketCards.length);
+    const card = this.state.marketCards.splice(idx, 1)[0];
+    player.hand.push(card);
+    player.freeMarketDrawsThisTurn++;
+
+    // 补充黑市
+    const refill = this.drawFromDeck(1);
+    this.state.marketCards.push(...refill);
+
+    this.pushAction({
+      type: 'CARD_DRAW',
+      payload: { playerId, card, free: true },
+      durationMs: 500,
+    });
+
+    this.addLog(`🌙 ${player.name} 黑市奇妙夜：盲抽得 ${CardRank[card.rank]} 级牌`);
+    this.checkDeckEmpty();
     this.emit('STATE_UPDATED', this.getStateSnapshot());
     return true;
   }
@@ -812,10 +852,10 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const attackerEff = aggregateEffectsFor(this.state, attacker.id);
     const defenderEff = aggregateEffectsFor(this.state, defender.id);
 
-    // 攻击方独吞 bountyPool
-    const foldBounty = this.state.bountyPool;
+    // 攻击方独吞 bountyPool（怯战奖励倍率：让对手怯战更值得）
+    const foldBounty = Math.round(this.state.bountyPool * GAME_CONSTANTS.FOLD_BOUNTY_BONUS_MULT);
     if (foldBounty > 0) {
-      this.addScore(attacker.id, foldBounty, '独吞悬赏 (对方怯战)');
+      this.addScore(attacker.id, foldBounty, `独吞悬赏 (对方怯战 × ${GAME_CONSTANTS.FOLD_BOUNTY_BONUS_MULT})`);
     }
     this.pushAction({
       type: 'SCORE_BURST',
@@ -1195,8 +1235,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       durationMs: 800,
     });
 
-    // 过牌奖励 (从1张升至2张, 加速牌库消耗)
-    const reward = this.drawFromDeck(2);
+    // 过牌奖励：1 张（之前是 2 → 加速对撞太快，调回 1）
+    const reward = this.drawFromDeck(1);
     player.hand.push(...reward);
 
     this.addLog(`${player.name} 咏唱得分 +${actualScore}${actualScore < score ? ` (衰减前: ${score})` : ''}`);
@@ -1490,6 +1530,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     current.marketBuysThisTurn = 0;
     current.ambushWonThisTurn = false;
     current.hasUsedDarkSacrificeThisTurn = false;
+    current.freeMarketDrawsThisTurn = 0;
     // hasUsedOracle 不重置（本局只能用一次）
 
     // 处理以太歌者反转倒计时
@@ -1568,8 +1609,28 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   public useUltimate(playerId: string): boolean {
     const player = this.getPlayer(playerId);
     if (player.hasUsedUltimate) return false;
-    player.hasUsedUltimate = true;
+
+    // 实际调用对应英雄的大招方法（每个 strategy 内部会自己设置 hasUsedUltimate）
+    const strategy = this.heroStrategies.get(playerId) as {
+      scalesOfJustice?: (e: IGameEngineAPI) => boolean;
+      sonataOfInversion?: (e: IGameEngineAPI) => boolean;
+    } | undefined;
+
+    let executed = false;
+    if (player.hero === HeroType.INQUISITOR && strategy?.scalesOfJustice) {
+      executed = strategy.scalesOfJustice(this);
+    } else if (player.hero === HeroType.SINGER && strategy?.sonataOfInversion) {
+      executed = strategy.sonataOfInversion(this);
+    } else {
+      // 其他英雄（PHANTOM/WEAVER）大招由专属 action 触发，这里仅占位
+      player.hasUsedUltimate = true;
+      executed = true;
+    }
+
+    if (!executed) return false;
+
     this.emit('HERO_ABILITY_USED', { playerId, hero: player.hero });
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
     return true;
   }
 
@@ -1586,7 +1647,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     }
   }
 
+  private deckLowWarningSent = false;
   private checkDeckEmpty(): void {
+    // 牌库剩 10 张时发预警事件（一次性）
+    if (!this.deckLowWarningSent && this.deck.length > 0 && this.deck.length <= 10) {
+      this.deckLowWarningSent = true;
+      this.addLog(`⚠️ 牌库仅剩 ${this.deck.length} 张 — 终局对撞临近！`);
+      this.emit('DECK_LOW_WARNING', { remaining: this.deck.length });
+    }
     if (this.deck.length === 0) {
       // 至高法案保护期内：即使牌库空也不立即对撞，等保护期结束
       if (this.state.collisionGracePeriod > 0) {
@@ -1603,26 +1671,22 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const playerIds = Object.keys(this.state.players);
 
     this.state.collisionState = {
+      step: 'PICK',
       round: 'FLOP',
       roundIndex: 0,
       playerCards: {
-        [playerIds[0]]: [...this.state.players[playerIds[0]].hand],
-        [playerIds[1]]: [...this.state.players[playerIds[1]].hand],
+        [playerIds[0]]: [],
+        [playerIds[1]]: [],
       },
       revealedCards: { [playerIds[0]]: [], [playerIds[1]]: [] },
+      pairWinners: [],
+      pairPot: [0, 0, 0],
+      pickConfirmed: { [playerIds[0]]: false, [playerIds[1]]: false },
+      bets: { [playerIds[0]]: 0, [playerIds[1]]: 0 },
+      betConfirmed: { [playerIds[0]]: false, [playerIds[1]]: false },
       pot: 0,
       foldedPlayer: null,
     };
-
-    // 基础分计算: 当前总分(40%) + 手牌质量(60%)
-    const p1 = this.state.players[playerIds[0]];
-    const p2 = this.state.players[playerIds[1]];
-    const p1Base = p1.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
-      p1.hand.reduce((s, c) => s + c.baseScore, 0) * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
-    const p2Base = p2.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
-      p2.hand.reduce((s, c) => s + c.baseScore, 0) * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
-
-    this.state.collisionState.pot = Math.round(p1Base + p2Base);
 
     this.pushAction({
       type: 'SLOW_MOTION',
@@ -1630,10 +1694,146 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       durationMs: 2000,
     });
 
+    this.addLog('💥 牌库枯竭！魔力对撞开启 — 双方暗选 3 张手牌进行决斗');
     this.emit('PHASE_CHANGED', GamePhase.COLLISION);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
+  /**
+   * 对撞·暗选 3 张：玩家从手牌中挑选 3 张（已含期望顺序），并确认
+   */
+  public collisionPickCards(playerId: string, cardIds: string[]): boolean {
+    const c = this.state.collisionState;
+    if (!c || c.step !== 'PICK') return false;
+    const player = this.getPlayer(playerId);
+    if (cardIds.length !== Math.min(3, player.hand.length)) {
+      // 手牌不足 3 张时,允许选全部手牌
+      if (cardIds.length !== player.hand.length) return false;
+    }
+    // 验证每张都在手牌里
+    const picked: ICard[] = [];
+    for (const id of cardIds) {
+      const card = player.hand.find(card => card.id === id);
+      if (!card) return false;
+      picked.push(card);
+    }
+    c.playerCards[playerId] = picked;
+    c.pickConfirmed[playerId] = true;
+    this.addLog(`${player.name} 已暗选 ${picked.length} 张作为对撞阵列`);
+
+    // 双方都选完后进入下注
+    if (Object.values(c.pickConfirmed).every(v => v)) {
+      c.step = 'BETTING';
+      this.addLog('双方阵列就位，进入下注阶段（最高 20）');
+    }
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  /**
+   * 对撞·下注：玩家提交本次下注金额（0-20，将从最终积分扣减）
+   */
+  public collisionPlaceBet(playerId: string, amount: number): boolean {
+    const c = this.state.collisionState;
+    if (!c || c.step !== 'BETTING') return false;
+    const safe = Math.max(0, Math.min(20, Math.floor(amount)));
+    c.bets[playerId] = safe;
+    c.betConfirmed[playerId] = true;
+    const player = this.getPlayer(playerId);
+    this.addLog(`${player.name} 下注 ${safe} 分`);
+
+    if (Object.values(c.betConfirmed).every(v => v)) {
+      // 双方下注完毕 → 进入第一轮揭牌
+      c.step = 'REVEAL_1';
+      c.pot = (c.bets[Object.keys(c.bets)[0]] || 0) + (c.bets[Object.keys(c.bets)[1]] || 0);
+      this.addLog(`下注完毕，底池：${c.pot}。开始翻牌！`);
+    }
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  /**
+   * 对撞·翻当前对：双方都点"翻牌"后才结算这一对
+   * （引擎收到双方"翻牌"信号即解算，简化为：当玩家点 RAISE → 标记本对ready，
+   *   两边都 ready 才翻）
+   */
+  public collisionReveal(playerId: string): boolean {
+    const c = this.state.collisionState;
+    if (!c) return false;
+    if (c.step !== 'REVEAL_1' && c.step !== 'REVEAL_2' && c.step !== 'REVEAL_3') return false;
+
+    const idx = c.step === 'REVEAL_1' ? 0 : c.step === 'REVEAL_2' ? 1 : 2;
+    const playerIds = Object.keys(this.state.players);
+
+    // 把当前对的牌写入 revealedCards（双方各 1 张）
+    for (const pid of playerIds) {
+      if (c.revealedCards[pid].length <= idx) {
+        const card = c.playerCards[pid][idx];
+        if (card) c.revealedCards[pid].push(card);
+      }
+    }
+
+    // 比较两张牌（赢家拿底池+累计平局）
+    const card1 = c.revealedCards[playerIds[0]][idx];
+    const card2 = c.revealedCards[playerIds[1]][idx];
+    if (!card1 || !card2) {
+      this.emit('STATE_UPDATED', this.getStateSnapshot());
+      return false;
+    }
+
+    const cmp = compareCards(card1.rank, card2.rank, this.state.isInverted);
+    let winner: string | 'TIE';
+    if (cmp > 0) winner = playerIds[0];
+    else if (cmp < 0) winner = playerIds[1];
+    else winner = 'TIE';
+
+    // 当前对的底池 = 主底池均分 + 上一对累计的平局底池
+    const basePerPair = Math.round(c.pot / 3);
+    const carryFromPrev = idx > 0 ? c.pairPot[idx - 1] : 0;
+    // 如果上一对是平局，pairPot 里的钱"滚雪球"过来
+    const carry = (idx > 0 && c.pairWinners[idx - 1] === 'TIE') ? carryFromPrev : 0;
+    const thisPairValue = basePerPair + carry;
+    c.pairPot[idx] = thisPairValue;
+    c.pairWinners[idx] = winner;
+
+    if (winner !== 'TIE') {
+      this.addScore(winner, thisPairValue, `对撞第 ${idx + 1} 对赢家`);
+      this.addLog(`第 ${idx + 1} 对：${this.getPlayer(winner).name} 胜 +${thisPairValue}`);
+    } else {
+      this.addLog(`第 ${idx + 1} 对：平局！${thisPairValue} 分滚至下一对`);
+    }
+
+    this.pushAction({
+      type: 'COLLISION_CLASH',
+      payload: { idx, winner, value: thisPairValue, card1, card2 },
+      durationMs: 1500,
+    });
+
+    // 推进到下一对
+    if (idx < 2) {
+      c.step = idx === 0 ? 'REVEAL_2' : 'REVEAL_3';
+      c.round = idx === 0 ? 'TURN' : 'RIVER';
+      c.roundIndex = idx + 1;
+    } else {
+      // 三对完毕：若最后一对是平局，剩余底池给本局总分高的人；否则结束
+      if (winner === 'TIE') {
+        const p1 = this.state.players[playerIds[0]];
+        const p2 = this.state.players[playerIds[1]];
+        const finalWinner = p1.score >= p2.score ? p1.id : p2.id;
+        this.addScore(finalWinner, thisPairValue, '对撞最终平局：积分高者得');
+      }
+      c.step = 'DONE';
+      this.resolveCollision();
+    }
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+    return true;
+  }
+
+  /**
+   * 兼容旧 API：collisionAction('RAISE'|'FOLD')
+   * - RAISE 在 REVEAL_x 阶段 → 调 collisionReveal
+   * - FOLD → 直接判负
+   */
   public collisionAction(playerId: string, action: 'RAISE' | 'FOLD'): void {
     if (!this.state.collisionState) return;
     const collision = this.state.collisionState;
@@ -1644,78 +1844,22 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       this.declareWinner(winnerId, '对撞退缩');
       return;
     }
-
-    // RAISE: 揭示下一张牌
-    const cards = collision.playerCards[playerId];
-    if (cards.length > 0) {
-      const revealed = cards.shift()!;
-      collision.revealedCards[playerId].push(revealed);
-
-      this.pushAction({
-        type: 'COLLISION_CLASH',
-        payload: { playerId, card: revealed, round: collision.round },
-        durationMs: 1500,
-      });
+    if (collision.step === 'REVEAL_1' || collision.step === 'REVEAL_2' || collision.step === 'REVEAL_3') {
+      this.collisionReveal(playerId);
     }
-
-    // 检查是否所有玩家都行动了，推进 round
-    const allRevealed = Object.values(collision.revealedCards)
-      .every(arr => arr.length > collision.roundIndex);
-
-    if (allRevealed) {
-      collision.roundIndex++;
-      if (collision.roundIndex >= 3) {
-        this.resolveCollision();
-      } else {
-        const rounds: Array<'FLOP' | 'TURN' | 'RIVER'> = ['FLOP', 'TURN', 'RIVER'];
-        collision.round = rounds[collision.roundIndex];
-      }
-    }
-
-    this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
   private resolveCollision(): void {
     if (!this.state.collisionState) return;
-    const collision = this.state.collisionState;
     const playerIds = Object.keys(this.state.players);
-
-    // 对撞分 = 翻牌有效分之和 + 底池权重加成
-    const revealScores = playerIds.map(id => {
-      const revealed = collision.revealedCards[id];
-      return revealed.reduce((sum, c) => sum + getEffectiveScore(c.rank, this.state.isInverted), 0);
-    });
-
-    // 将 pot 按权重分配给双方基础分
     const p1 = this.state.players[playerIds[0]];
     const p2 = this.state.players[playerIds[1]];
-    const p1Weighted = p1.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
-      revealScores[0] * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
-    const p2Weighted = p2.score * GAME_CONSTANTS.COLLISION_SCORE_WEIGHT +
-      revealScores[1] * GAME_CONSTANTS.COLLISION_HAND_WEIGHT;
-
-    if (Math.abs(p1Weighted - p2Weighted) < 0.001) {
-      // 真正平局：比较剩余手牌总有效分
-      const p1Remaining = collision.playerCards[playerIds[0]]
-        .reduce((s, c) => s + getEffectiveScore(c.rank, this.state.isInverted), 0);
-      const p2Remaining = collision.playerCards[playerIds[1]]
-        .reduce((s, c) => s + getEffectiveScore(c.rank, this.state.isInverted), 0);
-
-      if (p1Remaining === p2Remaining) {
-        // 绝对平局：后手玩家胜（避免偏袒）
-        this.declareWinner(playerIds[1], '魔力对撞 (平局后手胜)');
-      } else {
-        this.declareWinner(
-          p1Remaining > p2Remaining ? playerIds[0] : playerIds[1],
-          '魔力对撞 (平局加赛)'
-        );
-      }
-    } else {
-      this.declareWinner(
-        p1Weighted > p2Weighted ? playerIds[0] : playerIds[1],
-        '魔力对撞'
-      );
-    }
+    // 三对结算后比总分
+    const winner = p1.score === p2.score
+      ? playerIds[1] // 平局：后手胜
+      : (p1.score > p2.score ? playerIds[0] : playerIds[1]);
+    const reason = p1.score === p2.score ? '魔力对撞 (积分相同后手胜)' : '魔力对撞';
+    this.declareWinner(winner, reason);
   }
 
   private declareWinner(winnerId: string, reason: string): void {
@@ -1816,6 +1960,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       cursedNextChant: false,
       hasUsedOracle: false,
       hasUsedDarkSacrificeThisTurn: false,
+      freeMarketDrawsThisTurn: 0,
     };
   }
 

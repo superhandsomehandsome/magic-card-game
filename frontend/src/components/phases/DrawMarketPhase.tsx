@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ICard } from '../../types/game';
+import { HeroType, GAME_CONSTANTS } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Card } from '../board/Card';
 import { aggregateEffectsFor } from '../../core/decrees';
@@ -18,7 +19,7 @@ export function DrawMarketPhase() {
   const {
     gameState, localPlayerId, drawCards, buyMarketCard, advancePhase,
     selectedCards, selectCard, deselectCard, clearSelection,
-    setHandClickHandler,
+    setHandClickHandler, claimFreeMarketCard,
   } = useGameStore();
   const [hasDrawn, setHasDrawn] = useState(false);
   const [buyingCard, setBuyingCard] = useState<ICard | null>(null);
@@ -59,11 +60,26 @@ export function DrawMarketPhase() {
   const priceMult = effects?.marketPriceMultiplier ?? 1;
   const isFree = priceMult === 0; // 是否白嫖模式
 
+  // 黑市奇妙夜：免费盲抽
+  const freeDrawBase = effects?.marketFreeDrawCount ?? 0;
+  const isPhantom = player?.hero === HeroType.PHANTOM;
+  const maxFreeDraws = freeDrawBase > 0
+    ? freeDrawBase + (isPhantom ? 1 : 0)
+    : 0;
+  const freeDrawsLeft = Math.max(0, maxFreeDraws - (player?.freeMarketDrawsThisTurn || 0));
+  const isMidnight = freeDrawBase > 0;
+
+  // 是否已经买了 1 张普通牌 → 决定是否自动关门
+  const buyLimit = isPhantom ? GAME_CONSTANTS.PHANTOM_MARKET_LIMIT : GAME_CONSTANTS.MARKET_BUY_LIMIT;
+  const buysLeft = Math.max(0, buyLimit - (player?.marketBuysThisTurn || 0));
+  const hasFinishedShopping = buysLeft <= 0 && freeDrawsLeft <= 0;
+
   // 某张牌的有效价格
   const effectivePrice = (card: ICard) => Math.round(card.baseScore * priceMult);
 
   const handleSelectMarket = (card: ICard) => {
     if (!isMyTurn) return;
+    if (buysLeft <= 0) return; // 已达购买上限
 
     // 白嫖模式: 直接一键购买, 无需支付流程
     if (isFree) {
@@ -88,6 +104,14 @@ export function DrawMarketPhase() {
       clearSelection();
     }
   };
+
+  // 自动关门：完成所有可执行操作（买完上限 + 用完免费抽）后 1.2s 自动进入下一阶段
+  useEffect(() => {
+    if (!isMyTurn || !hasDrawn || buyingCard) return;
+    if (!hasFinishedShopping) return;
+    const t = setTimeout(() => advancePhase(), 1200);
+    return () => clearTimeout(t);
+  }, [isMyTurn, hasDrawn, buyingCard, hasFinishedShopping, advancePhase]);
 
   const paymentTotal = selectedCards.reduce((sum, id) => {
     const c = player.hand.find(h => h.id === id);
@@ -132,7 +156,7 @@ export function DrawMarketPhase() {
       {/* 黑市标题 */}
       <motion.h3
         style={{
-          color: '#b8860b',
+          color: isMidnight ? '#a18bff' : '#b8860b',
           fontFamily: '"Cinzel", serif',
           fontSize: 13,
           letterSpacing: 3,
@@ -141,43 +165,98 @@ export function DrawMarketPhase() {
         animate={{ opacity: [0.7, 1, 0.7] }}
         transition={{ duration: 2, repeat: Infinity }}
       >
-        ⛧ 黑 市 ⛧
+        {isMidnight ? '🌙 黑 市 奇 妙 夜 🌙' : '⛧ 黑 市 ⛧'}
       </motion.h3>
+
+      {/* 黑市奇妙夜：背面盲抽提示 */}
+      {isMidnight && isMyTurn && freeDrawsLeft > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: '8px 16px', borderRadius: 8,
+            background: 'rgba(120,60,200,0.18)',
+            border: '1px solid #9b6bdf',
+            color: '#c4a0ff',
+            fontSize: 12, fontWeight: 700, letterSpacing: 2,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+          }}
+        >
+          <div>🌙 今夜黑市全部盖牌 — 你可以背面盲抽 {freeDrawsLeft} 张</div>
+          <button
+            onClick={() => claimFreeMarketCard()}
+            style={{
+              padding: '6px 14px', borderRadius: 6,
+              border: '1px solid #c4a0ff',
+              background: 'linear-gradient(135deg, #4a2f8e, #2a1450)',
+              color: '#fff', fontWeight: 700, fontSize: 12,
+              cursor: 'pointer', letterSpacing: 1,
+            }}
+          >
+            ✦ 盲抽一张
+          </button>
+        </motion.div>
+      )}
+
+      {/* 剩余购买次数 */}
+      {isMyTurn && hasDrawn && (
+        <div style={{ color: '#888', fontSize: 11, fontFamily: 'monospace' }}>
+          剩余购买 {buysLeft} 次{isPhantom ? '（怪盗：上限 2）' : ''}
+        </div>
+      )}
 
       {/* 黑市卡牌（点击选择购买目标） */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-        {gameState.marketCards.map(card => (
-          <motion.div
-            key={card.id}
-            whileHover={isMyTurn ? { scale: 1.05, y: -3 } : undefined}
-            onClick={() => handleSelectMarket(card)}
-          >
-            <Card
-              card={card}
-              size="md"
-              isSelected={buyingCard?.id === card.id}
-            />
-            {/* 价格标签 */}
-            <div style={{
-              marginTop: 4,
-              padding: '2px 6px',
-              borderRadius: 4,
-              background: isFree
-                ? 'rgba(46,204,113,0.25)'
-                : (buyingCard?.id === card.id ? '#ffd700' : 'rgba(0,0,0,0.6)'),
-              color: isFree
-                ? '#2ecc71'
-                : (buyingCard?.id === card.id ? '#1a0b2e' : '#b8860b'),
-              fontSize: 11, fontWeight: 700,
-              textAlign: 'center',
-              fontFamily: 'monospace',
-              border: isFree ? '1px solid #2ecc71' : '1px solid #b8860b',
-              boxShadow: isFree ? '0 0 6px rgba(46,204,113,0.4)' : 'none',
-            }}>
-              {isFree ? '🆓 免费' : `💰 ${effectivePrice(card)}`}
-            </div>
-          </motion.div>
-        ))}
+        {gameState.marketCards.map(card => {
+          const disabled = buysLeft <= 0;
+          // 黑市奇妙夜：黑市牌"假装"显示为背面（视觉效果）
+          if (isMidnight && isMyTurn) {
+            return (
+              <div key={card.id} style={{
+                width: 80, height: 112, borderRadius: 8,
+                border: '2px solid #9b6bdf',
+                background: 'linear-gradient(135deg, #4a2f8e, #3a1f6e 50%, #2a1450)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 0 12px rgba(180,140,255,0.5)',
+              }}>
+                <div style={{ color: '#e8d4ff', fontSize: 32, textShadow: '0 0 12px rgba(220,180,255,1)' }}>✦</div>
+              </div>
+            );
+          }
+          return (
+            <motion.div
+              key={card.id}
+              whileHover={isMyTurn && !disabled ? { scale: 1.05, y: -3 } : undefined}
+              onClick={() => handleSelectMarket(card)}
+              style={{ opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
+            >
+              <Card
+                card={card}
+                size="md"
+                isSelected={buyingCard?.id === card.id}
+              />
+              {/* 价格标签 */}
+              <div style={{
+                marginTop: 4,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: isFree
+                  ? 'rgba(46,204,113,0.25)'
+                  : (buyingCard?.id === card.id ? '#ffd700' : 'rgba(0,0,0,0.6)'),
+                color: isFree
+                  ? '#2ecc71'
+                  : (buyingCard?.id === card.id ? '#1a0b2e' : '#b8860b'),
+                fontSize: 11, fontWeight: 700,
+                textAlign: 'center',
+                fontFamily: 'monospace',
+                border: isFree ? '1px solid #2ecc71' : '1px solid #b8860b',
+                boxShadow: isFree ? '0 0 6px rgba(46,204,113,0.4)' : 'none',
+              }}>
+                {isFree ? '🆓 免费' : `💰 ${effectivePrice(card)}`}
+              </div>
+            </motion.div>
+          );
+        })}
         {/* 空槽位 */}
         {Array.from({ length: 3 - gameState.marketCards.length }).map((_, i) => (
           <div key={`empty-${i}`} style={{

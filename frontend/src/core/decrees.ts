@@ -143,6 +143,16 @@ export const DECREE_POOL: IDecree[] = [
     buff: { ambushWinExtraDestroy: true },
     debuff: { exposeHands: true },
   },
+  {
+    id: 'MIDNIGHT_BAZAAR',
+    name: '黑市奇妙夜',
+    emoji: '🌙',
+    category: 'ECONOMY',
+    buffText: '每回合可从黑市背面"盲抽" 1 张牌（免费）。奥术怪盗每回合可盲抽 2 张。',
+    debuffText: '回合结束随机弃 1 张手牌（盲弃）。',
+    buff: { marketFreeDrawCount: 1 },
+    debuff: { handLimitDelta: 0 }, // debuff 仅在引擎里特殊处理（盲弃）
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -169,6 +179,7 @@ export function mergeEffects(effects: IDecreeEffect[]): IDecreeEffect {
     'flashUsePenalty',
     'turnTimerSkipPenalty',
     'fastEndTurnBonusScore',
+    'marketFreeDrawCount',
   ];
   const MULT_FIELDS: (keyof IDecreeEffect)[] = [
     'greenComboMultiplier', 'ambushBluffCaughtPenaltyMult',

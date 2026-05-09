@@ -25,6 +25,8 @@ import { FlashSwapModal } from './FlashSwapModal';
 import { StealPickerModal } from './StealPickerModal';
 import { DecreeContestModal } from '../decree/DecreeContestModal';
 import { DecreeArchive } from '../decree/DecreeArchive';
+import { BattleLog } from './BattleLog';
+import { DeckLowWarning } from './DeckLowWarning';
 import type { ICard } from '../../types/game';
 import { CardRank } from '../../types/game';
 import { HeroType } from '../../types/game';
@@ -108,12 +110,19 @@ export function GameBoard() {
       {/* 偷牌选择(突袭怯战胜方亲手挑) */}
       <StealPickerModal />
 
+      {/* 战况记事本（左侧浮动） */}
+      <BattleLog />
+
+      {/* 牌库剩 10 张全屏预警 */}
+      <DeckLowWarning />
+
       {/* ═══ 顶部：对手区域 ═══ */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: 'clamp(2px, 1vh, 8px) clamp(8px, 2vw, 20px)',
+        paddingRight: 60, /* 给设置按钮(36px+8px+8px=52px)预留空间，避免遮挡 */
         gap: 'clamp(4px, 1vw, 12px)',
         flexShrink: 0,
       }}>
