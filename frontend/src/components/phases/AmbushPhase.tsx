@@ -74,6 +74,21 @@ export function AmbushPhase() {
     };
   }, [engine]);
 
+  // 达到最大突袭次数后自动推进（等结算面板显示完毕再推进）
+  const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (maxAmbushReached && isMyTurn && gameState?.phase === GamePhase.AMBUSH_DECLARE) {
+      // 等结算结果展示完（3.5s）后自动推进到咏唱
+      autoAdvanceRef.current = setTimeout(() => {
+        advancePhase();
+      }, 3600);
+    }
+    return () => {
+      if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxAmbushReached, isMyTurn, gameState?.phase]);
+
   // 注册底部手牌点击（引导式分步操作）
   useEffect(() => {
     // 防守方视角由 DefenderView 自行注册，此处不干扰
@@ -268,10 +283,34 @@ export function AmbushPhase() {
         </motion.div>
       )}
 
-      {maxAmbushReached && (
-        <div style={{ color: '#666', fontSize: 12 }}>
-          已达最大突袭次数
-        </div>
+      {maxAmbushReached && isMyTurn && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}
+        >
+          <div style={{ color: '#666', fontSize: 12 }}>已达最大突袭次数</div>
+          <motion.button
+            onClick={() => {
+              if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+              advancePhase();
+            }}
+            whileHover={{ scale: 1.06, boxShadow: '0 0 16px rgba(184,134,11,0.5)' }}
+            whileTap={{ scale: 0.94 }}
+            style={{
+              padding: '10px 28px', borderRadius: 8,
+              border: '2px solid #b8860b',
+              background: 'linear-gradient(135deg, rgba(184,134,11,0.2), rgba(139,0,0,0.15))',
+              color: '#ffd700', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', fontFamily: '"Cinzel", serif', letterSpacing: 2,
+            }}
+          >
+            ✦ 进入咏唱阶段
+          </motion.button>
+        </motion.div>
+      )}
+      {maxAmbushReached && !isMyTurn && (
+        <div style={{ color: '#666', fontSize: 12 }}>已达最大突袭次数</div>
       )}
 
       {/* 二次突袭：是否发起选择弹窗（在第一次突袭完成后弹出） */}
