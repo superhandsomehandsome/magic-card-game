@@ -176,10 +176,13 @@ export function StealPickerModal() {
                       width: 70, height: 100,
                       borderRadius: 8,
                       cursor: 'pointer',
-                      border: isSelected ? '2px solid #ffd700' : '2px solid #5a3a2a',
+                      border: isSelected ? '2px solid #ffd700' : '2px solid #9b6bdf',
                       background: isSelected
-                        ? 'linear-gradient(135deg, #4a2a3a, #2d1b3e)'
-                        : 'linear-gradient(135deg, #2a1a3a, #1a0b2e)',
+                        ? 'linear-gradient(135deg, #5a3060, #3a1b5e)'
+                        : 'linear-gradient(135deg, #3a1f6e, #2a1050)',
+                      boxShadow: isSelected
+                        ? '0 0 18px rgba(255,215,0,0.5)'
+                        : '0 0 8px rgba(120,60,200,0.4)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -189,9 +192,11 @@ export function StealPickerModal() {
                     {/* 卡背图案 */}
                     <div style={{
                       fontFamily: '"Cinzel", serif',
-                      color: isSelected ? '#ffd700' : '#5a3a8a',
-                      textShadow: isSelected ? '0 0 8px rgba(255,215,0,0.7)' : 'none',
-                      fontSize: 22,
+                      color: isSelected ? '#ffd700' : '#c4a0ff',
+                      textShadow: isSelected
+                        ? '0 0 12px rgba(255,215,0,0.9)'
+                        : '0 0 8px rgba(180,140,255,0.8)',
+                      fontSize: 26,
                       fontWeight: 900,
                       letterSpacing: 1,
                     }}>

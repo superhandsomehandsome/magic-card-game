@@ -65,7 +65,7 @@ export function AmbushPhase() {
       setSelectedDiscardId(null);
       setShowDeclare(false);
       if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
-      resultTimerRef.current = setTimeout(() => setLastResult(null), 3500);
+      resultTimerRef.current = setTimeout(() => setLastResult(null), 5000);
     };
     engine.on('AMBUSH_RESOLVED', handleResolved);
     return () => {
@@ -81,7 +81,7 @@ export function AmbushPhase() {
       // 等结算结果展示完（3.5s）后自动推进到咏唱
       autoAdvanceRef.current = setTimeout(() => {
         advancePhase();
-      }, 3600);
+      }, 1500);
     }
     return () => {
       if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);

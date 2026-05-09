@@ -29,7 +29,7 @@ export function ScoreToast() {
       setEvents(prev => [...prev, { id, ...data, isMine }]);
       setTimeout(() => {
         setEvents(prev => prev.filter(e => e.id !== id));
-      }, 2400);
+      }, 4000);
     };
     engine.on('SCORE_CHANGED', handler);
     return () => {
@@ -86,7 +86,7 @@ function ToastItem({ event }: { event: ScoreEvent }) {
       initial={{ opacity: 0, y: 20, scale: 0.6 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.8 }}
-      transition={{ type: 'spring', stiffness: 280, damping: 18 }}
+      transition={{ type: 'spring', stiffness: 160, damping: 22 }}
       style={{
         padding: '8px 18px', borderRadius: 20,
         background: `linear-gradient(180deg, rgba(0,0,0,0.85), rgba(0,0,0,0.95))`,

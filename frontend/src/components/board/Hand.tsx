@@ -47,7 +47,7 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
                 rotate: isOpponent ? 0 : rotation,
               }}
               exit={{ opacity: 0, y: -50, scale: 0.5 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 15, delay: index * 0.05 }}
+              transition={{ type: 'spring', stiffness: 120, damping: 20, delay: index * 0.08 }}
               style={{ transformOrigin: 'bottom center' }}
             >
               <Card

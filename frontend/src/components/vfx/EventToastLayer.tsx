@@ -6,7 +6,7 @@ import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 
-const TOAST_LIFE_MS = 4000;
+const TOAST_LIFE_MS = 5500;
 
 export function EventToastLayer() {
   const { eventToasts, dismissEventToast } = useGameStore();
@@ -45,7 +45,7 @@ export function EventToastLayer() {
             initial={{ opacity: 0, y: -20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.85, y: -10 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.5 }}
             style={{
               padding: '8px 18px',
               borderRadius: 6,
