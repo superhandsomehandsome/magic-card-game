@@ -32,7 +32,11 @@ export function Card({
   onClick,
   size = 'md',
 }: CardProps) {
-  const sizeMap = { sm: { w: 60, h: 84 }, md: { w: 80, h: 112 }, lg: { w: 100, h: 140 } };
+  const sizeMap = {
+    sm: { w: 'calc(var(--card-w, 80px) * 0.75)', h: 'calc(var(--card-h, 112px) * 0.75)' },
+    md: { w: 'var(--card-w, 80px)', h: 'var(--card-h, 112px)' },
+    lg: { w: 'calc(var(--card-w, 80px) * 1.25)', h: 'calc(var(--card-h, 112px) * 1.25)' },
+  };
   const { w, h } = sizeMap[size];
   const color = getRankColor(card.rank);
   const background = getRankBackground(card.rank);
@@ -49,7 +53,7 @@ export function Card({
       style={{
         width: w,
         height: h,
-        borderRadius: 8,
+        borderRadius: 'clamp(4px, 1vw, 8px)',
         border: `2px solid ${isSelected ? '#ffd700' : isBlocked ? '#e74c3c' : borderColor}`,
         background: isFaceDown
           ? 'linear-gradient(135deg, #1a0b2e 0%, #2d1b4e 50%, #1a0b2e 100%)'

@@ -279,7 +279,7 @@ function App() {
         <div style={{
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
-          minHeight: '100vh', gap: 24, padding: 32,
+          width: '100%', height: '100%', gap: 24, padding: 32,
           background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
         }}>
           <h2 style={{ color: '#b8860b', fontFamily: '"Cinzel", serif' }}>
@@ -303,7 +303,7 @@ function App() {
         <div style={{
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
-          minHeight: '100vh', gap: 24, padding: 32,
+          width: '100%', height: '100%', gap: 24, padding: 32,
           background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
         }}>
           <h2 style={{ color: '#b8860b', fontFamily: '"Cinzel", serif' }}>
@@ -345,9 +345,9 @@ function App() {
     // GUEST 在等首个 STATE_SYNC
     return wrap(
       <div style={{
-        display: 'flex', flexDirection: 'column',
+          display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        minHeight: '100vh', gap: 24, padding: 32,
+        width: '100%', height: '100%', gap: 24, padding: 32,
         background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
         color: '#b8860b',
       }}>

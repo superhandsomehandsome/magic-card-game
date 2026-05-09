@@ -7,8 +7,12 @@
  *   3. 当前竖屏 (height > width)
  *
  * 三者全满足 → 显示全屏"请横屏游玩"提示，遮挡主 UI
+ *
+ * 附加能力：
+ *   - 在横屏状态下首次交互时请求全屏
+ *   - 全屏后尝试锁定横屏方向
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 
 function checkShouldBlock(): boolean {
@@ -22,16 +26,52 @@ function checkShouldBlock(): boolean {
   return isMobile && isPortrait;
 }
 
+function tryRequestFullscreen() {
+  const el = document.documentElement as HTMLElement & {
+    webkitRequestFullScreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+  };
+  const p = el.requestFullscreen?.()
+    ?? el.webkitRequestFullScreen?.()
+    ?? el.msRequestFullscreen?.();
+  if (p && typeof (p as Promise<void>).then === 'function') {
+    (p as Promise<void>).then(() => {
+      const so = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
+      so?.lock?.('landscape').catch(() => {});
+    }).catch(() => {});
+  }
+}
+
 export function OrientationGate({ children }: { children: React.ReactNode }) {
   const [block, setBlock] = useState<boolean>(() => checkShouldBlock());
+  const fullscreenAttempted = useRef(false);
 
   useEffect(() => {
     const update = () => setBlock(checkShouldBlock());
+    const delayedUpdate = () => setTimeout(update, 200);
     window.addEventListener('resize', update);
-    window.addEventListener('orientationchange', update);
+    window.addEventListener('orientationchange', delayedUpdate);
+    const mql = window.matchMedia('(orientation: portrait)');
+    mql.addEventListener('change', update);
     return () => {
       window.removeEventListener('resize', update);
-      window.removeEventListener('orientationchange', update);
+      window.removeEventListener('orientationchange', delayedUpdate);
+      mql.removeEventListener('change', update);
+    };
+  }, []);
+
+  // 全屏退出时重新检测方向（用户可能退出全屏后竖屏）
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setBlock(checkShouldBlock());
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
     };
   }, []);
 
@@ -39,14 +79,28 @@ export function OrientationGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const so = (screen as Screen & { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
     if (so?.lock) {
-      so.lock('landscape').catch(() => {
-        // 大部分移动浏览器在非全屏不允许锁定，静默忽略
-      });
+      so.lock('landscape').catch(() => {});
     }
   }, []);
 
+  // 横屏后首次交互尝试全屏
+  const handleInteraction = useCallback(() => {
+    if (!fullscreenAttempted.current && !document.fullscreenElement) {
+      fullscreenAttempted.current = true;
+      tryRequestFullscreen();
+    }
+  }, []);
+
+  // 竖屏遮罩上的"进入全屏横屏"按钮
+  const handleFullscreenAndRotate = useCallback(() => {
+    tryRequestFullscreen();
+  }, []);
+
   return (
-    <>
+    <div
+      onPointerDown={handleInteraction}
+      style={{ width: '100%', height: '100%' }}
+    >
       {children}
       {block && (
         <motion.div
@@ -63,6 +117,8 @@ export function OrientationGate({ children }: { children: React.ReactNode }) {
             justifyContent: 'center',
             gap: 28,
             padding: 32,
+            paddingTop: 'max(32px, env(safe-area-inset-top, 0px))',
+            paddingBottom: 'max(32px, env(safe-area-inset-bottom, 0px))',
             color: '#b8860b',
             fontFamily: '"Cinzel", serif',
           }}
@@ -102,6 +158,26 @@ export function OrientationGate({ children }: { children: React.ReactNode }) {
             请将设备旋转至横屏模式以继续。
           </p>
 
+          <motion.button
+            onClick={handleFullscreenAndRotate}
+            whileTap={{ scale: 0.92 }}
+            style={{
+              padding: '12px 28px',
+              borderRadius: 8,
+              border: '2px solid #b8860b',
+              background: 'rgba(184,134,11,0.15)',
+              color: '#b8860b',
+              fontSize: 14,
+              fontWeight: 700,
+              fontFamily: '"Cinzel", serif',
+              letterSpacing: 2,
+              cursor: 'pointer',
+              boxShadow: '0 0 20px rgba(184,134,11,0.3)',
+            }}
+          >
+            ⛶ 进入全屏模式
+          </motion.button>
+
           <motion.div
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 1.5, repeat: Infinity }}
@@ -118,6 +194,6 @@ export function OrientationGate({ children }: { children: React.ReactNode }) {
           </motion.div>
         </motion.div>
       )}
-    </>
+    </div>
   );
 }

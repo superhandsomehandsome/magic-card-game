@@ -2,39 +2,23 @@
 chcp 65001 >nul
 title 秘术对决 - 第 2 步：构建前端
 
-echo ╔═════════════════════════════════════════════╗
-echo ║  第 2 步：构建前端到 frontend\dist          ║
-echo ╚═════════════════════════════════════════════╝
-echo.
-
-where node >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Node.js！
-    echo.
-    echo 请先安装 Node.js（v18+）：
-    echo     https://nodejs.org/
-    echo.
-    pause
-    exit /b 1
-)
-
-echo [OK] Node.js 已安装：
-node --version
+echo =========================================
+echo   第 2 步：构建前端（生成静态文件）
+echo =========================================
 echo.
 
 cd /d "%~dp0\..\frontend"
 
-if not exist node_modules (
-    echo [安装] 首次运行，安装 npm 依赖（约 2-5 分钟）...
-    call npm install
-    if %errorlevel% neq 0 (
-        echo [错误] npm install 失败
-        pause
-        exit /b 1
-    )
+echo [1/3] 安装 Node.js 依赖...
+call npm install
+if %errorlevel% neq 0 (
+    echo [错误] npm install 失败
+    pause
+    exit /b 1
 )
 
-echo [构建] 开始构建...
+echo.
+echo [2/3] 构建生产版本...
 call npm run build
 if %errorlevel% neq 0 (
     echo [错误] 构建失败
@@ -43,7 +27,11 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [完成] 前端已构建到 frontend\dist
-dir dist /b
+echo [3/3] 复制到 Electron 目录...
+if not exist "..\electron\renderer" mkdir "..\electron\renderer"
+xcopy /E /Y "dist\*" "..\electron\renderer\"
+
+echo.
+echo [完成] 前端构建并复制完毕。
 echo.
 pause

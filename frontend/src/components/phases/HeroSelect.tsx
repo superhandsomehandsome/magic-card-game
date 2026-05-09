@@ -75,7 +75,7 @@ export function HeroSelect({ mode = 'SOLO', opponentHero = null, onSelect, title
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        height: '100vh',
+        height: 'calc(var(--vh, 1vh) * 100)',
         overflowY: 'auto',
         WebkitOverflowScrolling: 'touch',
         padding: '24px 16px 140px',

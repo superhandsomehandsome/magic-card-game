@@ -162,7 +162,7 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         alignItems: 'center',
         justifyContent: 'center',
         gap: isShortLandscape ? 40 : 0,
-        minHeight: '100vh',
+        minHeight: 'calc(var(--vh, 1vh) * 100)',
         padding: isShortLandscape ? '16px 32px' : 32,
         background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
       }}

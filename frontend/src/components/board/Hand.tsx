@@ -22,12 +22,11 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
       className="hand-scroll-x"
       style={{
         display: 'flex',
-        gap: 'clamp(4px, 0.6vw, 8px)',
+        gap: 'clamp(2px, 0.4vw, 6px)',
         justifyContent: 'center',
         alignItems: 'flex-end',
-        padding: 'clamp(8px, 1.5vh, 16px) 0',
+        padding: 'clamp(2px, 0.8vh, 10px) 0',
         perspective: 1000,
-        // 竖屏下手牌可能溢出，提供横向滚动 fallback
         maxWidth: '100%',
       }}
     >

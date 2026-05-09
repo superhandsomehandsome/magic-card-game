@@ -60,8 +60,8 @@ export function GameBoard() {
 
   return (
     <div style={{
-      width: '100vw',
-      height: '100vh',
+      width: '100%',
+      height: '100%',
       background: 'radial-gradient(ellipse at 50% 50%, #1a0b2e 0%, #0d0018 60%, #000 100%)',
       display: 'flex',
       flexDirection: 'column',
@@ -113,8 +113,9 @@ export function GameBoard() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 'clamp(6px, 1.5vh, 12px) clamp(12px, 2vw, 24px)',
-        gap: 12,
+        padding: 'clamp(2px, 1vh, 8px) clamp(8px, 2vw, 20px)',
+        gap: 'clamp(4px, 1vw, 12px)',
+        flexShrink: 0,
       }}>
         <ScoreBar
           score={opponent.score}
@@ -147,15 +148,18 @@ export function GameBoard() {
       {/* ═══ 中央：游戏区域 ═══ */}
       <div style={{
         flex: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 16,
-        padding: '0 24px',
+        gap: 'clamp(4px, 1vh, 12px)',
+        padding: '0 clamp(8px, 2vw, 24px)',
+        overflowY: 'auto',
+        overflowX: 'hidden',
       }}>
         {/* 阶段指示器 + 计时器 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(8px, 2vw, 24px)', flexShrink: 0 }}>
           <PhaseIndicator phase={gameState.phase} />
           <Timer timeMs={gameState.timer} />
         </div>
@@ -232,15 +236,16 @@ export function GameBoard() {
         )}
 
         {/* 阶段内容 */}
-        <div style={{ width: '100%', maxWidth: 600 }}>
+        <div style={{ width: '100%', maxWidth: 'min(600px, 80vw)' }}>
           {renderPhaseContent(gameState.phase)}
         </div>
       </div>
 
       {/* ═══ 底部：玩家区域 ═══ */}
       <div style={{
-        padding: '0 clamp(12px, 2vw, 24px) clamp(8px, 1.5vh, 12px)',
+        padding: '0 clamp(8px, 2vw, 20px) clamp(2px, 1vh, 8px)',
         position: 'relative',
+        flexShrink: 0,
       }}>
         {/* 玩家手牌（对方回合锁定交互） */}
         <div style={{
@@ -272,7 +277,7 @@ export function GameBoard() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '8px 0',
+          padding: 'clamp(2px, 0.5vh, 8px) 0',
         }}>
           <ScoreBar
             score={localPlayer.score}

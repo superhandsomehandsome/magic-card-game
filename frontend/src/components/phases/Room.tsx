@@ -175,7 +175,7 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
         animate={{ opacity: 1 }}
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: '100vh', padding: 32, gap: 24,
+          justifyContent: 'center', minHeight: 'calc(var(--vh, 1vh) * 100)', padding: 32, gap: 24,
           background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
         }}
       >
@@ -213,7 +213,7 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
       style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        minHeight: '100vh', padding: 32, gap: 32,
+        minHeight: 'calc(var(--vh, 1vh) * 100)', padding: 32, gap: 32,
         background: 'radial-gradient(ellipse at center, #1a0b2e, #0d0018)',
       }}
     >
