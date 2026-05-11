@@ -488,11 +488,38 @@ function UltimateButton({ hero, disabled, used }: { hero: HeroType; disabled: bo
   );
 }
 
+const TIPS_STORAGE_KEY = 'magic_tips_enabled';
+
 function HandTips({ phase, isMyTurn, isAmbushDefender }: { phase: GamePhase; isMyTurn: boolean; isAmbushDefender: boolean }) {
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem(TIPS_STORAGE_KEY) !== 'false'; } catch { return true; }
+  });
+
+  useEff(() => {
+    const handler = () => {
+      try { setEnabled(localStorage.getItem(TIPS_STORAGE_KEY) !== 'false'); } catch { /* noop */ }
+    };
+    window.addEventListener('storage', handler);
+    window.addEventListener('magic_tips_changed', handler);
+    return () => {
+      window.removeEventListener('storage', handler);
+      window.removeEventListener('magic_tips_changed', handler);
+    };
+  }, []);
+
+  const dismiss = () => {
+    setEnabled(false);
+    try {
+      localStorage.setItem(TIPS_STORAGE_KEY, 'false');
+      window.dispatchEvent(new Event('magic_tips_changed'));
+    } catch { /* noop */ }
+  };
+
+  if (!enabled) return null;
+  if (!isMyTurn && !isAmbushDefender) return null;
+
   let text = '';
   let color = '#666';
-
-  if (!isMyTurn && !isAmbushDefender) return null;
 
   switch (phase) {
     case GamePhase.AMBUSH_DECLARE:
@@ -516,18 +543,38 @@ function HandTips({ phase, isMyTurn, isAmbushDefender }: { phase: GamePhase; isM
   return (
     <motion.div
       initial={{ opacity: 0 }}
-      animate={{ opacity: [0.7, 1, 0.7] }}
-      transition={{ duration: 2, repeat: Infinity }}
+      animate={{ opacity: 1 }}
       style={{
-        textAlign: 'center',
-        color,
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: 1,
-        padding: '3px 0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        padding: '2px 0',
       }}
     >
-      {text}
+      <motion.span
+        animate={{ opacity: [0.7, 1, 0.7] }}
+        transition={{ duration: 2, repeat: Infinity }}
+        style={{ color, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}
+      >
+        {text}
+      </motion.span>
+      <button
+        onClick={dismiss}
+        title="关闭操作提示"
+        style={{
+          background: 'none',
+          border: 'none',
+          color: '#555',
+          fontSize: 12,
+          cursor: 'pointer',
+          padding: '0 2px',
+          lineHeight: 1,
+          flexShrink: 0,
+        }}
+      >
+        ✕
+      </button>
     </motion.div>
   );
 }
@@ -538,6 +585,9 @@ function SettingsMenu() {
   const [confirmAction, setConfirmAction] = useState<null | 'SURRENDER' | 'QUIT'>(null);
   const [bgm, setBgm] = useState(isBGMPlaying());
   const [sfx, setSfx] = useState(isSFXEnabled());
+  const [tips, setTips] = useState<boolean>(() => {
+    try { return localStorage.getItem(TIPS_STORAGE_KEY) !== 'false'; } catch { return true; }
+  });
 
   const surrender = useGameStore(s => s.surrender);
   const quitToMenu = useGameStore(s => s.quitToMenu);
@@ -614,6 +664,18 @@ function SettingsMenu() {
                 label="音效"
                 value={sfx ? '🔔 开' : '🔕 关'}
                 onClick={() => setSfx(toggleSFX())}
+              />
+              <SettingsRow
+                label="操作提示"
+                value={tips ? '💡 开' : '🚫 关'}
+                onClick={() => {
+                  const next = !tips;
+                  setTips(next);
+                  try {
+                    localStorage.setItem(TIPS_STORAGE_KEY, next ? 'true' : 'false');
+                    window.dispatchEvent(new Event('magic_tips_changed'));
+                  } catch { /* noop */ }
+                }}
               />
               <SettingsRow
                 label="📊 积分规则参考"
