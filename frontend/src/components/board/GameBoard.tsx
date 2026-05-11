@@ -241,30 +241,16 @@ export function GameBoard() {
           )}
         </div>
 
-        {/* 非横屏：独立显示各状态 */}
+        {/* 非横屏：保护期小标签（不再大面积占用） */}
         {!isShortLandscape && gameState.collisionGracePeriod > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{
-              opacity: [0.75, 1, 0.75],
-              boxShadow: [
-                '0 0 6px rgba(255,69,0,0.4)',
-                '0 0 18px rgba(255,69,0,0.8)',
-                '0 0 6px rgba(255,69,0,0.4)',
-              ],
-            }}
-            transition={{ duration: 1.6, repeat: Infinity }}
-            style={{
-              padding: '6px 16px', borderRadius: 8,
-              border: '2px solid #ff4500',
-              background: 'linear-gradient(135deg, rgba(139,0,0,0.35), rgba(75,0,130,0.25))',
-              color: '#ffb347', fontSize: 12, fontWeight: 900,
-              fontFamily: '"Cinzel", serif', letterSpacing: 3,
-              display: 'flex', alignItems: 'center', gap: 8,
-            }}
-          >
-            <span>⏳ 保护期 {gameState.collisionGracePeriod} 回合</span>
-          </motion.div>
+          <div style={{
+            padding: '3px 10px', borderRadius: 6,
+            border: '1px solid #ff450060',
+            background: 'rgba(139,0,0,0.2)',
+            color: '#ffb347', fontSize: 10, fontWeight: 700,
+          }}>
+            ⏳ 保护期 {gameState.collisionGracePeriod} 回合
+          </div>
         )}
 
         {!isShortLandscape && <BountyPool amount={gameState.bountyPool} />}

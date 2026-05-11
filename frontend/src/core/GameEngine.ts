@@ -555,20 +555,26 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     let bountyAmount = roll * GAME_CONSTANTS.BOUNTY_MULTIPLIER;
     // 悬赏池单次上限
     bountyAmount = Math.min(bountyAmount, GAME_CONSTANTS.BOUNTY_CAP);
-    this.state.bountyPool += bountyAmount;
+    const headroom = GAME_CONSTANTS.BOUNTY_POOL_MAX - this.state.bountyPool;
+    const actualAdd = Math.max(0, Math.min(bountyAmount, headroom));
+    this.state.bountyPool += actualAdd;
 
     this.pushAction({
       type: 'DICE_ROLL',
-      payload: { roll, amount: bountyAmount },
+      payload: { roll, amount: actualAdd },
       durationMs: 1500,
     });
     this.pushAction({
       type: 'SPAWN_BOUNTY',
-      payload: { amount: this.state.bountyPool, added: bountyAmount },
+      payload: { amount: this.state.bountyPool, added: actualAdd },
       durationMs: 1000,
     });
 
-    this.addLog(`喋血悬赏：掷出 ${roll}，悬赏池 +${bountyAmount}，总计 ${this.state.bountyPool}`);
+    if (actualAdd < bountyAmount) {
+      this.addLog(`喋血悬赏：掷出 ${roll}，悬赏池已满 (${this.state.bountyPool}/${GAME_CONSTANTS.BOUNTY_POOL_MAX})`);
+    } else {
+      this.addLog(`喋血悬赏：掷出 ${roll}，悬赏池 +${actualAdd}，总计 ${this.state.bountyPool}`);
+    }
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
@@ -1031,13 +1037,21 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         this.addScore(defender.id, tieScore, '死斗法案：平局加分');
         this.state.bountyPool = 0; // 死斗法案下池子也归零 (规则：不再保留)
         this.addLog(`死斗法案：平局！双方各 +${tieScore}`);
-      } else {
+      } else if (this.state.bountyPool > 0) {
+        const splitEach = Math.floor(this.state.bountyPool * GAME_CONSTANTS.BOUNTY_TIE_SPLIT_RATIO);
+        if (splitEach > 0) {
+          this.addScore(attacker.id, splitEach, '平局分赃');
+          this.addScore(defender.id, splitEach, '平局分赃');
+        }
+        this.state.bountyPool = this.state.bountyPool - splitEach * 2;
         this.pushAction({
           type: 'BOUNTY_RETAINED',
           payload: { amount: this.state.bountyPool },
           durationMs: 800,
         });
-        this.addLog(`拼点平局！血池保留至下回合`);
+        this.addLog(`拼点平局！双方各分 ${splitEach}，血池剩余 ${this.state.bountyPool}`);
+      } else {
+        this.addLog(`拼点平局！血池为空`);
       }
       this.state.discardPile.push(atkCard, defCard);
     } else {
@@ -1652,6 +1666,9 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
   private deckLowWarningSent = false;
   private checkDeckEmpty(): void {
+    if (this.state.phase === GamePhase.COLLISION || this.state.phase === GamePhase.GAME_OVER) return;
+    if (this.state.collisionState) return;
+
     // 牌库剩 10 张时发预警事件（一次性）
     if (!this.deckLowWarningSent && this.deck.length > 0 && this.deck.length <= 10) {
       this.deckLowWarningSent = true;
@@ -1670,6 +1687,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   private initiateCollision(): void {
+    if (this.state.phase === GamePhase.COLLISION || this.state.collisionState) return;
     this.state.phase = GamePhase.COLLISION;
     const playerIds = Object.keys(this.state.players);
 

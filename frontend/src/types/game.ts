@@ -306,6 +306,8 @@ export const GAME_CONSTANTS = {
   CHANT_SCORE_DECAY: 0.7,        // 咏唱得分衰减系数 (前5回合内)
   CHANT_FULL_POWER_TURN: 5,      // 从第N回合起咏唱得分恢复100%
   BOUNTY_CAP: 15,                // 悬赏池单次上限 (避免前期暴利) — 降低
+  BOUNTY_POOL_MAX: 60,           // 悬赏池总量硬上限
+  BOUNTY_TIE_SPLIT_RATIO: 0.25,  // 平局时双方各得池子的 25%
   DRAW_PER_TURN: 2,              // 每回合抽牌数
   MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗 PHANTOM_MARKET_LIMIT)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣

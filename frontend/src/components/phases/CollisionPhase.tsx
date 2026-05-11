@@ -387,10 +387,58 @@ interface RevealViewProps {
   onFold: () => void;
 }
 
+type RevealStage = 'IDLE' | 'MY_FLIP' | 'OPP_FLIP' | 'RESULT' | 'DONE';
+
 function RevealView(p: RevealViewProps) {
-  const [revealedClicked, setRevealedClicked] = useState(false);
-  // 防止重复触发
-  useEffect(() => { setRevealedClicked(false); }, [p.step]);
+  const [stage, setStage] = useState<RevealStage>('IDLE');
+  const [animPairIdx, setAnimPairIdx] = useState(-1);
+
+  useEffect(() => {
+    setStage('IDLE');
+    setAnimPairIdx(-1);
+  }, [p.step]);
+
+  useEffect(() => {
+    if (stage === 'MY_FLIP') {
+      const t = setTimeout(() => setStage('OPP_FLIP'), 1000);
+      return () => clearTimeout(t);
+    }
+    if (stage === 'OPP_FLIP') {
+      const t = setTimeout(() => setStage('RESULT'), 1000);
+      return () => clearTimeout(t);
+    }
+    if (stage === 'RESULT') {
+      const t = setTimeout(() => setStage('DONE'), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [stage]);
+
+  const handleReveal = () => {
+    if (stage !== 'IDLE') return;
+    setAnimPairIdx(p.step);
+    setStage('MY_FLIP');
+    p.onReveal();
+  };
+
+  const showMyCard = (idx: number) => {
+    if (idx < p.step) return true;
+    if (idx === animPairIdx && (stage === 'MY_FLIP' || stage === 'OPP_FLIP' || stage === 'RESULT' || stage === 'DONE')) return true;
+    return false;
+  };
+
+  const showOppCard = (idx: number) => {
+    if (idx < p.step) return true;
+    if (idx === animPairIdx && (stage === 'OPP_FLIP' || stage === 'RESULT' || stage === 'DONE')) return true;
+    return false;
+  };
+
+  const showResult = (idx: number) => {
+    if (idx < p.step) return true;
+    if (idx === animPairIdx && (stage === 'RESULT' || stage === 'DONE')) return true;
+    return false;
+  };
+
+  const canClick = stage === 'IDLE' || stage === 'DONE';
 
   const renderPair = (idx: number) => {
     const myCard = p.myRevealed[idx];
@@ -399,6 +447,7 @@ function RevealView(p: RevealViewProps) {
     const value = p.pairPot[idx];
     const isCurrent = idx === p.step;
     const isFuture = idx > p.step;
+    const isAnimating = idx === animPairIdx && stage !== 'IDLE';
 
     return (
       <motion.div
@@ -407,14 +456,18 @@ function RevealView(p: RevealViewProps) {
         animate={{
           opacity: isFuture ? 0.45 : 1,
           y: 0,
-          scale: isCurrent ? 1.05 : 1,
+          scale: isAnimating ? 1.08 : isCurrent ? 1.05 : 1,
         }}
         style={{
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', gap: 6,
           padding: 8, borderRadius: 10,
-          border: isCurrent ? '2px solid #ffd700' : '1px solid #2a1a3e',
-          background: isCurrent ? 'rgba(255,215,0,0.05)' : 'transparent',
+          border: isAnimating
+            ? '2px solid #ff4500'
+            : isCurrent ? '2px solid #ffd700' : '1px solid #2a1a3e',
+          background: isAnimating
+            ? 'rgba(255,69,0,0.08)'
+            : isCurrent ? 'rgba(255,215,0,0.05)' : 'transparent',
           minWidth: 100,
         }}
       >
@@ -422,20 +475,39 @@ function RevealView(p: RevealViewProps) {
           第 {idx + 1} 对
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <CardSlot card={myCard} faceDown={!myCard} highlight={winner === p.myId} />
-          <CardSlot card={oppCard} faceDown={!oppCard} highlight={winner === p.oppId} />
+          <FlipCardSlot
+            card={myCard}
+            revealed={showMyCard(idx)}
+            highlight={showResult(idx) && winner === p.myId}
+            label="你"
+          />
+          <FlipCardSlot
+            card={oppCard}
+            revealed={showOppCard(idx)}
+            highlight={showResult(idx) && winner === p.oppId}
+            label="对手"
+          />
         </div>
-        {winner !== undefined && winner !== null && (
-          <div style={{
-            fontSize: 11, fontWeight: 700,
-            color: winner === 'TIE' ? '#888' : (winner === p.myId ? '#2ecc71' : '#e74c3c'),
-          }}>
+        {showResult(idx) && winner !== undefined && winner !== null && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            style={{
+              fontSize: 11, fontWeight: 700,
+              color: winner === 'TIE' ? '#888' : (winner === p.myId ? '#2ecc71' : '#e74c3c'),
+            }}
+          >
             {winner === 'TIE' ? `平 (${value} 滚雪球)` : `+${value}`}
-          </div>
+          </motion.div>
         )}
       </motion.div>
     );
   };
+
+  const stageHint =
+    stage === 'MY_FLIP' ? '✦ 翻开你的牌…' :
+    stage === 'OPP_FLIP' ? '✦ 翻开对手的牌…' :
+    stage === 'RESULT' ? '⚔ 判定胜负！' : '';
 
   return (
     <motion.div
@@ -457,6 +529,18 @@ function RevealView(p: RevealViewProps) {
         💰 底池 {p.pot}（你 {p.myBet} + 对手 {p.oppBet}）
       </div>
 
+      {stageHint && (
+        <motion.div
+          key={stageHint}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: [0.6, 1, 0.6] }}
+          transition={{ duration: 1, repeat: Infinity }}
+          style={{ color: '#ff8c00', fontSize: 13, fontWeight: 900, letterSpacing: 3 }}
+        >
+          {stageHint}
+        </motion.div>
+      )}
+
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[0, 1, 2].map(i => renderPair(i))}
       </div>
@@ -471,18 +555,18 @@ function RevealView(p: RevealViewProps) {
 
       <div style={{ display: 'flex', gap: 12 }}>
         <motion.button
-          onClick={() => { if (!revealedClicked) { setRevealedClicked(true); p.onReveal(); } }}
-          disabled={revealedClicked}
-          whileHover={!revealedClicked ? { scale: 1.05 } : undefined}
+          onClick={handleReveal}
+          disabled={!canClick}
+          whileHover={canClick ? { scale: 1.05 } : undefined}
           style={{
             padding: '12px 28px', borderRadius: 8,
             border: '2px solid #ffd700',
-            background: revealedClicked
+            background: !canClick
               ? '#222'
               : 'linear-gradient(180deg, #4a3a0a, #2a1f05)',
-            color: revealedClicked ? '#555' : '#ffd700',
+            color: !canClick ? '#555' : '#ffd700',
             fontWeight: 900, fontSize: 14,
-            cursor: revealedClicked ? 'wait' : 'pointer',
+            cursor: !canClick ? 'wait' : 'pointer',
             letterSpacing: 2, fontFamily: '"Cinzel", serif',
           }}
         >
@@ -506,30 +590,49 @@ function RevealView(p: RevealViewProps) {
   );
 }
 
-function CardSlot({ card, faceDown, highlight }: { card: ICard | undefined; faceDown: boolean; highlight: boolean }) {
-  if (faceDown || !card) {
-    return (
-      <div style={{
-        width: 56, height: 78,
-        borderRadius: 8,
-        border: highlight ? '2px solid #ffd700' : '2px solid #9b6bdf',
-        background: 'linear-gradient(135deg, #3a1f6e, #2a1450)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: highlight
-          ? '0 0 12px rgba(255,215,0,0.6)'
-          : '0 0 6px rgba(120,60,200,0.4)',
-      }}>
-        <div style={{ color: '#c4a0ff', fontSize: 22, textShadow: '0 0 8px rgba(180,140,255,0.8)' }}>✦</div>
-      </div>
-    );
-  }
+function FlipCardSlot({ card, revealed, highlight, label }: {
+  card: ICard | undefined; revealed: boolean; highlight: boolean; label: string;
+}) {
   return (
-    <div style={{
-      transform: highlight ? 'scale(1.05)' : 'scale(1)',
-      filter: highlight ? 'drop-shadow(0 0 10px rgba(255,215,0,0.7))' : 'none',
-      transition: 'all 0.3s',
-    }}>
-      <Card card={card} size="sm" />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <motion.div
+        animate={{
+          rotateY: revealed && card ? 180 : 0,
+        }}
+        transition={{ duration: 0.6, ease: 'easeInOut' }}
+        style={{
+          width: 56, height: 78,
+          position: 'relative',
+          perspective: 600,
+          transformStyle: 'preserve-3d',
+        }}
+      >
+        {/* 牌背 */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backfaceVisibility: 'hidden',
+          borderRadius: 8,
+          border: '2px solid #9b6bdf',
+          background: 'linear-gradient(135deg, #3a1f6e, #2a1450)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 0 6px rgba(120,60,200,0.4)',
+        }}>
+          <div style={{ color: '#c4a0ff', fontSize: 22, textShadow: '0 0 8px rgba(180,140,255,0.8)' }}>✦</div>
+        </div>
+        {/* 牌面 */}
+        {card && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            backfaceVisibility: 'hidden',
+            transform: 'rotateY(180deg)',
+            filter: highlight ? 'drop-shadow(0 0 10px rgba(255,215,0,0.7))' : 'none',
+            transition: 'filter 0.3s',
+          }}>
+            <Card card={card} size="sm" />
+          </div>
+        )}
+      </motion.div>
+      <span style={{ fontSize: 9, color: '#666' }}>{label}</span>
     </div>
   );
 }

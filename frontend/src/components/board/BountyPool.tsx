@@ -1,8 +1,9 @@
 /**
  * 喋血悬赏池组件 — 桌面中央筹码
- * 色彩分级：<20 暗红, 20~39 橙金, ≥40 血红高亮脉冲
+ * 色彩分级：<20 暗红, 20~39 橙金, ≥40 血红高亮脉冲, 已满特殊标识
  */
 import { motion, AnimatePresence } from 'framer-motion';
+import { GAME_CONSTANTS } from '../../types/game';
 
 interface BountyPoolProps {
   amount: number;
@@ -10,6 +11,7 @@ interface BountyPoolProps {
 }
 
 function getPoolTier(amount: number) {
+  if (amount >= GAME_CONSTANTS.BOUNTY_POOL_MAX) return { color: '#ff2222', glow: 'rgba(255,34,34,0.9)', label: '悬赏已满！' };
   if (amount >= 40) return { color: '#ff2222', glow: 'rgba(255,34,34,0.9)', label: '巨额悬赏！' };
   if (amount >= 20) return { color: '#ffa500', glow: 'rgba(255,165,0,0.7)', label: '' };
   return { color: '#8b0000', glow: 'rgba(139,0,0,0.6)', label: '' };
