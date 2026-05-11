@@ -28,8 +28,8 @@
 /* 极小横屏（< 500px 高，例如手机横放）— 卡牌紧凑 */
 @media screen and (orientation: landscape) and (max-height: 500px) {
   :root {
-    --card-w: clamp(36px, 10vh, 56px);
-    --card-h: clamp(50px, 14vh, 78px);
+    --card-w: clamp(32px, 9vh, 48px);
+    --card-h: clamp(44px, 12vh, 66px);
   }
 }
 /* 中等横屏（小手机/iPad）*/

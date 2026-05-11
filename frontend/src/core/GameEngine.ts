@@ -1235,7 +1235,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       durationMs: 800,
     });
 
-    // 过牌奖励：1 张（之前是 2 → 加速对撞太快，调回 1）
+    // 咏唱过牌奖励：1 张
     const reward = this.drawFromDeck(1);
     player.hand.push(...reward);
 

@@ -581,6 +581,7 @@ interface DefenderViewProps {
 function DefenderView({ ambushState, onChoice }: DefenderViewProps) {
   const { gameState, localPlayerId, setHandClickHandler } = useGameStore();
   const [selectedDefendCard, setSelectedDefendCard] = useState<string | null>(null);
+  const [showFlash, setShowFlash] = useState(true);
   const hasDeclaration = ambushState.declaration !== null && ambushState.declaration !== 'SILENT';
 
   const player = gameState?.players[localPlayerId];
@@ -593,111 +594,183 @@ function DefenderView({ ambushState, onChoice }: DefenderViewProps) {
     return () => setHandClickHandler(null);
   }, [setHandClickHandler]);
 
+  // 入场红色闪屏 + 震动
+  useEffect(() => {
+    const t = setTimeout(() => setShowFlash(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+
   if (!player) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 16, padding: 16,
-      }}
-    >
+    <>
+      {/* 全屏红色闪光叠加层 */}
+      <AnimatePresence>
+        {showFlash && (
+          <motion.div
+            initial={{ opacity: 0.8 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9000,
+              background: 'radial-gradient(ellipse at center, rgba(255,0,0,0.35), rgba(139,0,0,0.2))',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 全屏红色边框呼吸效果 */}
       <motion.div
-        style={{
-          color: '#ff0000', fontFamily: '"Cinzel", serif',
-          fontSize: 18, fontWeight: 900,
-          textShadow: '0 0 20px rgba(255,0,0,0.8)',
-        }}
         animate={{
-          opacity: [0.5, 1, 0.5],
-          textShadow: ['0 0 10px rgba(255,0,0,0.4)', '0 0 30px rgba(255,0,0,1)', '0 0 10px rgba(255,0,0,0.4)'],
+          boxShadow: [
+            'inset 0 0 30px rgba(255,0,0,0.3)',
+            'inset 0 0 60px rgba(255,0,0,0.6)',
+            'inset 0 0 30px rgba(255,0,0,0.3)',
+          ],
         }}
-        transition={{ duration: 0.8, repeat: Infinity }}
+        transition={{ duration: 1.2, repeat: Infinity }}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 8999,
+          pointerEvents: 'none',
+          borderRadius: 0,
+        }}
+      />
+
+      <motion.div
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: [0, -4, 4, -2, 2, 0] }}
+        transition={{ x: { duration: 0.4, ease: 'easeOut' }, opacity: { duration: 0.2 } }}
+        style={{
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', gap: 16, padding: 16,
+        }}
       >
-        ⚠️ 遭到突袭！
-      </motion.div>
-
-      {hasDeclaration && (
-        <div style={{ color: '#ffd700', fontSize: 13 }}>
-          对手宣告：这是一张 <strong>{getCardDisplayName(ambushState.declaration as CardRank)}</strong>
-        </div>
-      )}
-
-      {/* 选中的迎战牌预览 */}
-      {selectedDefendCard && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '6px 12px', borderRadius: 6,
-          background: 'rgba(46,204,113,0.1)', border: '1px solid #2ecc7180',
-        }}>
-          <span style={{ color: '#2ecc71', fontSize: 11 }}>已选迎战牌 →</span>
-          {(() => {
-            const c = player.hand.find(h => h.id === selectedDefendCard);
-            return c ? <Card card={c} size="sm" /> : null;
-          })()}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <motion.button
-          onClick={() => onChoice('FOLD')}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+        {/* 大标题 slam-in 效果 */}
+        <motion.div
+          initial={{ scale: 2.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 15 }}
           style={{
-            padding: '12px 20px', borderRadius: 8,
-            border: '2px solid #666',
-            background: 'linear-gradient(180deg, #2a2a2a, #1a1a1a)',
-            color: '#aaa', fontWeight: 700, fontSize: 13,
-            cursor: 'pointer',
+            color: '#ff0000', fontFamily: '"Cinzel", serif',
+            fontSize: 'clamp(20px, 4vw, 28px)', fontWeight: 900,
+            textShadow: '0 0 30px rgba(255,0,0,0.9), 0 0 60px rgba(255,0,0,0.5)',
+            padding: '8px 24px',
+            border: '2px solid rgba(255,0,0,0.6)',
+            borderRadius: 12,
+            background: 'rgba(80,0,0,0.4)',
           }}
         >
-          😰 怯战
-        </motion.button>
+          <motion.span
+            animate={{
+              textShadow: [
+                '0 0 20px rgba(255,0,0,0.6)',
+                '0 0 40px rgba(255,0,0,1)',
+                '0 0 20px rgba(255,0,0,0.6)',
+              ],
+            }}
+            transition={{ duration: 0.8, repeat: Infinity }}
+          >
+            ⚠️ 遭到突袭！
+          </motion.span>
+        </motion.div>
 
         {hasDeclaration && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            style={{
+              color: '#ffd700', fontSize: 14, fontWeight: 700,
+              padding: '6px 16px',
+              border: '1px solid #ffd70060',
+              borderRadius: 8,
+              background: 'rgba(255,215,0,0.08)',
+            }}
+          >
+            对手宣告：这是一张 <strong style={{ fontSize: 16 }}>{getCardDisplayName(ambushState.declaration as CardRank)}</strong>
+          </motion.div>
+        )}
+
+        {/* 选中的迎战牌预览 */}
+        {selectedDefendCard && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 12px', borderRadius: 6,
+            background: 'rgba(46,204,113,0.1)', border: '1px solid #2ecc7180',
+          }}>
+            <span style={{ color: '#2ecc71', fontSize: 11 }}>已选迎战牌 →</span>
+            {(() => {
+              const c = player.hand.find(h => h.id === selectedDefendCard);
+              return c ? <Card card={c} size="sm" /> : null;
+            })()}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <motion.button
-            onClick={() => onChoice('CALL_BLUFF')}
-            whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(255,99,71,0.5)' }}
+            onClick={() => onChoice('FOLD')}
+            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             style={{
               padding: '12px 20px', borderRadius: 8,
-              border: '2px solid #ff6347',
-              background: 'linear-gradient(180deg, #4a1a1a, #2a0d0d)',
-              color: '#ff6347', fontWeight: 700, fontSize: 13,
+              border: '2px solid #666',
+              background: 'linear-gradient(180deg, #2a2a2a, #1a1a1a)',
+              color: '#aaa', fontWeight: 700, fontSize: 13,
               cursor: 'pointer',
             }}
           >
-            🔥 拆穿
+            😰 怯战
           </motion.button>
-        )}
 
-        <motion.button
-          onClick={() => {
-            if (selectedDefendCard) onChoice('DEFEND', selectedDefendCard);
-          }}
-          disabled={!selectedDefendCard}
-          whileHover={selectedDefendCard ? { scale: 1.05 } : undefined}
-          style={{
-            padding: '12px 20px', borderRadius: 8,
-            border: '2px solid #2ecc71',
-            background: selectedDefendCard
-              ? 'linear-gradient(180deg, #1a4a2e, #0d2818)'
-              : '#222',
-            color: '#2ecc71', fontWeight: 700, fontSize: 13,
-            cursor: selectedDefendCard ? 'pointer' : 'not-allowed',
-            opacity: selectedDefendCard ? 1 : 0.5,
-          }}
+          {hasDeclaration && (
+            <motion.button
+              onClick={() => onChoice('CALL_BLUFF')}
+              whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(255,99,71,0.5)' }}
+              whileTap={{ scale: 0.95 }}
+              style={{
+                padding: '12px 20px', borderRadius: 8,
+                border: '2px solid #ff6347',
+                background: 'linear-gradient(180deg, #4a1a1a, #2a0d0d)',
+                color: '#ff6347', fontWeight: 700, fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              🔥 拆穿
+            </motion.button>
+          )}
+
+          <motion.button
+            onClick={() => {
+              if (selectedDefendCard) onChoice('DEFEND', selectedDefendCard);
+            }}
+            disabled={!selectedDefendCard}
+            whileHover={selectedDefendCard ? { scale: 1.05 } : undefined}
+            style={{
+              padding: '12px 20px', borderRadius: 8,
+              border: '2px solid #2ecc71',
+              background: selectedDefendCard
+                ? 'linear-gradient(180deg, #1a4a2e, #0d2818)'
+                : '#222',
+              color: '#2ecc71', fontWeight: 700, fontSize: 13,
+              cursor: selectedDefendCard ? 'pointer' : 'not-allowed',
+              opacity: selectedDefendCard ? 1 : 0.5,
+            }}
+          >
+            ⚔️ 迎战
+          </motion.button>
+        </div>
+
+        <motion.div
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          style={{ color: '#ff8c00', fontSize: 12, fontWeight: 700 }}
         >
-          ⚔️ 迎战
-        </motion.button>
-      </div>
-
-      <div style={{ color: '#888', fontSize: 11 }}>
-        点击下方手牌选择迎战牌
-      </div>
-    </motion.div>
+          👇 点击下方手牌选择迎战牌
+        </motion.div>
+      </motion.div>
+    </>
   );
 }
 

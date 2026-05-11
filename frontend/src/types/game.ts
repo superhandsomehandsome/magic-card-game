@@ -272,8 +272,8 @@ export interface IGameLog {
 // ═══════════════════════════════════════════════════════════
 
 export const GAME_CONSTANTS = {
-  /** 胜利分数：调高至 280 — 让游戏能撑到第 9 回合至高法案 + 终极对撞 */
-  WIN_SCORE: 280,
+  /** 胜利分数 */
+  WIN_SCORE: 220,
   HAND_LIMIT: 8,
   MARKET_SIZE: 3,
   MAX_AMBUSH_PER_TURN: 2,
@@ -289,17 +289,16 @@ export const GAME_CONSTANTS = {
   TURN_TIMER_MS: 30000,
   TIMER_WARNING_MS: 5000,
   AFK_TIMEOUT_STRIKES: 2,
-  /** 牌库总量：71 → 110。每个 rank 等比扩充，保证 18 turn(=9 round) 仍有余 */
   DECK_COMPOSITION: {
-    [CardRank.A]: 8,    // 5 → 8
-    [CardRank.B]: 10,   // 6 → 10
-    [CardRank.C]: 14,   // 9 → 14
-    [CardRank.D]: 20,   // 13 → 20
-    [CardRank.E]: 24,   // 15 → 24
-    [CardRank.F]: 26,   // 18 → 26
-    [CardRank.FLASH]: 8, // 5 → 8
+    [CardRank.A]: 5,
+    [CardRank.B]: 7,
+    [CardRank.C]: 10,
+    [CardRank.D]: 14,
+    [CardRank.E]: 17,
+    [CardRank.F]: 19,
+    [CardRank.FLASH]: 6,
   } as Record<CardRank, number>,
-  TOTAL_CARDS: 110,
+  TOTAL_CARDS: 78,
   COLLISION_SCORE_WEIGHT: 0.4,
   COLLISION_HAND_WEIGHT: 0.6,
 
@@ -307,7 +306,7 @@ export const GAME_CONSTANTS = {
   CHANT_SCORE_DECAY: 0.7,        // 咏唱得分衰减系数 (前5回合内)
   CHANT_FULL_POWER_TURN: 5,      // 从第N回合起咏唱得分恢复100%
   BOUNTY_CAP: 15,                // 悬赏池单次上限 (避免前期暴利) — 降低
-  DRAW_PER_TURN: 1,              // 每回合抽牌数 — 改回 1，放慢过牌
+  DRAW_PER_TURN: 2,              // 每回合抽牌数
   MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗 PHANTOM_MARKET_LIMIT)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣
   EARLY_COMBO_TURN_THRESHOLD: 3, // "早期"回合阈值
@@ -317,8 +316,8 @@ export const GAME_CONSTANTS = {
   DECREE_BID_TIMER_MS: 20000,       // 暗标期 20s
   DECREE_TRIGGER_ROUNDS: [1, 4, 7] as const,
   DECREE_SUPREME_ROUND: 9,
-  /** 至高法案触发后强制保留的咏唱回合数 (防止与对撞节奏冲突) */
-  COLLISION_GRACE_TURNS: 3,
+  /** 至高法案触发后强制保留的咏唱回合数 */
+  COLLISION_GRACE_TURNS: 2,
   DECREE_BID_PAIR_BONUS: 6,
   DECREE_BID_STRAIGHT_BONUS: 10,
   DECREE_BID_TRIPLE_BONUS: 12,      // 用户调整：18 → 12

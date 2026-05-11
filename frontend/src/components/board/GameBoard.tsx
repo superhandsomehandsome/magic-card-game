@@ -1,7 +1,7 @@
 /**
  * 主游戏版面 — 调度所有阶段组件和状态面板
  */
-import { useState } from 'react';
+import { useState, useEffect as useEff } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GamePhase, GAME_CONSTANTS } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
@@ -40,9 +40,22 @@ const HERO_COLORS: Record<HeroType, string> = {
   [HeroType.SINGER]: '#4488ff',
 };
 
+function useIsShortLandscape() {
+  const [is, setIs] = useState(() =>
+    typeof window !== 'undefined' && window.innerHeight < 500 && window.innerWidth > window.innerHeight
+  );
+  useEff(() => {
+    const check = () => setIs(window.innerHeight < 500 && window.innerWidth > window.innerHeight);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return is;
+}
+
 export function GameBoard() {
   const { gameState, localPlayerId } = useGameStore();
   const [flashSwapCard, setFlashSwapCard] = useState<ICard | null>(null);
+  const isShortLandscape = useIsShortLandscape();
   useGameAudio();
 
   if (!gameState) return null;
@@ -93,7 +106,7 @@ export function GameBoard() {
       <VoiceLineLayer />
 
       {/* 回合归属 HUD */}
-      <TurnHUD isMyTurn={isMyTurn} phase={gameState.phase} />
+      <TurnHUD isMyTurn={isMyTurn} phase={gameState.phase} compact={isShortLandscape} />
 
       {/* 胜利画面 */}
       {isGameOver && <VictoryScreen />}
@@ -121,38 +134,49 @@ export function GameBoard() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 'clamp(2px, 1vh, 8px) clamp(8px, 2vw, 20px)',
-        paddingRight: 60, /* 给设置按钮(36px+8px+8px=52px)预留空间，避免遮挡 */
+        padding: isShortLandscape
+          ? '1px clamp(8px, 2vw, 16px)'
+          : 'clamp(2px, 1vh, 8px) clamp(8px, 2vw, 20px)',
+        paddingRight: 60,
         gap: 'clamp(4px, 1vw, 12px)',
         flexShrink: 0,
       }}>
-        <ScoreBar
-          score={opponent.score}
-          playerName={opponent.name}
-          heroColor={HERO_COLORS[opponent.hero]}
-          side="left"
-        />
+        {/* 横屏紧凑模式：对手分数用内联单行 */}
+        {isShortLandscape ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: '#ccc', fontSize: 11, fontFamily: '"Cinzel", serif' }}>{opponent.name}</span>
+            <span style={{ color: HERO_COLORS[opponent.hero], fontSize: 16, fontWeight: 900, fontFamily: 'monospace' }}>{opponent.score}</span>
+            <span style={{ color: '#555', fontSize: 9 }}>/ {GAME_CONSTANTS.WIN_SCORE}</span>
+          </div>
+        ) : (
+          <ScoreBar
+            score={opponent.score}
+            playerName={opponent.name}
+            heroColor={HERO_COLORS[opponent.hero]}
+            side="left"
+          />
+        )}
         <div style={{
-          display: 'flex', gap: 12,
-          padding: '4px 12px', borderRadius: 8,
+          display: 'flex', gap: isShortLandscape ? 8 : 12,
+          padding: isShortLandscape ? '2px 8px' : '4px 12px', borderRadius: 8,
           background: 'rgba(0,0,0,0.4)', border: '1px solid #2a1a3e',
         }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ color: '#666', fontSize: 10 }}>对手手牌</span>
-            <span style={{ color: '#b8860b', fontSize: 14, fontWeight: 700 }}>
+          <div style={{ display: 'flex', flexDirection: isShortLandscape ? 'row' : 'column', alignItems: 'center', gap: isShortLandscape ? 4 : 0 }}>
+            <span style={{ color: '#666', fontSize: isShortLandscape ? 9 : 10 }}>对手</span>
+            <span style={{ color: '#b8860b', fontSize: isShortLandscape ? 12 : 14, fontWeight: 700 }}>
               {opponent.hand.length}
             </span>
           </div>
           <div style={{ width: 1, background: '#3a1f5e' }} />
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ color: '#666', fontSize: 10 }}>牌库</span>
-            <span style={{ color: '#888', fontSize: 14 }}>{gameState.deckCount}</span>
+          <div style={{ display: 'flex', flexDirection: isShortLandscape ? 'row' : 'column', alignItems: 'center', gap: isShortLandscape ? 4 : 0 }}>
+            <span style={{ color: '#666', fontSize: isShortLandscape ? 9 : 10 }}>牌库</span>
+            <span style={{ color: '#888', fontSize: isShortLandscape ? 12 : 14 }}>{gameState.deckCount}</span>
           </div>
         </div>
       </div>
 
-      {/* 对手手牌(背面) */}
-      <Hand cards={opponent.hand} isOpponent={true} />
+      {/* 对手手牌(背面) — 横屏时隐藏完整卡牌，节省纵向空间 */}
+      {!isShortLandscape && <Hand cards={opponent.hand} isOpponent={true} />}
 
       {/* ═══ 中央：游戏区域 ═══ */}
       <div style={{
@@ -161,19 +185,33 @@ export function GameBoard() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: 'clamp(4px, 1vh, 12px)',
-        padding: '0 clamp(8px, 2vw, 24px)',
+        justifyContent: isShortLandscape ? 'flex-start' : 'center',
+        gap: isShortLandscape ? 2 : 'clamp(4px, 1vh, 12px)',
+        padding: isShortLandscape ? '0 clamp(4px, 1vw, 12px)' : '0 clamp(8px, 2vw, 24px)',
         overflowY: 'auto',
         overflowX: 'hidden',
       }}>
-        {/* 阶段指示器 + 计时器 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(8px, 2vw, 24px)', flexShrink: 0 }}>
+        {/* 阶段指示器 + 计时器 + 横屏额外紧凑信息 */}
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          gap: isShortLandscape ? 8 : 'clamp(8px, 2vw, 24px)',
+          flexShrink: 0,
+        }}>
           <PhaseIndicator phase={gameState.phase} />
           <Timer timeMs={gameState.timer} />
+          {/* 横屏：内联悬赏池 */}
+          {isShortLandscape && gameState.bountyPool > 0 && (
+            <div style={{
+              padding: '2px 8px', borderRadius: 4,
+              background: 'rgba(184,134,11,0.15)', border: '1px solid #b8860b60',
+              color: '#ffd700', fontSize: 11, fontWeight: 700,
+            }}>
+              💰{gameState.bountyPool}
+            </div>
+          )}
         </div>
 
-        {/* 至高法案保护期倒计时（grace > 0 时显示） */}
+        {/* 至高法案保护期 — 横屏时缩短 */}
         {gameState.collisionGracePeriod > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
@@ -187,30 +225,27 @@ export function GameBoard() {
             }}
             transition={{ duration: 1.6, repeat: Infinity }}
             style={{
-              padding: '6px 16px', borderRadius: 8,
+              padding: isShortLandscape ? '3px 10px' : '6px 16px', borderRadius: 8,
               border: '2px solid #ff4500',
               background: 'linear-gradient(135deg, rgba(139,0,0,0.35), rgba(75,0,130,0.25))',
-              color: '#ffb347', fontSize: 12, fontWeight: 900,
-              fontFamily: '"Cinzel", serif', letterSpacing: 3,
-              display: 'flex', alignItems: 'center', gap: 8,
+              color: '#ffb347', fontSize: isShortLandscape ? 10 : 12, fontWeight: 900,
+              fontFamily: '"Cinzel", serif', letterSpacing: isShortLandscape ? 1 : 3,
+              display: 'flex', alignItems: 'center', gap: isShortLandscape ? 4 : 8,
             }}
           >
-            <span style={{ fontSize: 14 }}>⏳</span>
-            <span>至高法案保护期 — 距离对撞 {gameState.collisionGracePeriod} 回合</span>
+            <span>⏳ 保护期 {gameState.collisionGracePeriod} 回合</span>
           </motion.div>
         )}
 
-        {/* 喋血悬赏池 */}
-        <BountyPool amount={gameState.bountyPool} />
+        {/* 喋血悬赏池 — 横屏时已内联到阶段指示器行 */}
+        {!isShortLandscape && <BountyPool amount={gameState.bountyPool} />}
 
         {/* 封锁区显示 */}
         {opponent.blockadeZone && (
           <motion.div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 12px',
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: isShortLandscape ? '2px 8px' : '4px 12px',
               borderRadius: 4,
               border: '1px solid #2ecc71',
               background: 'rgba(46,204,113,0.1)',
@@ -218,8 +253,8 @@ export function GameBoard() {
             animate={{ opacity: [0.6, 1, 0.6] }}
             transition={{ duration: 2, repeat: Infinity }}
           >
-            <span style={{ color: '#2ecc71', fontSize: 11 }}>
-              🔒 对手封锁：{opponent.blockadeZone.rank} 级
+            <span style={{ color: '#2ecc71', fontSize: isShortLandscape ? 9 : 11 }}>
+              🔒 封锁：{opponent.blockadeZone.rank} 级
             </span>
           </motion.div>
         )}
@@ -229,8 +264,8 @@ export function GameBoard() {
           <motion.div
             style={{
               color: '#4488ff',
-              fontSize: 12,
-              padding: '4px 12px',
+              fontSize: isShortLandscape ? 10 : 12,
+              padding: isShortLandscape ? '2px 8px' : '4px 12px',
               borderRadius: 4,
               border: '1px solid #4488ff',
               background: 'rgba(68,136,255,0.1)',
@@ -240,19 +275,21 @@ export function GameBoard() {
             }}
             transition={{ duration: 1.5, repeat: Infinity }}
           >
-            🔄 以太反转中 — 剩余 {gameState.invertedTurnsLeft} 回合
+            🔄 反转中 — 剩余 {gameState.invertedTurnsLeft} 回合
           </motion.div>
         )}
 
         {/* 阶段内容 */}
-        <div style={{ width: '100%', maxWidth: 'min(600px, 80vw)' }}>
+        <div style={{ width: '100%', maxWidth: isShortLandscape ? 'min(500px, 70vw)' : 'min(600px, 80vw)' }}>
           {renderPhaseContent(gameState.phase)}
         </div>
       </div>
 
       {/* ═══ 底部：玩家区域 ═══ */}
       <div style={{
-        padding: '0 clamp(8px, 2vw, 20px) clamp(2px, 1vh, 8px)',
+        padding: isShortLandscape
+          ? '0 clamp(4px, 1vw, 12px) 1px'
+          : '0 clamp(8px, 2vw, 20px) clamp(2px, 1vh, 8px)',
         position: 'relative',
         flexShrink: 0,
       }}>
@@ -267,13 +304,11 @@ export function GameBoard() {
             cards={localPlayer.hand}
             blockedRank={opponent.blockadeZone ? opponent.blockadeZone.rank : undefined}
             onCardClick={(card) => {
-              // 阶段组件优先接管
               const handler = useGameStore.getState().handClickHandler;
               if (handler) {
                 handler(card);
                 return;
               }
-              // 默认：己方回合 + 瞬牌 → 弹换牌
               if (isMyTurn && card.rank === CardRank.FLASH) {
                 setFlashSwapCard(card);
               }
@@ -281,25 +316,34 @@ export function GameBoard() {
           />
         </div>
 
-        {/* 玩家信息栏 */}
+        {/* 玩家信息栏 — 横屏时压缩为单行 */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: 'clamp(2px, 0.5vh, 8px) 0',
+          padding: isShortLandscape ? '0' : 'clamp(2px, 0.5vh, 8px) 0',
         }}>
-          <ScoreBar
-            score={localPlayer.score}
-            playerName={localPlayer.name}
-            heroColor={HERO_COLORS[localPlayer.hero]}
-            side="left"
-          />
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            {/* 大招按钮 (仅己方回合) */}
-            {!localPlayer.hasUsedUltimate && isMyTurn && (
-              <UltimateButton hero={localPlayer.hero} />
-            )}
-            <div style={{ color: '#666', fontSize: 11 }}>
+          {isShortLandscape ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#ccc', fontSize: 11, fontFamily: '"Cinzel", serif' }}>{localPlayer.name}</span>
+              <span style={{ color: HERO_COLORS[localPlayer.hero], fontSize: 16, fontWeight: 900, fontFamily: 'monospace' }}>{localPlayer.score}</span>
+              <span style={{ color: '#555', fontSize: 9 }}>/ {GAME_CONSTANTS.WIN_SCORE}</span>
+            </div>
+          ) : (
+            <ScoreBar
+              score={localPlayer.score}
+              playerName={localPlayer.name}
+              heroColor={HERO_COLORS[localPlayer.hero]}
+              side="left"
+            />
+          )}
+          <div style={{ display: 'flex', gap: isShortLandscape ? 8 : 16, alignItems: 'center' }}>
+            <UltimateButton
+              hero={localPlayer.hero}
+              disabled={localPlayer.hasUsedUltimate || !isMyTurn}
+              used={localPlayer.hasUsedUltimate}
+            />
+            <div style={{ color: '#666', fontSize: isShortLandscape ? 9 : 11 }}>
               回合 {gameState.turnNumber}
             </div>
           </div>
@@ -322,32 +366,38 @@ function renderPhaseContent(phase: GamePhase) {
   }
 }
 
-function UltimateButton({ hero }: { hero: HeroType }) {
+function UltimateButton({ hero, disabled, used }: { hero: HeroType; disabled: boolean; used: boolean }) {
   const useUltimate = useGameStore(s => s.useUltimate);
   const color = HERO_COLORS[hero];
 
   return (
     <motion.button
-      onClick={() => useUltimate()}
+      onClick={() => { if (!disabled) useUltimate(); }}
       style={{
         padding: '8px 16px',
         borderRadius: 8,
-        border: `2px solid ${color}`,
-        background: 'rgba(0,0,0,0.8)',
-        color,
+        border: `2px solid ${used ? '#555' : disabled ? `${color}60` : color}`,
+        background: used ? 'rgba(40,40,40,0.6)' : 'rgba(0,0,0,0.8)',
+        color: used ? '#666' : disabled ? `${color}80` : color,
         fontWeight: 900,
         fontSize: 12,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
         letterSpacing: 1,
+        opacity: used ? 0.5 : disabled ? 0.7 : 1,
+        filter: used ? 'grayscale(0.8)' : 'none',
       }}
-      whileHover={{ scale: 1.1, boxShadow: `0 0 20px ${color}80` }}
-      whileTap={{ scale: 0.9 }}
-      animate={{
-        boxShadow: [`0 0 5px ${color}40`, `0 0 15px ${color}80`, `0 0 5px ${color}40`],
-      }}
-      transition={{ duration: 2, repeat: Infinity }}
+      whileHover={!disabled ? { scale: 1.1, boxShadow: `0 0 20px ${color}80` } : undefined}
+      whileTap={!disabled ? { scale: 0.9 } : undefined}
+      animate={
+        used
+          ? {}
+          : disabled
+          ? { boxShadow: `0 0 5px ${color}20` }
+          : { boxShadow: [`0 0 5px ${color}40`, `0 0 15px ${color}80`, `0 0 5px ${color}40`] }
+      }
+      transition={!used && !disabled ? { duration: 2, repeat: Infinity } : undefined}
     >
-      ⚡ 大招
+      {used ? '✗ 已释放' : '⚡ 大招'}
     </motion.button>
   );
 }
@@ -567,7 +617,7 @@ function SettingsRow({
   );
 }
 
-function TurnHUD({ isMyTurn, phase }: { isMyTurn: boolean; phase: GamePhase }) {
+function TurnHUD({ isMyTurn, phase, compact }: { isMyTurn: boolean; phase: GamePhase; compact?: boolean }) {
   // 突袭防守阶段属于"轮到你应对"
   const isAmbushDefendingMe = phase === GamePhase.AMBUSH_DEFEND;
   const showAsMine = isMyTurn || isAmbushDefendingMe;
@@ -583,13 +633,13 @@ function TurnHUD({ isMyTurn, phase }: { isMyTurn: boolean; phase: GamePhase }) {
         position: 'absolute', top: 4, left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 998,
-        padding: '4px 18px', borderRadius: 16,
+        padding: compact ? '2px 12px' : '4px 18px', borderRadius: 16,
         border: `1.5px solid ${showAsMine ? '#ffd700' : '#8b0000'}`,
         background: showAsMine
           ? 'linear-gradient(180deg, rgba(74,58,10,0.85), rgba(42,31,5,0.9))'
           : 'linear-gradient(180deg, rgba(74,10,10,0.85), rgba(40,5,5,0.9))',
         color: showAsMine ? '#ffd700' : '#ff6347',
-        fontSize: 12, fontWeight: 700, letterSpacing: 2,
+        fontSize: compact ? 10 : 12, fontWeight: 700, letterSpacing: compact ? 1 : 2,
         fontFamily: '"Cinzel", serif',
         boxShadow: showAsMine
           ? '0 0 15px rgba(255,215,0,0.4)'

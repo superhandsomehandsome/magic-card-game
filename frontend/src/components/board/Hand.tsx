@@ -16,16 +16,20 @@ interface HandProps {
 
 export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: HandProps) {
   const selectedCards = useGameStore(s => s.selectedCards);
+  const isLandscapeCompact = typeof window !== 'undefined' && window.innerHeight < 500 && window.innerWidth > window.innerHeight;
+  const manyCards = cards.length > 6;
 
   return (
     <motion.div
       className="hand-scroll-x"
       style={{
         display: 'flex',
-        gap: 'clamp(2px, 0.4vw, 6px)',
+        gap: isLandscapeCompact
+          ? (manyCards ? '-4px' : 'clamp(-2px, 0.2vw, 3px)')
+          : 'clamp(2px, 0.4vw, 6px)',
         justifyContent: 'center',
         alignItems: 'flex-end',
-        padding: 'clamp(2px, 0.8vh, 10px) 0',
+        padding: isLandscapeCompact ? '1px 0' : 'clamp(2px, 0.8vh, 10px) 0',
         perspective: 1000,
         maxWidth: '100%',
       }}
