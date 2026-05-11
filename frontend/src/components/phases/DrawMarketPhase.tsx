@@ -23,6 +23,8 @@ export function DrawMarketPhase() {
   } = useGameStore();
   const [hasDrawn, setHasDrawn] = useState(false);
   const [buyingCard, setBuyingCard] = useState<ICard | null>(null);
+  // 黑市奇妙夜翻牌动画：记录刚刚翻开的牌 id（短暂显示正面再飞走）
+  const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
 
   const player = gameState?.players[localPlayerId];
   const isMyTurn = gameState?.currentTurnPlayerId === localPlayerId;
@@ -58,9 +60,9 @@ export function DrawMarketPhase() {
   // 计算当前玩家的法案效果 (破产法案: priceMult=0 → 白嫖)
   const effects = isMyTurn ? aggregateEffectsFor(gameState, localPlayerId) : null;
   const priceMult = effects?.marketPriceMultiplier ?? 1;
-  const isFree = priceMult === 0; // 是否白嫖模式
+  const isFree = priceMult === 0;
 
-  // 黑市奇妙夜：免费盲抽
+  // 黑市奇妙夜
   const freeDrawBase = effects?.marketFreeDrawCount ?? 0;
   const isPhantom = player?.hero === HeroType.PHANTOM;
   const maxFreeDraws = freeDrawBase > 0
@@ -74,14 +76,22 @@ export function DrawMarketPhase() {
   const buysLeft = Math.max(0, buyLimit - (player?.marketBuysThisTurn || 0));
   const hasFinishedShopping = buysLeft <= 0 && freeDrawsLeft <= 0;
 
-  // 某张牌的有效价格
   const effectivePrice = (card: ICard) => Math.round(card.baseScore * priceMult);
+
+  // 黑市奇妙夜：点击背面牌 → 翻面动画 → 收入手牌
+  const handleMidnightFlip = (card: ICard) => {
+    if (!isMyTurn || freeDrawsLeft <= 0) return;
+    setFlippedCardId(card.id);
+    setTimeout(() => {
+      claimFreeMarketCard(card.id);
+      setFlippedCardId(null);
+    }, 800);
+  };
 
   const handleSelectMarket = (card: ICard) => {
     if (!isMyTurn) return;
-    if (buysLeft <= 0) return; // 已达购买上限
+    if (buysLeft <= 0) return;
 
-    // 白嫖模式: 直接一键购买, 无需支付流程
     if (isFree) {
       buyMarketCard(card.id, []);
       return;
@@ -105,7 +115,7 @@ export function DrawMarketPhase() {
     }
   };
 
-  // 自动关门：完成所有可执行操作（买完上限 + 用完免费抽）后 1.2s 自动进入下一阶段
+  // 自动关门：完成所有可执行操作后 1.2s 自动进入下一阶段
   useEffect(() => {
     if (!isMyTurn || !hasDrawn || buyingCard) return;
     if (!hasFinishedShopping) return;
@@ -129,8 +139,8 @@ export function DrawMarketPhase() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 12,
-        padding: 12,
+        gap: 'clamp(4px, 1vh, 12px)',
+        padding: 'clamp(4px, 1vh, 12px)',
       }}
     >
       {/* 自动汲取提示 (无需点击) */}
@@ -168,59 +178,71 @@ export function DrawMarketPhase() {
         {isMidnight ? '🌙 黑 市 奇 妙 夜 🌙' : '⛧ 黑 市 ⛧'}
       </motion.h3>
 
-      {/* 黑市奇妙夜：背面盲抽提示 */}
+      {/* 黑市奇妙夜提示 */}
       {isMidnight && isMyTurn && freeDrawsLeft > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           style={{
-            padding: '8px 16px', borderRadius: 8,
+            padding: '6px 14px', borderRadius: 8,
             background: 'rgba(120,60,200,0.18)',
             border: '1px solid #9b6bdf',
             color: '#c4a0ff',
             fontSize: 12, fontWeight: 700, letterSpacing: 2,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
           }}
         >
-          <div>🌙 今夜黑市全部盖牌 — 你可以背面盲抽 {freeDrawsLeft} 张</div>
-          <button
-            onClick={() => claimFreeMarketCard()}
-            style={{
-              padding: '6px 14px', borderRadius: 6,
-              border: '1px solid #c4a0ff',
-              background: 'linear-gradient(135deg, #4a2f8e, #2a1450)',
-              color: '#fff', fontWeight: 700, fontSize: 12,
-              cursor: 'pointer', letterSpacing: 1,
-            }}
-          >
-            ✦ 盲抽一张
-          </button>
+          🌙 点击盖牌翻开获取 — 剩余 {freeDrawsLeft} 次{isPhantom ? '（怪盗：2次）' : ''}
         </motion.div>
       )}
 
-      {/* 剩余购买次数 */}
-      {isMyTurn && hasDrawn && (
+      {/* 剩余购买次数（非奇妙夜时显示） */}
+      {isMyTurn && hasDrawn && !isMidnight && (
         <div style={{ color: '#888', fontSize: 11, fontFamily: 'monospace' }}>
           剩余购买 {buysLeft} 次{isPhantom ? '（怪盗：上限 2）' : ''}
         </div>
       )}
 
-      {/* 黑市卡牌（点击选择购买目标） */}
+      {/* 黑市卡牌 */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
         {gameState.marketCards.map(card => {
           const disabled = buysLeft <= 0;
-          // 黑市奇妙夜：黑市牌"假装"显示为背面（视觉效果）
+          // 黑市奇妙夜：背面牌，点击翻面获取
           if (isMidnight && isMyTurn) {
+            const isFlipping = flippedCardId === card.id;
+            const canFlip = freeDrawsLeft > 0 && !flippedCardId;
             return (
-              <div key={card.id} style={{
-                width: 80, height: 112, borderRadius: 8,
-                border: '2px solid #9b6bdf',
-                background: 'linear-gradient(135deg, #4a2f8e, #3a1f6e 50%, #2a1450)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 0 12px rgba(180,140,255,0.5)',
-              }}>
-                <div style={{ color: '#e8d4ff', fontSize: 32, textShadow: '0 0 12px rgba(220,180,255,1)' }}>✦</div>
-              </div>
+              <motion.div
+                key={card.id}
+                onClick={() => canFlip && handleMidnightFlip(card)}
+                whileHover={canFlip ? { scale: 1.08, y: -5 } : undefined}
+                whileTap={canFlip ? { scale: 0.95 } : undefined}
+                animate={isFlipping ? { rotateY: 180 } : { rotateY: 0 }}
+                transition={{ duration: 0.5, ease: 'easeInOut' }}
+                style={{
+                  cursor: canFlip ? 'pointer' : 'default',
+                  perspective: 800,
+                  opacity: canFlip || isFlipping ? 1 : 0.4,
+                }}
+              >
+                {isFlipping ? (
+                  <Card card={card} size="md" />
+                ) : (
+                  <div style={{
+                    width: 'var(--card-w, 80px)', height: 'var(--card-h, 112px)', borderRadius: 8,
+                    border: '2px solid #9b6bdf',
+                    background: 'linear-gradient(135deg, #4a2f8e, #3a1f6e 50%, #2a1450)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: canFlip
+                      ? '0 0 16px rgba(180,140,255,0.6)'
+                      : '0 0 6px rgba(100,60,180,0.3)',
+                  }}>
+                    <div style={{
+                      color: '#e8d4ff', fontSize: 32,
+                      textShadow: '0 0 12px rgba(220,180,255,1)',
+                    }}>✦</div>
+                  </div>
+                )}
+              </motion.div>
             );
           }
           return (
@@ -235,7 +257,6 @@ export function DrawMarketPhase() {
                 size="md"
                 isSelected={buyingCard?.id === card.id}
               />
-              {/* 价格标签 */}
               <div style={{
                 marginTop: 4,
                 padding: '2px 6px',
@@ -257,10 +278,9 @@ export function DrawMarketPhase() {
             </motion.div>
           );
         })}
-        {/* 空槽位 */}
         {Array.from({ length: 3 - gameState.marketCards.length }).map((_, i) => (
           <div key={`empty-${i}`} style={{
-            width: 80, height: 112,
+            width: 'var(--card-w, 80px)', height: 'var(--card-h, 112px)',
             borderRadius: 8,
             border: '2px dashed #3a1f5e',
             background: 'rgba(26,11,46,0.4)',

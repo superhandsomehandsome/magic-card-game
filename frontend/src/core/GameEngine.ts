@@ -686,24 +686,27 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
    * 普通玩家每回合 1 张，奥术怪盗每回合 2 张
    * 返回是否成功
    */
-  public claimFreeMarketCard(playerId: string): boolean {
+  public claimFreeMarketCard(playerId: string, cardId?: string): boolean {
     this.validatePhase(GamePhase.DRAW_MARKET);
     const player = this.getPlayer(playerId);
     const effects = aggregateEffectsFor(this.state, playerId);
     const baseFree = effects.marketFreeDrawCount || 0;
     if (baseFree <= 0) return false;
-    // 怪盗在黑市奇妙夜期间额外 +1
     const maxFree = baseFree + (player.hero === HeroType.PHANTOM ? 1 : 0);
     if (player.freeMarketDrawsThisTurn >= maxFree) return false;
     if (this.state.marketCards.length === 0) return false;
 
-    // 随机抽 1 张（盲抽）
-    const idx = Math.floor(Math.random() * this.state.marketCards.length);
+    let idx: number;
+    if (cardId) {
+      idx = this.state.marketCards.findIndex(c => c.id === cardId);
+      if (idx === -1) idx = Math.floor(Math.random() * this.state.marketCards.length);
+    } else {
+      idx = Math.floor(Math.random() * this.state.marketCards.length);
+    }
     const card = this.state.marketCards.splice(idx, 1)[0];
     player.hand.push(card);
     player.freeMarketDrawsThisTurn++;
 
-    // 补充黑市
     const refill = this.drawFromDeck(1);
     this.state.marketCards.push(...refill);
 
@@ -713,7 +716,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       durationMs: 500,
     });
 
-    this.addLog(`🌙 ${player.name} 黑市奇妙夜：盲抽得 ${CardRank[card.rank]} 级牌`);
+    this.addLog(`🌙 ${player.name} 黑市奇妙夜：翻牌得 ${CardRank[card.rank]} 级牌`);
     this.checkDeckEmpty();
     this.emit('STATE_UPDATED', this.getStateSnapshot());
     return true;

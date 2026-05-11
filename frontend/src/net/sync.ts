@@ -316,7 +316,7 @@ export class HostSync {
           this.engine.collisionReveal(playerId);
           break;
         case 'CLAIM_FREE_MARKET':
-          this.engine.claimFreeMarketCard(playerId);
+          this.engine.claimFreeMarketCard(playerId, p.cardId as string | undefined);
           break;
       }
     } catch (e) {

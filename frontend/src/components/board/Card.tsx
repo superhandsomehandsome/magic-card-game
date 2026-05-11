@@ -95,7 +95,6 @@ export function Card({
           ? { boxShadow: { duration: 3, repeat: Infinity, ease: 'easeInOut' } }
           : { type: 'spring', stiffness: 300, damping: 20 }
       }
-      layout
     >
       {isFaceDown ? (
         <div style={{

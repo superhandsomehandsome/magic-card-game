@@ -34,7 +34,7 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
         maxWidth: '100%',
       }}
     >
-      <AnimatePresence mode="popLayout">
+      <AnimatePresence>
         {cards.map((card, index) => {
           const isSelected = selectedCards.includes(card.id);
           const isBlocked = blockedRank !== undefined && card.rank === blockedRank;

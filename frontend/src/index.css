@@ -153,3 +153,15 @@ button:focus-visible {
   scroll-snap-align: start;
   flex-shrink: 0;
 }
+
+/* 横屏紧凑模式：阶段内容整体缩放 */
+@media screen and (orientation: landscape) and (max-height: 500px) {
+  .phase-compact {
+    transform: scale(0.85);
+    transform-origin: center bottom;
+  }
+  .phase-compact > div {
+    gap: 4px !important;
+    padding: 4px 8px !important;
+  }
+}

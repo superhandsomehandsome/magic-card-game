@@ -18,22 +18,22 @@ export function BountyRollPhase() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 24,
-        padding: 32,
+        gap: 'clamp(8px, 2vh, 24px)',
+        padding: 'clamp(8px, 3vh, 32px)',
       }}
     >
       {/* 骰子动画区域 */}
       <motion.div
         style={{
-          width: 100,
-          height: 100,
-          borderRadius: 16,
+          width: 'clamp(56px, 14vh, 100px)',
+          height: 'clamp(56px, 14vh, 100px)',
+          borderRadius: 'clamp(8px, 2vh, 16px)',
           background: 'radial-gradient(circle, #8b0000, #4a0000)',
           border: '3px solid #b8860b',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: 48,
+          fontSize: 'clamp(24px, 6vh, 48px)',
           boxShadow: '0 0 30px rgba(139,0,0,0.6)',
         }}
         animate={{

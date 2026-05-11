@@ -185,16 +185,16 @@ export function GameBoard() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: isShortLandscape ? 'flex-start' : 'center',
-        gap: isShortLandscape ? 2 : 'clamp(4px, 1vh, 12px)',
+        justifyContent: isShortLandscape ? 'flex-end' : 'center',
+        gap: isShortLandscape ? 1 : 'clamp(4px, 1vh, 12px)',
         padding: isShortLandscape ? '0 clamp(4px, 1vw, 12px)' : '0 clamp(8px, 2vw, 24px)',
         overflowY: 'auto',
         overflowX: 'hidden',
       }}>
-        {/* 阶段指示器 + 计时器 + 横屏额外紧凑信息 */}
+        {/* 阶段指示器 + 计时器 + 状态徽章（横屏时全部内联） */}
         <div style={{
-          display: 'flex', alignItems: 'center',
-          gap: isShortLandscape ? 8 : 'clamp(8px, 2vw, 24px)',
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center',
+          gap: isShortLandscape ? 6 : 'clamp(8px, 2vw, 24px)',
           flexShrink: 0,
         }}>
           <PhaseIndicator phase={gameState.phase} />
@@ -204,15 +204,45 @@ export function GameBoard() {
             <div style={{
               padding: '2px 8px', borderRadius: 4,
               background: 'rgba(184,134,11,0.15)', border: '1px solid #b8860b60',
-              color: '#ffd700', fontSize: 11, fontWeight: 700,
+              color: '#ffd700', fontSize: 10, fontWeight: 700,
             }}>
               💰{gameState.bountyPool}
             </div>
           )}
+          {/* 横屏：内联保护期 */}
+          {isShortLandscape && gameState.collisionGracePeriod > 0 && (
+            <div style={{
+              padding: '2px 8px', borderRadius: 4,
+              border: '1px solid #ff4500', background: 'rgba(139,0,0,0.25)',
+              color: '#ffb347', fontSize: 10, fontWeight: 700,
+            }}>
+              ⏳{gameState.collisionGracePeriod}
+            </div>
+          )}
+          {/* 横屏：内联封锁 */}
+          {isShortLandscape && opponent.blockadeZone && (
+            <div style={{
+              padding: '2px 8px', borderRadius: 4,
+              border: '1px solid #2ecc71', background: 'rgba(46,204,113,0.1)',
+              color: '#2ecc71', fontSize: 10,
+            }}>
+              🔒{opponent.blockadeZone.rank}
+            </div>
+          )}
+          {/* 横屏：内联反转 */}
+          {isShortLandscape && gameState.isInverted && (
+            <div style={{
+              padding: '2px 8px', borderRadius: 4,
+              border: '1px solid #4488ff', background: 'rgba(68,136,255,0.1)',
+              color: '#4488ff', fontSize: 10,
+            }}>
+              🔄{gameState.invertedTurnsLeft}
+            </div>
+          )}
         </div>
 
-        {/* 至高法案保护期 — 横屏时缩短 */}
-        {gameState.collisionGracePeriod > 0 && (
+        {/* 非横屏：独立显示各状态 */}
+        {!isShortLandscape && gameState.collisionGracePeriod > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{
@@ -225,48 +255,42 @@ export function GameBoard() {
             }}
             transition={{ duration: 1.6, repeat: Infinity }}
             style={{
-              padding: isShortLandscape ? '3px 10px' : '6px 16px', borderRadius: 8,
+              padding: '6px 16px', borderRadius: 8,
               border: '2px solid #ff4500',
               background: 'linear-gradient(135deg, rgba(139,0,0,0.35), rgba(75,0,130,0.25))',
-              color: '#ffb347', fontSize: isShortLandscape ? 10 : 12, fontWeight: 900,
-              fontFamily: '"Cinzel", serif', letterSpacing: isShortLandscape ? 1 : 3,
-              display: 'flex', alignItems: 'center', gap: isShortLandscape ? 4 : 8,
+              color: '#ffb347', fontSize: 12, fontWeight: 900,
+              fontFamily: '"Cinzel", serif', letterSpacing: 3,
+              display: 'flex', alignItems: 'center', gap: 8,
             }}
           >
             <span>⏳ 保护期 {gameState.collisionGracePeriod} 回合</span>
           </motion.div>
         )}
 
-        {/* 喋血悬赏池 — 横屏时已内联到阶段指示器行 */}
         {!isShortLandscape && <BountyPool amount={gameState.bountyPool} />}
 
-        {/* 封锁区显示 */}
-        {opponent.blockadeZone && (
+        {!isShortLandscape && opponent.blockadeZone && (
           <motion.div
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: isShortLandscape ? '2px 8px' : '4px 12px',
-              borderRadius: 4,
+              padding: '4px 12px', borderRadius: 4,
               border: '1px solid #2ecc71',
               background: 'rgba(46,204,113,0.1)',
             }}
             animate={{ opacity: [0.6, 1, 0.6] }}
             transition={{ duration: 2, repeat: Infinity }}
           >
-            <span style={{ color: '#2ecc71', fontSize: isShortLandscape ? 9 : 11 }}>
+            <span style={{ color: '#2ecc71', fontSize: 11 }}>
               🔒 封锁：{opponent.blockadeZone.rank} 级
             </span>
           </motion.div>
         )}
 
-        {/* 反转状态提示 */}
-        {gameState.isInverted && (
+        {!isShortLandscape && gameState.isInverted && (
           <motion.div
             style={{
-              color: '#4488ff',
-              fontSize: isShortLandscape ? 10 : 12,
-              padding: isShortLandscape ? '2px 8px' : '4px 12px',
-              borderRadius: 4,
+              color: '#4488ff', fontSize: 12,
+              padding: '4px 12px', borderRadius: 4,
               border: '1px solid #4488ff',
               background: 'rgba(68,136,255,0.1)',
             }}
@@ -280,7 +304,7 @@ export function GameBoard() {
         )}
 
         {/* 阶段内容 */}
-        <div style={{ width: '100%', maxWidth: isShortLandscape ? 'min(500px, 70vw)' : 'min(600px, 80vw)' }}>
+        <div className={isShortLandscape ? 'phase-compact' : ''} style={{ width: '100%', maxWidth: isShortLandscape ? 'min(500px, 70vw)' : 'min(600px, 80vw)' }}>
           {renderPhaseContent(gameState.phase)}
         </div>
       </div>
@@ -427,7 +451,7 @@ function SettingsMenu() {
         whileHover={{ scale: 1.08 }}
         whileTap={{ scale: 0.92 }}
         style={{
-          position: 'absolute', top: 8, right: 8, zIndex: 999,
+          position: 'fixed', top: 8, right: 8, zIndex: 10000,
           width: 36, height: 36, borderRadius: 8,
           border: '1px solid #b8860b', background: 'rgba(0,0,0,0.7)',
           color: '#b8860b', fontSize: 18, cursor: 'pointer',

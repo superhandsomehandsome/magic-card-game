@@ -66,8 +66,8 @@ interface GameStore {
   collisionPickCards: (cardIds: string[]) => boolean;
   collisionPlaceBet: (amount: number) => boolean;
   collisionReveal: () => boolean;
-  /** 黑市奇妙夜：从黑市背面盲抽 1 张（免费） */
-  claimFreeMarketCard: () => boolean;
+  /** 黑市奇妙夜：翻开指定黑市牌收入手中 */
+  claimFreeMarketCard: (cardId?: string) => boolean;
   flashSwap: (flashCardId: string, swapCardIds: string[]) => void;
   submitDecreeOptIn: (choice: 'CONTEST' | 'PASS') => void;
   submitDecreeBid: (cardIds: string[]) => boolean;
@@ -372,14 +372,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return engine.collisionReveal(localPlayerId);
   },
 
-  claimFreeMarketCard: () => {
+  claimFreeMarketCard: (cardId?: string) => {
     const { engine, localPlayerId, networkMode } = get();
     if (networkMode === 'GUEST') {
-      sendPlayerAction('CLAIM_FREE_MARKET');
+      sendPlayerAction('CLAIM_FREE_MARKET', { cardId });
       return true;
     }
     if (!engine) return false;
-    return engine.claimFreeMarketCard(localPlayerId);
+    return engine.claimFreeMarketCard(localPlayerId, cardId);
   },
 
   flashSwap: (flashCardId, swapCardIds) => {
