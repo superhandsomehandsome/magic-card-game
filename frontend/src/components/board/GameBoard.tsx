@@ -317,6 +317,9 @@ export function GameBoard() {
         position: 'relative',
         flexShrink: 0,
       }}>
+        {/* 手牌操作提示 */}
+        <HandTips phase={gameState.phase} isMyTurn={isMyTurn} isAmbushDefender={isAmbushDefender} />
+
         {/* 玩家手牌（对方回合锁定交互） */}
         <div style={{
           pointerEvents: handsLocked ? 'none' : 'auto',
@@ -390,39 +393,142 @@ function renderPhaseContent(phase: GamePhase) {
   }
 }
 
+const HERO_ABILITY_INFO: Record<HeroType, { name: string; type: '大招' | '被动'; icon: string; desc: string }> = {
+  [HeroType.PHANTOM]: { name: '暗影窃取', type: '被动', icon: '🎭', desc: '黑市购买上限+1；黑市奇妙夜多翻1次' },
+  [HeroType.WEAVER]: { name: '命运骰子', type: '被动', icon: '🔮', desc: '咏唱阶段可投骰生成虚影卡凑分（每回合1次）' },
+  [HeroType.INQUISITOR]: { name: '天平审判', type: '大招', icon: '⚖️', desc: '强制裁剪对手手牌至与己方相等（全局1次）' },
+  [HeroType.SINGER]: { name: '颠覆旋律', type: '大招', icon: '🎵', desc: '反转压制链2回合: F最强(6分), A最弱(1分)（全局1次）' },
+};
+
 function UltimateButton({ hero, disabled, used }: { hero: HeroType; disabled: boolean; used: boolean }) {
   const useUltimate = useGameStore(s => s.useUltimate);
+  const [showTooltip, setShowTooltip] = useState(false);
   const color = HERO_COLORS[hero];
+  const info = HERO_ABILITY_INFO[hero];
+  const isPassive = info.type === '被动';
 
   return (
-    <motion.button
-      onClick={() => { if (!disabled) useUltimate(); }}
-      style={{
-        padding: '8px 16px',
-        borderRadius: 8,
-        border: `2px solid ${used ? '#555' : disabled ? `${color}60` : color}`,
-        background: used ? 'rgba(40,40,40,0.6)' : 'rgba(0,0,0,0.8)',
-        color: used ? '#666' : disabled ? `${color}80` : color,
-        fontWeight: 900,
-        fontSize: 12,
-        cursor: disabled ? 'default' : 'pointer',
-        letterSpacing: 1,
-        opacity: used ? 0.5 : disabled ? 0.7 : 1,
-        filter: used ? 'grayscale(0.8)' : 'none',
-      }}
-      whileHover={!disabled ? { scale: 1.1, boxShadow: `0 0 20px ${color}80` } : undefined}
-      whileTap={!disabled ? { scale: 0.9 } : undefined}
-      animate={
-        used
-          ? {}
-          : disabled
-          ? { boxShadow: `0 0 5px ${color}20` }
-          : { boxShadow: [`0 0 5px ${color}40`, `0 0 15px ${color}80`, `0 0 5px ${color}40`] }
-      }
-      transition={!used && !disabled ? { duration: 2, repeat: Infinity } : undefined}
+    <div
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
     >
-      {used ? '✗ 已释放' : '⚡ 大招'}
-    </motion.button>
+      <motion.button
+        onClick={() => { if (!disabled && !isPassive) useUltimate(); }}
+        style={{
+          padding: '6px 14px',
+          borderRadius: 8,
+          border: `2px solid ${used ? '#555' : disabled ? `${color}60` : color}`,
+          background: used ? 'rgba(40,40,40,0.6)' : `linear-gradient(135deg, rgba(0,0,0,0.9), ${color}15)`,
+          color: used ? '#666' : disabled ? `${color}80` : color,
+          fontWeight: 900,
+          fontSize: 11,
+          cursor: (disabled || isPassive) ? 'default' : 'pointer',
+          letterSpacing: 1,
+          opacity: used ? 0.5 : disabled ? 0.7 : 1,
+          filter: used ? 'grayscale(0.8)' : 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+        whileHover={(!disabled && !isPassive) ? { scale: 1.1, boxShadow: `0 0 20px ${color}80` } : undefined}
+        whileTap={(!disabled && !isPassive) ? { scale: 0.9 } : undefined}
+        animate={
+          used
+            ? {}
+            : isPassive
+            ? { boxShadow: `0 0 8px ${color}30` }
+            : disabled
+            ? { boxShadow: `0 0 5px ${color}20` }
+            : { boxShadow: [`0 0 5px ${color}40`, `0 0 18px ${color}90`, `0 0 5px ${color}40`] }
+        }
+        transition={!used && !disabled && !isPassive ? { duration: 1.5, repeat: Infinity } : undefined}
+      >
+        <span style={{ fontSize: 14 }}>{info.icon}</span>
+        <span>{used ? '已释放' : isPassive ? '被动' : info.type}</span>
+      </motion.button>
+
+      {/* 悬停技能详情 tooltip */}
+      {showTooltip && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            position: 'absolute',
+            bottom: '110%',
+            right: 0,
+            minWidth: 200,
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'rgba(10,2,20,0.95)',
+            border: `1.5px solid ${color}`,
+            boxShadow: `0 0 16px ${color}40`,
+            zIndex: 9999,
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 16 }}>{info.icon}</span>
+            <span style={{ color, fontWeight: 900, fontSize: 13 }}>{info.name}</span>
+            <span style={{
+              padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700,
+              background: isPassive ? 'rgba(46,204,113,0.2)' : 'rgba(255,69,0,0.2)',
+              color: isPassive ? '#2ecc71' : '#ff4500',
+              border: `1px solid ${isPassive ? '#2ecc71' : '#ff4500'}`,
+            }}>
+              {info.type}
+            </span>
+          </div>
+          <div style={{ color: '#ccc', fontSize: 11, lineHeight: 1.5 }}>
+            {info.desc}
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+function HandTips({ phase, isMyTurn, isAmbushDefender }: { phase: GamePhase; isMyTurn: boolean; isAmbushDefender: boolean }) {
+  let text = '';
+  let color = '#666';
+
+  if (!isMyTurn && !isAmbushDefender) return null;
+
+  switch (phase) {
+    case GamePhase.AMBUSH_DECLARE:
+      if (isMyTurn) { text = '👇 点击手牌选择突袭用牌（瞬牌不可用）'; color = '#ff4500'; }
+      break;
+    case GamePhase.AMBUSH_DEFEND:
+      if (isAmbushDefender) { text = '👇 点击手牌选择迎战牌'; color = '#ff6347'; }
+      break;
+    case GamePhase.BLOCKADE_END:
+      if (isMyTurn) { text = '👇 点击手牌选择封锁牌（瞬牌不可封锁）'; color = '#2ecc71'; }
+      break;
+    case GamePhase.CHANT_SCORE:
+      if (isMyTurn) { text = '👇 点击手牌选牌组合凑分'; color = '#9b59b6'; }
+      break;
+    default:
+      return null;
+  }
+
+  if (!text) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: [0.7, 1, 0.7] }}
+      transition={{ duration: 2, repeat: Infinity }}
+      style={{
+        textAlign: 'center',
+        color,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 1,
+        padding: '3px 0',
+      }}
+    >
+      {text}
+    </motion.div>
   );
 }
 
