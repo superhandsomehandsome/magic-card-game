@@ -107,8 +107,8 @@ export function Card({
         </div>
       ) : (
         <>
-          {/* 左上角等级 */}
-          <div style={{
+          {/* 左上角等级 — compact 横屏时隐藏，避免与中央大字重叠 */}
+          <div className="card-corner-tl" style={{
             position: 'absolute', top: 4, left: 6,
             fontSize: size === 'lg' ? 18 : 14,
             fontWeight: 900,
@@ -121,7 +121,7 @@ export function Card({
           </div>
 
           {/* 右上角小圆点 */}
-          <div style={{
+          <div className="card-corner-dot" style={{
             position: 'absolute', top: 6, right: 6,
             width: size === 'lg' ? 8 : 6,
             height: size === 'lg' ? 8 : 6,
@@ -170,8 +170,8 @@ export function Card({
             {card.rank !== CardRank.FLASH ? `${card.baseScore}` : '⚡'}
           </div>
 
-          {/* 底部左下角等级 (倒置) */}
-          <div style={{
+          {/* 底部左下角等级 (倒置) — compact 横屏时隐藏 */}
+          <div className="card-corner-bl" style={{
             position: 'absolute', bottom: 4, left: 6,
             fontSize: size === 'lg' ? 14 : 11,
             fontWeight: 900,

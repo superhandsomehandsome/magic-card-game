@@ -42,10 +42,10 @@ const HERO_COLORS: Record<HeroType, string> = {
 
 function useIsShortLandscape() {
   const [is, setIs] = useState(() =>
-    typeof window !== 'undefined' && window.innerHeight < 500 && window.innerWidth > window.innerHeight
+    typeof window !== 'undefined' && window.innerHeight < 520 && window.innerWidth > window.innerHeight
   );
   useEff(() => {
-    const check = () => setIs(window.innerHeight < 500 && window.innerWidth > window.innerHeight);
+    const check = () => setIs(window.innerHeight < 520 && window.innerWidth > window.innerHeight);
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);

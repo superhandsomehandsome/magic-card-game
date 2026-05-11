@@ -25,15 +25,15 @@
   --card-h: clamp(72px, 14vw, 112px);
 }
 
-/* 极小横屏（< 500px 高，例如手机横放）— 卡牌紧凑 */
-@media screen and (orientation: landscape) and (max-height: 500px) {
+/* 极小横屏（< 520px 高，例如手机横放）— 卡牌紧凑 */
+@media screen and (orientation: landscape) and (max-height: 520px) {
   :root {
     --card-w: clamp(32px, 9vh, 48px);
     --card-h: clamp(44px, 12vh, 66px);
   }
 }
 /* 中等横屏（小手机/iPad）*/
-@media screen and (orientation: landscape) and (min-height: 501px) and (max-height: 700px) {
+@media screen and (orientation: landscape) and (min-height: 521px) and (max-height: 700px) {
   :root {
     --card-w: clamp(44px, 11vh, 68px);
     --card-h: clamp(60px, 15vh, 94px);
@@ -130,11 +130,11 @@ button:focus-visible {
 @media screen and (orientation: portrait) and (max-width: 420px) {
   html { font-size: 11px; }
 }
-@media screen and (orientation: landscape) and (max-height: 500px) {
+@media screen and (orientation: landscape) and (max-height: 520px) {
   html { font-size: 10px; }
 }
 /* 横屏极窄：紧贴边缘 */
-@media screen and (orientation: landscape) and (max-height: 500px) {
+@media screen and (orientation: landscape) and (max-height: 520px) {
   #root {
     /* 横屏时安全区一般是左右刘海。顶部/底部 padding 几乎为 0，节省空间 */
     padding-top: 0;
@@ -154,14 +154,16 @@ button:focus-visible {
   flex-shrink: 0;
 }
 
-/* 横屏紧凑模式：阶段内容整体缩放 */
-@media screen and (orientation: landscape) and (max-height: 500px) {
-  .phase-compact {
-    transform: scale(0.85);
-    transform-origin: center bottom;
+/* 横屏紧凑模式：小卡牌内部装饰 */
+@media screen and (orientation: landscape) and (max-height: 520px) {
+  /* 小卡牌：隐藏左上角和左下角的重复 rank 标签，避免与中央大字重叠 */
+  .card-corner-tl,
+  .card-corner-bl {
+    display: none;
   }
-  .phase-compact > div {
-    gap: 4px !important;
-    padding: 4px 8px !important;
+  /* 右上角小圆点也缩一下 */
+  .card-corner-dot {
+    width: 4px !important;
+    height: 4px !important;
   }
 }
