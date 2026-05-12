@@ -290,34 +290,66 @@ export class AIPlayer {
     const collision = state.collisionState;
     if (!collision) return;
 
-    // 排兵布阵步骤：AI 自动按高分排前面，立即确认 → 然后递归推进到 RAISE/FOLD
-    if (!collision.orderConfirmed?.[this.aiPlayerId]) {
-      const cards = collision.playerCards[this.aiPlayerId] || [];
-      const ordered = [...cards].sort((a, b) => b.baseScore - a.baseScore);
+    // ── Step 1: PICK — 从手牌选 3 张（或全部）参战 ──
+    if (collision.step === 'PICK' && !collision.pickConfirmed[this.aiPlayerId]) {
+      const me = state.players[this.aiPlayerId];
+      const pickCount = Math.min(3, me.hand.length);
+      if (pickCount === 0) return;
+      const sorted = [...me.hand].sort((a, b) => b.baseScore - a.baseScore);
+      const pickIds = sorted.slice(0, pickCount).map(c => c.id);
       this.scheduleAction(() => {
-        this.engine.setCollisionOrder(this.aiPlayerId, ordered.map(c => c.id));
-        // 排序确认后, 继续推进 RAISE 流程 (引擎不会再发 PHASE_CHANGED, 必须自驱)
-        this.scheduleAction(() => this.handleCollision(), 600);
-      }, 700);
+        if (this.engine.getState().phase !== GamePhase.COLLISION) return;
+        this.engine.collisionPickCards(this.aiPlayerId, pickIds);
+        this.scheduleAction(() => this.handleCollision(), 500);
+      }, 800);
       return;
     }
 
-    // 检测是否还有牌可揭示 (本回合已揭示 == roundIndex+1 = 当前轮次需要的张数)
-    const myRevealed = collision.revealedCards[this.aiPlayerId]?.length ?? 0;
-    const myCardsLeft = collision.playerCards[this.aiPlayerId]?.length ?? 0;
-    const expectedRevealed = collision.roundIndex + 1;
-    if (myRevealed >= expectedRevealed || myCardsLeft === 0) return; // 等对方
+    // ── Step 2: BETTING — 下注 0-20 ──
+    if (collision.step === 'BETTING' && !collision.betConfirmed[this.aiPlayerId]) {
+      const me = state.players[this.aiPlayerId];
+      const opp = this.getOpponent(state);
+      const myCards = collision.playerCards[this.aiPlayerId] || [];
+      const myPower = myCards.reduce((s, c) => s + c.baseScore, 0);
+      // 手牌强就多下注，弱就少下
+      const bet = myPower >= 12 ? Math.floor(10 + Math.random() * 11)
+                : myPower >= 6  ? Math.floor(3 + Math.random() * 8)
+                : Math.floor(Math.random() * 4);
+      this.scheduleAction(() => {
+        if (this.engine.getState().phase !== GamePhase.COLLISION) return;
+        this.engine.collisionPlaceBet(this.aiPlayerId, bet);
+        this.scheduleAction(() => this.handleCollision(), 500);
+      }, 800);
+      return;
+    }
 
-    // 加注/退缩：80% 加注，劣势时 30% 退缩
+    // ── Step 2.5: 排序确认（可选，BETTING 之后 REVEAL 之前） ──
+    if (!collision.orderConfirmed?.[this.aiPlayerId]) {
+      const cards = collision.playerCards[this.aiPlayerId] || [];
+      if (cards.length > 0) {
+        const ordered = [...cards].sort((a, b) => b.baseScore - a.baseScore);
+        this.scheduleAction(() => {
+          this.engine.setCollisionOrder(this.aiPlayerId, ordered.map(c => c.id));
+          this.scheduleAction(() => this.handleCollision(), 500);
+        }, 600);
+        return;
+      }
+    }
+
+    // ── Step 3: REVEAL — 逐对翻牌，RAISE 或 FOLD ──
+    if (collision.step !== 'REVEAL_1' && collision.step !== 'REVEAL_2' && collision.step !== 'REVEAL_3') return;
+
+    const myRevealed = collision.revealedCards[this.aiPlayerId]?.length ?? 0;
+    const expectedRevealed = collision.roundIndex + 1;
+    if (myRevealed >= expectedRevealed) return; // 等对方
+
     const me = state.players[this.aiPlayerId];
     const opp = this.getOpponent(state);
-    const r = Math.random();
     const losing = me.score < opp.score - 30;
-    const action: 'RAISE' | 'FOLD' = (losing && r < 0.3) ? 'FOLD' : 'RAISE';
+    const action: 'RAISE' | 'FOLD' = (losing && Math.random() < 0.3) ? 'FOLD' : 'RAISE';
     this.scheduleAction(() => {
       if (this.engine.getState().phase !== GamePhase.COLLISION) return;
       this.engine.collisionAction(this.aiPlayerId, action);
-      // 继续监听: 若回合推进而 PHASE 仍为 COLLISION, 主动检查是否需要再揭示
       this.scheduleAction(() => this.handleCollision(), 700);
     }, 800);
   }
