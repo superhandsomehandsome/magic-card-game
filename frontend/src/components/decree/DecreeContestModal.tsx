@@ -425,11 +425,12 @@ function BiddingStep({
 
       {/* 祭坛槽位 */}
       <div style={{
-        display: 'flex', gap: 8, padding: 'clamp(8px, 2vw, 14px)',
+        display: 'flex', gap: 10, padding: 'clamp(6px, 1.5vw, 14px)',
         borderRadius: 10,
         background: 'radial-gradient(ellipse at center, rgba(231,76,60,0.18), rgba(0,0,0,0.5))',
         border: '1px dashed #e74c3c80',
-        minHeight: 140, alignItems: 'center', justifyContent: 'center',
+        minHeight: typeof window !== 'undefined' && window.innerHeight < 500 ? 80 : 140,
+        alignItems: 'center', justifyContent: 'center',
       }}>
         {pickedCards.length === 0 ? (
           <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
@@ -464,12 +465,15 @@ function BiddingStep({
         </div>
       )}
 
-      {/* 手牌选择区 (横滚) */}
+      {/* 手牌选择区 (横滚放大) */}
       <div style={{
-        width: '100%', maxWidth: 720,
+        width: '100%', maxWidth: '90vw',
         overflowX: 'auto', display: 'flex',
-        gap: 8, padding: '4px 8px',
+        gap: 10, padding: '6px 10px',
         scrollbarColor: '#3a1f5e #0d0018',
+        border: '1px solid rgba(184,134,11,0.2)',
+        borderRadius: 8,
+        background: 'rgba(0,0,0,0.3)',
       }}>
         {eligible.length === 0 ? (
           <div style={{ color: '#666', fontSize: 12, padding: '20px' }}>
@@ -479,7 +483,7 @@ function BiddingStep({
           <Card
             key={c.id}
             card={c}
-            size="sm"
+            size="md"
             isSelected={picked.includes(c.id)}
             onClick={() => toggleCard(c.id)}
           />
@@ -487,28 +491,33 @@ function BiddingStep({
       </div>
 
       {/* 提交按钮 */}
-      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
         <motion.button
           disabled={submitted || picked.length === 0}
-          onClick={() => {
-            onSubmit(picked);
-          }}
-          whileHover={!submitted && picked.length > 0 ? { scale: 1.05 } : undefined}
-          whileTap={!submitted && picked.length > 0 ? { scale: 0.95 } : undefined}
+          onClick={() => { onSubmit(picked); }}
+          whileHover={!submitted && picked.length > 0 ? { scale: 1.08 } : undefined}
+          whileTap={!submitted && picked.length > 0 ? { scale: 0.92 } : undefined}
+          animate={
+            !submitted && picked.length > 0
+              ? { boxShadow: ['0 0 8px rgba(231,76,60,0.4)', '0 0 24px rgba(231,76,60,0.8)', '0 0 8px rgba(231,76,60,0.4)'] }
+              : {}
+          }
+          transition={!submitted && picked.length > 0 ? { duration: 1.2, repeat: Infinity } : undefined}
           style={{
-            padding: '12px 24px', borderRadius: 10,
+            padding: '14px 32px', borderRadius: 12,
             border: '2px solid #e74c3c',
             background: submitted || picked.length === 0
               ? 'rgba(50,50,50,0.4)'
               : 'linear-gradient(135deg, #e74c3c, #8b0000)',
             color: submitted ? '#888' : '#fff',
-            fontFamily: '"Cinzel", serif', fontSize: 14, fontWeight: 900,
+            fontFamily: '"Cinzel", serif', fontSize: 15, fontWeight: 900,
             letterSpacing: 4,
             cursor: submitted || picked.length === 0 ? 'not-allowed' : 'pointer',
             opacity: submitted || picked.length === 0 ? 0.5 : 1,
+            minWidth: 180,
           }}
         >
-          {submitted ? '✓ 已 投 标' : '☠ 投 入 祭 坛'}
+          {submitted ? '✓ 已投标' : `☠ 确认暗标 (${picked.length})`}
         </motion.button>
         <div style={{ color: '#888', fontSize: 11 }}>
           对手已投：{oppBidCount > 0 ? `${oppBidCount} 张 (面朝下)` : '思考中…'}
