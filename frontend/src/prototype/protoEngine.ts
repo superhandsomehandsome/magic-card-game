@@ -263,8 +263,8 @@ export function submitDefend(gs: GameState, action: DefendAction): boolean {
 
     gs.discardPile.push(atkCard, defCard);
     gs.ambush = null;
-    checkWin(gs);
-    if (gs.phase !== Phase.GAME_OVER) gs.phase = Phase.CHANT;
+    gs.phase = Phase.CHANT;
+    checkWin(gs); // 如果达到胜利分数则覆盖为 GAME_OVER
     return true;
   }
 
