@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GAME_CONSTANTS } from '../../types/game';
 
-export type LobbyMode = 'CREATE_ROOM' | 'JOIN_ROOM' | 'VS_AI' | 'PROTOTYPE';
+export type LobbyMode = 'CREATE_ROOM' | 'JOIN_ROOM' | 'VS_AI';
 
 interface LobbyProps {
   onSelectMode: (mode: LobbyMode, roomCode?: string) => void;
@@ -140,14 +140,6 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         color="#4488ff"
         compact={isShortLandscape}
         onClick={() => onSelectMode('VS_AI')}
-      />
-      <ModeButton
-        icon="🧪"
-        label="v2.1 试玩"
-        subtitle="体验全新玩法原型"
-        color="#2ecc71"
-        compact={isShortLandscape}
-        onClick={() => onSelectMode('PROTOTYPE')}
       />
       <ModeButton
         icon="📜"
@@ -308,7 +300,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
     },
     {
       title: '🔄 回合流程',
-      content: '❶ 喋血悬赏 → 掷骰×5 加入奖金池\n❷ 汲取 → 抽2张 + 黑市交易\n❸ 突袭 → 暗扣牌+虚实之言+拼点\n❹ 咏唱 → 手牌组合计分\n❺ 封锁 → 弃1张牌封锁对手',
+      content: '❶ 喋血悬赏 → 掷骰注入悬赏池\n❷ 汲取 → 抽2张 + 黑市交易\n❸ 咏唱 → 手牌组合凑分，注入秘力熔炉\n❹ 突袭 → 争夺秘力熔炉（赢全拿/输保底/跳过保底）\n❺ 暗封锁 → 面朝下封锁对手（对手不可见）',
     },
     {
       title: '✨ 咏唱组合',

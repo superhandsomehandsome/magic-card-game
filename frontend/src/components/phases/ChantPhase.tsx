@@ -150,12 +150,26 @@ export function ChantPhase() {
       }}
     >
       <div style={{
-        color: '#9b59b6',
-        fontFamily: '"Cinzel", serif',
-        fontSize: 16,
-        fontWeight: 700,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 4,
       }}>
-        ✨ 咏唱计分
+        <div style={{
+          color: '#9b59b6',
+          fontFamily: '"Cinzel", serif',
+          fontSize: 16,
+          fontWeight: 700,
+        }}>
+          ✨ 咏唱计分
+        </div>
+        <div style={{
+          color: '#9b59b680',
+          fontSize: 11,
+          letterSpacing: 1,
+        }}>
+          得分将注入秘力熔炉，由突袭结果决定最终分配
+        </div>
       </div>
 
       {/* 破法者诅咒提示 */}
@@ -491,7 +505,7 @@ export function ChantPhase() {
                 fontFamily: '"Cinzel", serif', letterSpacing: 2,
               }}
             >
-              ✓ 出牌 +{Math.floor(selectedCombo.score * decayInfo.multiplier) - (selectedCombo.blockedPenalty || 0)}
+              ✓ 注入熔炉 +{Math.floor(selectedCombo.score * decayInfo.multiplier) - (selectedCombo.blockedPenalty || 0)}
             </motion.button>
             <motion.button
               onClick={() => { setShowDetail(true); }}
@@ -512,13 +526,18 @@ export function ChantPhase() {
             onClick={() => advancePhase()}
             style={{
               padding: '10px 20px', borderRadius: 8,
-              border: '1px solid #666', background: 'transparent',
-              color: '#888', cursor: 'pointer', fontSize: 13,
+              border: `1px solid ${player.hasChantedThisTurn ? '#ffd700' : '#666'}`,
+              background: player.hasChantedThisTurn
+                ? 'linear-gradient(180deg, rgba(74,58,10,0.6), rgba(42,31,5,0.8))'
+                : 'transparent',
+              color: player.hasChantedThisTurn ? '#ffd700' : '#888',
+              cursor: 'pointer', fontSize: 13,
+              fontWeight: player.hasChantedThisTurn ? 700 : 400,
               marginLeft: 'auto',
             }}
-            whileHover={{ scale: 1.05 }}
+            whileHover={{ scale: 1.05, boxShadow: player.hasChantedThisTurn ? '0 0 12px rgba(255,215,0,0.4)' : 'none' }}
           >
-            跳过咏唱 → 突袭阶段
+            {player.hasChantedThisTurn ? '结束咏唱 → 突袭阶段' : '跳过咏唱 → 突袭阶段'}
           </motion.button>
         )}
       </div>

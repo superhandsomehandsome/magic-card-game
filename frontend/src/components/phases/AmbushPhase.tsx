@@ -444,7 +444,7 @@ export function AmbushPhase() {
           <motion.button
             onClick={() => {
               if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
-              // 跳过突袭：蓄水池按保底比例结算
+              // 跳过突袭：秘力熔炉按保底比例结算
               if (engine && gameState) {
                 engine.settleReservoirSkip(gameState.currentTurnPlayerId);
               }
@@ -460,7 +460,7 @@ export function AmbushPhase() {
               fontWeight: 700,
             }}
           >
-            ✦ 跳过突袭 → 封锁（蓄水池保底结算）
+            ✦ 跳过突袭 → 封锁（秘力熔炉保底结算）
           </motion.button>
         )}
       </div>

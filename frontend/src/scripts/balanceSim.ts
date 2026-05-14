@@ -498,7 +498,7 @@ console.log(`│  至高法案触发率：${(supremeCount / NUM_GAMES * 100).toF
 console.log(`│  对撞发生率：${(collisions.length / NUM_GAMES * 100).toFixed(1)}%`);
 console.log(`│  得分斩杀率：${(scoreWins.length / NUM_GAMES * 100).toFixed(1)}%`);
 console.log('├──────────────────────────────────────────────┤');
-console.log('│          蓄水池结算分布                        │');
+console.log('│          秘力熔炉结算分布                        │');
 console.log('├──────────────────────────────────────────────┤');
 console.log(`│  突袭获胜(全额)：${totalSettlements.win} 次 (${(totalSettlements.win / totalSettCount * 100).toFixed(1)}%)`);
 console.log(`│  突袭失败(保底)：${totalSettlements.lose} 次 (${(totalSettlements.lose / totalSettCount * 100).toFixed(1)}%)`);

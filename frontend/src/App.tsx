@@ -26,13 +26,12 @@ import { HeroSelect } from './components/phases/HeroSelect';
 import { GameBoard } from './components/board/GameBoard';
 import { OrientationGate } from './components/OrientationGate';
 import { AIPlayer } from './core/AIPlayer';
-import { PrototypeGame } from './prototype/PrototypeGame';
 import {
   getSocket, emitHeroSelected, emitLeaveRoom, emitGameAction,
   type OpponentHeroPayload,
 } from './net/socket';
 
-type AppStage = 'LOBBY' | 'ROOM' | 'HERO_SELECT' | 'PLAYING' | 'PROTOTYPE';
+type AppStage = 'LOBBY' | 'ROOM' | 'HERO_SELECT' | 'PLAYING';
 
 interface NetInitEnvelope {
   kind: 'NET_INIT';
@@ -182,8 +181,6 @@ function App() {
       setMySlot(0);
       setNetworkMode('LOCAL');
       setStage('HERO_SELECT');
-    } else if (m === 'PROTOTYPE') {
-      setStage('PROTOTYPE');
     }
   }, [setNetworkMode, teardownSync]);
 
@@ -254,12 +251,6 @@ function App() {
 
   // 包装一层 OrientationGate：手机竖屏时显示"请横屏"覆盖
   const wrap = (node: React.ReactNode) => <OrientationGate>{node}</OrientationGate>;
-
-  if (stage === 'PROTOTYPE') {
-    return wrap(
-      <PrototypeGame onExit={() => { setStage('LOBBY'); setMode(null); }} />
-    );
-  }
 
   if (stage === 'LOBBY') {
     return wrap(<Lobby onSelectMode={handleLobbySelect} />);

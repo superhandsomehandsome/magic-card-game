@@ -7,6 +7,7 @@ import { GamePhase, GAME_CONSTANTS } from '../../types/game';
 import { useGameStore } from '../../store/gameStore';
 import { Hand } from './Hand';
 import { BountyPool } from './BountyPool';
+import { ManaForge } from './ManaForge';
 import { ScoreBar } from './ScoreBar';
 import { Timer } from './Timer';
 import { PhaseIndicator } from './PhaseIndicator';
@@ -223,13 +224,19 @@ export function GameBoard() {
             }}>
               <PhaseIndicator phase={gameState.phase} />
               <Timer timeMs={gameState.timer} />
-              {gameState.bountyPool > 0 && (
+              {(gameState.manaForge > 0 || gameState.bountyPool > 0) && (
                 <div style={{
                   padding: '2px 8px', borderRadius: 4,
                   background: 'rgba(184,134,11,0.15)', border: '1px solid #b8860b60',
                   color: '#ffd700', fontSize: 10, fontWeight: 700,
+                  display: 'flex', gap: 4, alignItems: 'center',
                 }}>
-                  💰{gameState.bountyPool}
+                  🔥{gameState.manaForge + gameState.bountyPool}
+                  {gameState.manaForge > 0 && gameState.bountyPool > 0 && (
+                    <span style={{ color: '#888', fontSize: 8 }}>
+                      (✨{gameState.manaForge}+💀{gameState.bountyPool})
+                    </span>
+                  )}
                 </div>
               )}
               {gameState.collisionGracePeriod > 0 && (
@@ -412,7 +419,10 @@ export function GameBoard() {
           </div>
         )}
 
-        <BountyPool amount={gameState.bountyPool} />
+        {/* 秘力熔炉（咏唱分+悬赏池 合计展示） */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, justifyContent: 'center' }}>
+          <ManaForge manaForge={gameState.manaForge} bountyPool={gameState.bountyPool} />
+        </div>
 
         {opponent.blockadeZone && (
           <motion.div
@@ -664,7 +674,7 @@ function HandTips({ phase, isMyTurn, isAmbushDefender }: { phase: GamePhase; isM
       if (isMyTurn) { text = '👇 点击手牌暗置封锁牌（对手不可见，瞬牌不可封锁）'; color = '#2ecc71'; }
       break;
     case GamePhase.CHANT_SCORE:
-      if (isMyTurn) { text = '👇 点击手牌选牌组合凑分（得分进入蓄水池）'; color = '#9b59b6'; }
+      if (isMyTurn) { text = '👇 点击手牌选牌组合凑分（得分进入秘力熔炉）'; color = '#9b59b6'; }
       break;
     default:
       return null;

@@ -1,5 +1,5 @@
 /**
- * 阶段4：明牌封锁 — 从底部手牌点击选牌封锁
+ * 阶段5：暗封锁 — 从底部手牌点击选牌暗置封锁
  */
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
