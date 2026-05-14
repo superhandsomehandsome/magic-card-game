@@ -24,10 +24,10 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
       className="hand-scroll-x"
       style={{
         display: 'flex',
-        gap: isLandscapeCompact ? 'clamp(1px, 0.3vw, 4px)' : 'clamp(2px, 0.4vw, 6px)',
-        justifyContent: 'center',
+        gap: isLandscapeCompact ? 'clamp(1px, 0.3vw, 3px)' : 'clamp(2px, 0.4vw, 6px)',
+        justifyContent: isLandscapeCompact ? 'flex-start' : 'center',
         alignItems: 'flex-end',
-        padding: isLandscapeCompact ? '1px 0' : 'clamp(2px, 0.8vh, 10px) 0',
+        padding: isLandscapeCompact ? '1px 2px 0' : 'clamp(2px, 0.8vh, 10px) 0',
         perspective: 1000,
         maxWidth: '100%',
       }}

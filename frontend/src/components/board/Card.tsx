@@ -137,23 +137,31 @@ export function Card({
             display: 'flex', flexDirection: 'column',
             alignItems: 'center',
             zIndex: 2,
+            width: '92%',
+            overflow: 'hidden',
           }}>
             <div style={{
-              fontSize: size === 'lg' ? 36 : size === 'md' ? 28 : 20,
+              fontSize: size === 'lg' ? 36 : size === 'md' ? 'clamp(16px, 4.5vw, 28px)' : 'clamp(13px, 3vw, 20px)',
               fontWeight: 900,
               color,
               textShadow: `0 0 14px ${color}, 0 0 24px ${color}50`,
               fontFamily: '"Cinzel", serif',
-              lineHeight: 1,
+              lineHeight: 1.1,
+              textAlign: 'center',
             }}>
               {card.rank === CardRank.FLASH ? '⚡' : name}
             </div>
             <div style={{
-              fontSize: size === 'lg' ? 11 : size === 'md' ? 10 : 9,
+              fontSize: size === 'lg' ? 11 : size === 'md' ? 'clamp(6px, 1.5vw, 10px)' : 'clamp(5px, 1.2vw, 8px)',
               color: `${color}cc`,
-              marginTop: 2,
-              letterSpacing: 1,
+              marginTop: 1,
+              letterSpacing: 0.5,
               fontFamily: '"Cinzel", serif',
+              textAlign: 'center',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '100%',
             }}>
               {subtitle}
             </div>
@@ -161,24 +169,26 @@ export function Card({
 
           {/* 右下角分数 */}
           <div style={{
-            position: 'absolute', bottom: 4, right: 6,
-            fontSize: size === 'lg' ? 11 : 9,
+            position: 'absolute', bottom: 2, right: 4,
+            fontSize: size === 'lg' ? 11 : 8,
             color: `${color}aa`,
             fontFamily: 'monospace',
             zIndex: 2,
+            lineHeight: 1,
           }}>
             {card.rank !== CardRank.FLASH ? `${card.baseScore}` : '⚡'}
           </div>
 
           {/* 底部左下角等级 (倒置) — compact 横屏时隐藏 */}
           <div className="card-corner-bl" style={{
-            position: 'absolute', bottom: 4, left: 6,
-            fontSize: size === 'lg' ? 14 : 11,
+            position: 'absolute', bottom: 2, left: 4,
+            fontSize: size === 'lg' ? 14 : 10,
             fontWeight: 900,
             color,
             opacity: 0.4,
             transform: 'rotate(180deg)',
             fontFamily: '"Cinzel", serif',
+            lineHeight: 1,
           }}>
             {name}
           </div>

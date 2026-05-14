@@ -141,181 +141,105 @@ export function GameBoard() {
 
       {isShortLandscape ? (
         /* ═══════════════════════════════════════════════════════════
-         *  MOBILE LANDSCAPE: 三栏 Grid + 底部手牌布局
-         *  左侧(~18%): P1/P2 状态  |  中央(~62%): 战场  |  右侧(auto): 信息
-         *  底部(100%): 计时条 + 手牌 + 大招
+         *  MOBILE LANDSCAPE: 左 sidebar + 右主区（战场 + 手牌）
+         *  左侧固定窄栏(~70px): 双方分数 / 状态 / 技能&大招
+         *  右侧: 上方战场(flex-1 可滚动) + 下方手牌(固定高度不截断)
          * ═══════════════════════════════════════════════════════════ */
         <div style={{
-          display: 'grid',
-          gridTemplateAreas: '"sidebar center info" "bottom bottom bottom"',
-          gridTemplateColumns: 'clamp(90px, 18%, 150px) 1fr auto',
-          gridTemplateRows: '1fr auto',
+          display: 'flex',
           flex: 1, minHeight: 0, overflow: 'hidden',
         }}>
-          {/* ── Left Sidebar: 双方状态栏 ── */}
+          {/* ── 左侧 Sidebar ── */}
           <div style={{
-            gridArea: 'sidebar',
+            width: 72,
+            flexShrink: 0,
             display: 'flex', flexDirection: 'column',
             justifyContent: 'space-between',
-            padding: '8px 6px',
-            borderRight: '1px solid rgba(42,26,62,0.6)',
+            padding: '6px 4px',
+            background: 'rgba(0,0,0,0.45)',
+            borderRight: '1px solid rgba(42,26,62,0.5)',
             overflow: 'hidden',
           }}>
-            {/* P2: 对手 (顶部) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <div style={{ color: '#888', fontSize: 9, letterSpacing: 1 }}>OPPONENT</div>
+            {/* 对手状态 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
               <div style={{
-                color: '#ccc', fontSize: 11, fontFamily: '"Cinzel", serif',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {opponent.name}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span style={{
-                  color: HERO_COLORS[opponent.hero],
-                  fontSize: 18, fontWeight: 900, fontFamily: 'monospace',
-                }}>
-                  {opponent.score}
-                </span>
-                <span style={{ color: '#555', fontSize: 9 }}>/ {GAME_CONSTANTS.WIN_SCORE}</span>
-              </div>
-              <div style={{ width: '100%', height: 3, borderRadius: 2, background: 'rgba(26,11,46,0.8)', overflow: 'hidden' }}>
-                <div style={{
-                  width: `${Math.min((opponent.score / GAME_CONSTANTS.WIN_SCORE) * 100, 100)}%`,
-                  height: '100%', borderRadius: 2,
-                  background: HERO_COLORS[opponent.hero],
-                  transition: 'width 0.3s',
-                }} />
-              </div>
+                width: 8, height: 8, borderRadius: '50%',
+                background: HERO_COLORS[opponent.hero],
+                boxShadow: `0 0 6px ${HERO_COLORS[opponent.hero]}`,
+              }} />
+              <span style={{ color: HERO_COLORS[opponent.hero], fontSize: 14, fontWeight: 900, fontFamily: 'monospace' }}>
+                {opponent.score}
+              </span>
+              <span style={{ color: '#555', fontSize: 8 }}>🃏{opponent.hand.length}</span>
             </div>
 
-            {/* P1: 玩家 (底部) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <div style={{ color: '#888', fontSize: 9, letterSpacing: 1 }}>PLAYER</div>
-              <div style={{
-                color: '#ccc', fontSize: 11, fontFamily: '"Cinzel", serif',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {localPlayer.name}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span style={{
-                  color: HERO_COLORS[localPlayer.hero],
-                  fontSize: 18, fontWeight: 900, fontFamily: 'monospace',
-                }}>
-                  {localPlayer.score}
-                </span>
-                <span style={{ color: '#555', fontSize: 9 }}>/ {GAME_CONSTANTS.WIN_SCORE}</span>
-              </div>
-              <div style={{ width: '100%', height: 3, borderRadius: 2, background: 'rgba(26,11,46,0.8)', overflow: 'hidden' }}>
-                <div style={{
-                  width: `${Math.min((localPlayer.score / GAME_CONSTANTS.WIN_SCORE) * 100, 100)}%`,
-                  height: '100%', borderRadius: 2,
-                  background: HERO_COLORS[localPlayer.hero],
-                  transition: 'width 0.3s',
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* ── Center Play Area: 战场核心 ── */}
-          <div style={{
-            gridArea: 'center',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: 4, overflow: 'auto',
-            padding: '4px 8px',
-          }}>
+            {/* 中间：状态信息 + 回合 */}
             <div style={{
-              display: 'flex', alignItems: 'center',
-              flexWrap: 'wrap', justifyContent: 'center',
-              gap: 6, flexShrink: 0,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 3,
+              padding: '4px 0',
             }}>
-              <PhaseIndicator phase={gameState.phase} />
-              <Timer timeMs={gameState.timer} />
               {(gameState.manaForge > 0 || gameState.bountyPool > 0) && (
                 <div style={{
-                  padding: '2px 8px', borderRadius: 4,
-                  background: 'rgba(184,134,11,0.15)', border: '1px solid #b8860b60',
-                  color: '#ffd700', fontSize: 10, fontWeight: 700,
-                  display: 'flex', gap: 4, alignItems: 'center',
+                  padding: '1px 5px', borderRadius: 3,
+                  background: 'rgba(184,134,11,0.15)', border: '1px solid #b8860b40',
+                  color: '#ffd700', fontSize: 9, fontWeight: 700,
+                  whiteSpace: 'nowrap',
                 }}>
                   🔥{gameState.manaForge + gameState.bountyPool}
-                  {gameState.manaForge > 0 && gameState.bountyPool > 0 && (
-                    <span style={{ color: '#888', fontSize: 8 }}>
-                      (✨{gameState.manaForge}+💀{gameState.bountyPool})
-                    </span>
-                  )}
                 </div>
               )}
+              <span style={{ color: '#555', fontSize: 8 }}>📦{gameState.deckCount}</span>
+              <span style={{ color: '#444', fontSize: 8 }}>R{gameState.turnNumber}</span>
               {gameState.collisionGracePeriod > 0 && (
-                <div style={{
-                  padding: '2px 8px', borderRadius: 4,
-                  border: '1px solid #ff4500', background: 'rgba(139,0,0,0.25)',
-                  color: '#ffb347', fontSize: 10, fontWeight: 700,
-                }}>
+                <div style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid #ff4500', background: 'rgba(139,0,0,0.2)', color: '#ffb347', fontSize: 8, fontWeight: 700 }}>
                   ⏳{gameState.collisionGracePeriod}
                 </div>
               )}
               {opponent.blockadeZone && (
-                <div style={{
-                  padding: '2px 8px', borderRadius: 4,
-                  border: '1px solid #2ecc71', background: 'rgba(46,204,113,0.1)',
-                  color: '#2ecc71', fontSize: 10,
-                }}>
+                <div style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid #2ecc71', background: 'rgba(46,204,113,0.08)', color: '#2ecc71', fontSize: 8 }}>
                   🔒{opponent.blockadeZone.rank}
                 </div>
               )}
               {gameState.isInverted && (
-                <div style={{
-                  padding: '2px 8px', borderRadius: 4,
-                  border: '1px solid #4488ff', background: 'rgba(68,136,255,0.1)',
-                  color: '#4488ff', fontSize: 10,
-                }}>
+                <div style={{ padding: '1px 4px', borderRadius: 3, border: '1px solid #4488ff', background: 'rgba(68,136,255,0.08)', color: '#4488ff', fontSize: 8 }}>
                   🔄{gameState.invertedTurnsLeft}
                 </div>
               )}
             </div>
-            <div className="phase-compact" style={{ width: '100%', maxWidth: 'min(500px, 70vw)' }}>
-              {renderPhaseContent(gameState.phase)}
+
+            {/* 技能 + 大招 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+              <ChantUtilityPanel />
+              <UltimateButton
+                hero={localPlayer.hero}
+                disabled={localPlayer.hasUsedUltimate || !isMyTurn}
+                used={localPlayer.hasUsedUltimate}
+              />
+            </div>
+
+            {/* 己方状态 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <span style={{ color: HERO_COLORS[localPlayer.hero], fontSize: 14, fontWeight: 900, fontFamily: 'monospace' }}>
+                {localPlayer.score}
+              </span>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: HERO_COLORS[localPlayer.hero],
+                boxShadow: `0 0 6px ${HERO_COLORS[localPlayer.hero]}`,
+              }} />
+              <span style={{ color: '#555', fontSize: 7 }}>/{GAME_CONSTANTS.WIN_SCORE}</span>
             </div>
           </div>
 
-          {/* ── Right Info Panel: 对手手牌/牌库 ── */}
+          {/* ── 右侧主区域 ── */}
           <div style={{
-            gridArea: 'info',
+            flex: 1, minWidth: 0,
             display: 'flex', flexDirection: 'column',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            padding: '8px 6px',
-            borderLeft: '1px solid rgba(42,26,62,0.6)',
-            minWidth: 56,
+            overflow: 'hidden',
           }}>
-            <div style={{
-              display: 'flex', flexDirection: 'column', gap: 6,
-              padding: '4px 6px', borderRadius: 6,
-              background: 'rgba(0,0,0,0.4)', border: '1px solid #2a1a3e',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ color: '#666', fontSize: 9 }}>对手</span>
-                <span style={{ color: '#b8860b', fontSize: 12, fontWeight: 700 }}>{opponent.hand.length}</span>
-              </div>
-              <div style={{ width: '100%', height: 1, background: '#3a1f5e' }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ color: '#666', fontSize: 9 }}>牌库</span>
-                <span style={{ color: '#888', fontSize: 12 }}>{gameState.deckCount}</span>
-              </div>
-            </div>
-            <div style={{ color: '#666', fontSize: 9 }}>R{gameState.turnNumber}</div>
-          </div>
-
-          {/* ── Bottom: 计时条 + 手牌 + 大招 ── */}
-          <div style={{
-            gridArea: 'bottom',
-            display: 'flex', flexDirection: 'column',
-            borderTop: '1px solid rgba(42,26,62,0.6)',
-          }}>
-            <div style={{ width: '100%', height: 3, background: '#1a0b2e', flexShrink: 0 }}>
+            {/* 计时进度条 */}
+            <div style={{ width: '100%', height: 2, background: '#1a0b2e', flexShrink: 0 }}>
               <div style={{
                 width: `${(gameState.timer / GAME_CONSTANTS.TURN_TIMER_MS) * 100}%`,
                 height: '100%',
@@ -327,10 +251,43 @@ export function GameBoard() {
                 transition: 'width 0.3s',
               }} />
             </div>
-            <HandTips phase={gameState.phase} isMyTurn={isMyTurn} isAmbushDefender={isAmbushDefender} />
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+
+            {/* 战场区域 — 可滚动 */}
+            <div style={{
+              flex: 1, minHeight: 0,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center',
+              overflow: 'auto',
+              padding: '3px 8px',
+              gap: 2,
+            }}>
+              {/* 阶段 + 计时 */}
               <div style={{
-                flex: 1, minWidth: 0,
+                display: 'flex', alignItems: 'center',
+                gap: 8, flexShrink: 0,
+              }}>
+                <PhaseIndicator phase={gameState.phase} />
+                <Timer timeMs={gameState.timer} />
+              </div>
+              <div className="phase-compact" style={{
+                width: '100%',
+                maxWidth: 'min(560px, 85vw)',
+                flex: 1,
+                minHeight: 0,
+                overflow: 'auto',
+              }}>
+                {renderPhaseContent(gameState.phase)}
+              </div>
+            </div>
+
+            {/* 手牌区域 — 固定在底部，保证不截断 */}
+            <div style={{
+              flexShrink: 0,
+              borderTop: '1px solid rgba(42,26,62,0.5)',
+              padding: '2px 4px 3px',
+            }}>
+              <HandTips phase={gameState.phase} isMyTurn={isMyTurn} isAmbushDefender={isAmbushDefender} />
+              <div style={{
                 pointerEvents: handsLocked ? 'none' : 'auto',
                 opacity: handsLocked ? 0.7 : 1,
                 filter: handsLocked ? 'saturate(0.6)' : 'none',
@@ -344,14 +301,6 @@ export function GameBoard() {
                     if (handler) { handler(card); return; }
                     if (isMyTurn && card.rank === CardRank.FLASH) { setFlashSwapCard(card); }
                   }}
-                />
-              </div>
-              <div style={{ flexShrink: 0, padding: '4px 6px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                <ChantUtilityPanel />
-                <UltimateButton
-                  hero={localPlayer.hero}
-                  disabled={localPlayer.hasUsedUltimate || !isMyTurn}
-                  used={localPlayer.hasUsedUltimate}
                 />
               </div>
             </div>

@@ -25,11 +25,11 @@
   --card-h: clamp(72px, 14vw, 112px);
 }
 
-/* 极小横屏（< 520px 高，例如手机横放）— 卡牌紧凑 */
+/* 极小横屏（< 520px 高，例如手机横放）— 卡牌紧凑但保证不被截断 */
 @media screen and (orientation: landscape) and (max-height: 520px) {
   :root {
-    --card-w: clamp(32px, 9vh, 48px);
-    --card-h: clamp(44px, 12vh, 66px);
+    --card-w: clamp(36px, 8vh, 48px);
+    --card-h: clamp(48px, 11vh, 66px);
   }
 }
 /* 中等横屏（小手机/iPad）*/
