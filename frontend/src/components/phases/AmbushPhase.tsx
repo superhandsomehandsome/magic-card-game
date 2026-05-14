@@ -305,7 +305,7 @@ export function AmbushPhase() {
               cursor: 'pointer', fontFamily: '"Cinzel", serif', letterSpacing: 2,
             }}
           >
-            ✦ 进入咏唱阶段
+            ✦ 进入封锁阶段
           </motion.button>
         </motion.div>
       )}
@@ -394,7 +394,7 @@ export function AmbushPhase() {
                     color: '#aaa', fontSize: 13, cursor: 'pointer',
                   }}
                 >
-                  结束 → 咏唱
+                  结束 → 封锁
                 </motion.button>
               </div>
             </motion.div>
@@ -444,6 +444,10 @@ export function AmbushPhase() {
           <motion.button
             onClick={() => {
               if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+              // 跳过突袭：蓄水池按保底比例结算
+              if (engine && gameState) {
+                engine.settleReservoirSkip(gameState.currentTurnPlayerId);
+              }
               advancePhase();
             }}
             whileHover={{ scale: 1.05 }}
@@ -456,7 +460,7 @@ export function AmbushPhase() {
               fontWeight: 700,
             }}
           >
-            ✦ 跳过突袭 → 咏唱
+            ✦ 跳过突袭 → 封锁（蓄水池保底结算）
           </motion.button>
         )}
       </div>

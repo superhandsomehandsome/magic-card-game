@@ -385,7 +385,7 @@ export function DrawMarketPhase() {
           }}
           whileHover={{ scale: 1.05 }}
         >
-          进入突袭阶段 →
+          进入咏唱阶段 →
         </motion.button>
       )}
 

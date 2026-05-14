@@ -112,7 +112,7 @@ export function BlockadePhase() {
               animate={{ opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              🔒 点击下方手牌选择封锁牌（瞬牌不可封锁）
+              🔒 暗置封锁牌（对手不可见，瞬牌不可封锁）
             </motion.div>
           ) : (
             <div style={{ color: '#666', fontSize: 12, fontStyle: 'italic' }}>
@@ -132,7 +132,7 @@ export function BlockadePhase() {
                 size="sm"
                 isSelected
               />
-              <span style={{ color: '#2ecc71', fontSize: 12 }}>将封锁此等级</span>
+              <span style={{ color: '#2ecc71', fontSize: 12 }}>将暗置封锁此等级</span>
             </motion.div>
           )}
 
@@ -150,7 +150,7 @@ export function BlockadePhase() {
                 }}
                 whileHover={{ scale: 1.05 }}
               >
-                🔒 确认封锁
+                🔒 暗置封锁
               </motion.button>
             )}
 

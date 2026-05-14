@@ -661,10 +661,10 @@ function HandTips({ phase, isMyTurn, isAmbushDefender }: { phase: GamePhase; isM
       if (isAmbushDefender) { text = '👇 点击手牌选择迎战牌'; color = '#ff6347'; }
       break;
     case GamePhase.BLOCKADE_END:
-      if (isMyTurn) { text = '👇 点击手牌选择封锁牌（瞬牌不可封锁）'; color = '#2ecc71'; }
+      if (isMyTurn) { text = '👇 点击手牌暗置封锁牌（对手不可见，瞬牌不可封锁）'; color = '#2ecc71'; }
       break;
     case GamePhase.CHANT_SCORE:
-      if (isMyTurn) { text = '👇 点击手牌选牌组合凑分'; color = '#9b59b6'; }
+      if (isMyTurn) { text = '👇 点击手牌选牌组合凑分（得分进入蓄水池）'; color = '#9b59b6'; }
       break;
     default:
       return null;

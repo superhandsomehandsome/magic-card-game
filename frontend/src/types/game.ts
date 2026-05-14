@@ -42,10 +42,10 @@ export enum GamePhase {
   DECREE_CONTEST = 'DECREE_CONTEST',   // 阶段-1：深渊法案争夺 (Round 1/4/7 开局)
   BOUNTY_ROLL = 'BOUNTY_ROLL',         // 阶段0：喋血悬赏 (The Blood Bounty)
   DRAW_MARKET = 'DRAW_MARKET',         // 阶段1：汲取与黑市
-  AMBUSH_DECLARE = 'AMBUSH_DECLARE',   // 阶段2：突袭-攻击方宣告 (Bluff)
-  AMBUSH_DEFEND = 'AMBUSH_DEFEND',     // 阶段2：突袭-防守方抉择 (Call/Fold)
-  CHANT_SCORE = 'CHANT_SCORE',         // 阶段3：咏唱计分 (Chant)
-  BLOCKADE_END = 'BLOCKADE_END',       // 阶段4：封锁与结束
+  CHANT_SCORE = 'CHANT_SCORE',         // 阶段2：咏唱计分 → 分数进入蓄水池
+  AMBUSH_DECLARE = 'AMBUSH_DECLARE',   // 阶段3：突袭-攻击方宣告 (争夺蓄水池)
+  AMBUSH_DEFEND = 'AMBUSH_DEFEND',     // 阶段3：突袭-防守方抉择 (Call/Fold)
+  BLOCKADE_END = 'BLOCKADE_END',       // 阶段4：暗封锁与结束
   COLLISION = 'COLLISION',             // 终局：魔力对撞
   GAME_OVER = 'GAME_OVER',            // 终局对撞或 180分斩杀
 }
@@ -61,6 +61,8 @@ export interface IGameState {
   turnNumber: number;
   timer: number;               // 当前阶段剩余时间 (ms)，归0强制 NextPhase
   bountyPool: number;          // 喋血悬赏池 (平局可滚雪球累计)
+  /** 蓄水池：咏唱分暂存于此，突袭决定分配比例。总蓄水 = bountyPool + reservoir */
+  reservoir: number;
   isInverted: boolean;         // 以太歌者大招：是否反转大小
   invertedTurnsLeft: number;   // 反转剩余回合数
   players: Record<string, IPlayerState>;
@@ -102,7 +104,9 @@ export interface IPlayerState {
   hero: HeroType;
   score: number;               // 目标 200 分
   hand: ICard[];               // 上限 8 张
-  blockadeZone: ICard | null;  // 封锁区
+  blockadeZone: ICard | null;  // 封锁区（暗置，对手不可见 rank）
+  /** 封锁是否已揭示（对手咏唱提交后翻开） */
+  blockadeRevealed: boolean;
   /** Imprisonment 法案：可封锁相邻的第 2 个 rank */
   blockadeZone2: ICard | null;
   hasUsedUltimate: boolean;
@@ -308,6 +312,12 @@ export const GAME_CONSTANTS = {
   BOUNTY_CAP: 15,                // 悬赏池单次上限 (避免前期暴利) — 降低
   BOUNTY_POOL_MAX: 60,           // 悬赏池总量硬上限
   BOUNTY_TIE_SPLIT_RATIO: 0.25,  // 平局时双方各得池子的 25%
+  /** 蓄水池：不突袭时咏唱分保底比例 */
+  RESERVOIR_SKIP_RATIO: 0.55,
+  /** 蓄水池：突袭输了时咏唱分保底比例 */
+  RESERVOIR_LOSE_RATIO: 0.35,
+  /** 蓄水池：突袭输了时防守方从悬赏池夺走的比例 */
+  RESERVOIR_DEFEND_WIN_BOUNTY_RATIO: 0.45,
   DRAW_PER_TURN: 2,              // 每回合抽牌数
   MARKET_BUY_LIMIT: 1,           // 每回合黑市购买上限 (怪盗 PHANTOM_MARKET_LIMIT)
   EARLY_COMBO_PENALTY: 0.5,      // 前3回合组合得分额外折扣
@@ -343,7 +353,7 @@ export interface IDecreeEffect {
   blueGreenComboBonus?: number;         // 傲慢 buff: 蓝/绿组合 +N
   greenComboMultiplier?: number;        // 偏执 buff: 绿组合 ×N
   forbidStraights?: boolean;            // 偏执 debuff: 禁顺子
-  requireAmbushWinForChant?: boolean;   // 傲慢 debuff: 须先赢突袭
+  requireAmbushWinForChant?: boolean;   // 傲慢 debuff: 须赢突袭才能拿满蓄水池（否则保底比例减半）
   // —— 突袭/心理战 ——
   ambushTieScoresEach?: number;         // 死斗 buff: 平局双方 +N
   ambushFoldStealCount?: number;        // 死斗 debuff: 怯战被偷 N 张 (默认1)

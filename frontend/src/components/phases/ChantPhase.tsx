@@ -518,7 +518,7 @@ export function ChantPhase() {
             }}
             whileHover={{ scale: 1.05 }}
           >
-            跳过 → 封锁阶段
+            跳过咏唱 → 突袭阶段
           </motion.button>
         )}
       </div>

@@ -69,6 +69,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       turnNumber: 1,
       timer: GAME_CONSTANTS.TURN_TIMER_MS,
       bountyPool: 0,
+      reservoir: 0,
       isInverted: false,
       invertedTurnsLeft: 0,
       players: {
@@ -158,8 +159,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const phaseOrder: GamePhase[] = [
       GamePhase.BOUNTY_ROLL,
       GamePhase.DRAW_MARKET,
-      GamePhase.AMBUSH_DECLARE,
       GamePhase.CHANT_SCORE,
+      GamePhase.AMBUSH_DECLARE,
       GamePhase.BLOCKADE_END,
     ];
 
@@ -740,7 +741,68 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  阶段 2：AMBUSH (突袭与虚实之言)
+  //  蓄水池结算 — 突袭结果决定分配
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * 进攻方赢得突袭：拿走 100% 蓄水池（reservoir + bountyPool）
+   */
+  private settleReservoirWin(winnerId: string): void {
+    const total = this.state.reservoir + this.state.bountyPool;
+    if (total > 0) {
+      this.addScore(winnerId, total, '突袭胜利：独吞蓄水池');
+      this.pushAction({
+        type: 'SCORE_BURST',
+        payload: { playerId: winnerId, amount: total, reason: '蓄水池全额兑现' },
+        durationMs: 800,
+      });
+    }
+    this.addLog(`蓄水池结算（胜利）：${this.getPlayer(winnerId).name} 获得 ${total} 分 (咏唱${this.state.reservoir} + 悬赏${this.state.bountyPool})`);
+    this.state.reservoir = 0;
+    this.state.bountyPool = 0;
+  }
+
+  /**
+   * 进攻方输掉突袭：保底拿走 reservoir 的 RESERVOIR_LOSE_RATIO，防守方抢走 bountyPool 的一部分
+   */
+  private settleReservoirLose(attackerId: string, defenderId: string): void {
+    const effects = aggregateEffectsFor(this.state, attackerId);
+    let loseRatio = GAME_CONSTANTS.RESERVOIR_LOSE_RATIO;
+    // 傲慢法案 debuff: 保底比例减半
+    if (effects.requireAmbushWinForChant) {
+      loseRatio = loseRatio * 0.5;
+    }
+    const chantKeep = Math.floor(this.state.reservoir * loseRatio);
+    const defenderBountyGain = Math.floor(this.state.bountyPool * GAME_CONSTANTS.RESERVOIR_DEFEND_WIN_BOUNTY_RATIO);
+
+    if (chantKeep > 0) {
+      this.addScore(attackerId, chantKeep, '突袭失败：咏唱保底');
+    }
+    if (defenderBountyGain > 0) {
+      this.addScore(defenderId, defenderBountyGain, '防守胜利：夺走悬赏');
+    }
+    this.addLog(`蓄水池结算（败北）：${this.getPlayer(attackerId).name} 保底 ${chantKeep}，${this.getPlayer(defenderId).name} 夺走悬赏 ${defenderBountyGain}`);
+    this.state.reservoir = 0;
+    this.state.bountyPool = 0;
+  }
+
+  /**
+   * 跳过突袭：保底拿走 reservoir 的 RESERVOIR_SKIP_RATIO，bountyPool 原封滚存
+   */
+  public settleReservoirSkip(playerId: string): void {
+    const skipKeep = Math.floor(this.state.reservoir * GAME_CONSTANTS.RESERVOIR_SKIP_RATIO);
+    if (skipKeep > 0) {
+      this.addScore(playerId, skipKeep, '跳过突袭：咏唱保底');
+    }
+    this.addLog(`蓄水池结算（跳过）：${this.getPlayer(playerId).name} 保底 ${skipKeep}/${this.state.reservoir}，悬赏池 ${this.state.bountyPool} 滚存`);
+    this.state.reservoir = 0;
+    // bountyPool 保留，滚存到下回合
+    this.checkWinCondition();
+    this.emit('STATE_UPDATED', this.getStateSnapshot());
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  阶段 3：AMBUSH (突袭争夺蓄水池)
   // ═══════════════════════════════════════════════════════════
 
   public declareAmbush(
@@ -861,17 +923,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const attackerEff = aggregateEffectsFor(this.state, attacker.id);
     const defenderEff = aggregateEffectsFor(this.state, defender.id);
 
-    // 攻击方独吞 bountyPool（怯战奖励倍率：让对手怯战更值得）
-    const foldBounty = Math.round(this.state.bountyPool * GAME_CONSTANTS.FOLD_BOUNTY_BONUS_MULT);
-    if (foldBounty > 0) {
-      this.addScore(attacker.id, foldBounty, `独吞悬赏 (对方怯战 × ${GAME_CONSTANTS.FOLD_BOUNTY_BONUS_MULT})`);
-    }
-    this.pushAction({
-      type: 'SCORE_BURST',
-      payload: { playerId: attacker.id, amount: foldBounty, reason: '独吞悬赏' },
-      durationMs: 800,
-    });
-    this.state.bountyPool = 0;
+    // 攻击方赢得突袭 → 独吞蓄水池（reservoir + bountyPool）
+    this.settleReservoirWin(attacker.id);
 
     // 攻击方收回暗扣牌
     attacker.hand.push(ambush.attackCard);
@@ -882,7 +935,6 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       defenderEff.ambushFoldStealCount || 0,
       1,
     );
-    // 改为待办式: 胜方亲手从对方手牌(面朝下)中挑选 N 张
     const actualCount = Math.min(stealCount, defender.hand.length);
     if (actualCount > 0) {
       this.state.pendingSteal = {
@@ -893,13 +945,12 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       };
     }
 
-    // 愚者 buff: 未被拆穿宣告 (攻击方有声明且对手怯战)
+    // 愚者 buff: 未被拆穿宣告
     if (ambush.declaration && ambush.declaration !== 'SILENT'
         && attackerEff.ambushBluffUnchallengedBonus) {
       this.addScore(attacker.id, attackerEff.ambushBluffUnchallengedBonus, '愚者法案：未拆穿奖励');
     }
 
-    // 攻击方计为本回合赢一次 (用于傲慢 debuff 解锁)
     attacker.ambushWonThisTurn = true;
 
     this.pushAction({
@@ -907,11 +958,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       payload: {
         attackerName: attacker.name,
         defenderName: defender.name,
-        bountyAmount: attacker.score, // already added above
+        reservoir: this.state.reservoir,
       },
       durationMs: 1500,
     });
-    this.addLog(`${defender.name} 怯战！${attacker.name} 独吞悬赏并偷取${stealCount}牌`);
+    this.addLog(`${defender.name} 怯战！${attacker.name} 独吞蓄水池并偷取${stealCount}牌`);
   }
 
   private resolveAmbushCallBluff(
@@ -927,18 +978,17 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const attackerEff = aggregateEffectsFor(this.state, attacker.id);
 
     if (isTruthful) {
-      // 说真话被拆穿：防守方被重罚
+      // 说真话被拆穿：防守方被重罚，攻击方赢得突袭
       this.addScore(defender.id, -GAME_CONSTANTS.BLUFF_PENALTY, '拆穿失败惩罚');
       this.state.discardPile.push(ambush.attackCard);
+      this.settleReservoirWin(attacker.id);
       this.addLog(`拆穿失败！${attacker.name} 说真话，${defender.name} -${GAME_CONSTANTS.BLUFF_PENALTY}分`);
       attacker.ambushWonThisTurn = true;
     } else {
-      // 说谎被拆穿：攻击方被重罚
-      // 愚者 debuff: 罚分倍率
+      // 说谎被拆穿：攻击方受罚，防守方赢得突袭
       const penaltyMult = attackerEff.ambushBluffCaughtPenaltyMult ?? 1;
       const penalty = GAME_CONSTANTS.BLUFF_PENALTY * penaltyMult;
       this.addScore(attacker.id, -penalty, '说谎被拆穿');
-      // 愚者 debuff: 额外烧毁 N 张攻击方手牌
       const burnN = attackerEff.ambushBluffCaughtBurnHand ?? 0;
       if (burnN > 0 && attacker.hand.length > 0) {
         const burned: ICard[] = [];
@@ -956,6 +1006,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         this.addLog(`愚者法案：${attacker.name} 额外烧毁 ${burned.length} 张牌`);
       }
       defender.hand.push(ambush.attackCard);
+      this.settleReservoirLose(attacker.id, defender.id);
       this.addLog(`拆穿成功！${attacker.name} 说谎，-${penalty}分，牌归防守方`);
       defender.ambushWonThisTurn = true;
     }
@@ -1027,31 +1078,40 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     });
 
     if (result === 0) {
-      // 平局：悬赏金保留 (默认) 或 死斗法案：双方各 +N
+      // 平局处理
       const tieScore = Math.max(
         attackerEff.ambushTieScoresEach || 0,
         defenderEff.ambushTieScoresEach || 0,
       );
       if (tieScore > 0) {
+        // 死斗法案：平局时双方各 +N，蓄水池+悬赏池按保底分
         this.addScore(attacker.id, tieScore, '死斗法案：平局加分');
         this.addScore(defender.id, tieScore, '死斗法案：平局加分');
-        this.state.bountyPool = 0; // 死斗法案下池子也归零 (规则：不再保留)
-        this.addLog(`死斗法案：平局！双方各 +${tieScore}`);
-      } else if (this.state.bountyPool > 0) {
-        const splitEach = Math.floor(this.state.bountyPool * GAME_CONSTANTS.BOUNTY_TIE_SPLIT_RATIO);
-        if (splitEach > 0) {
-          this.addScore(attacker.id, splitEach, '平局分赃');
-          this.addScore(defender.id, splitEach, '平局分赃');
+        // 蓄水池按保底比例给进攻方
+        const keepChant = Math.floor(this.state.reservoir * GAME_CONSTANTS.RESERVOIR_SKIP_RATIO);
+        if (keepChant > 0) this.addScore(attacker.id, keepChant, '平局：咏唱保底');
+        this.state.reservoir = 0;
+        this.state.bountyPool = 0;
+        this.addLog(`死斗法案：平局！双方各 +${tieScore}，进攻方保底咏唱 ${keepChant}`);
+      } else {
+        // 普通平局：进攻方拿咏唱保底，悬赏池各分25%余量滚存
+        const keepChant = Math.floor(this.state.reservoir * GAME_CONSTANTS.RESERVOIR_SKIP_RATIO);
+        if (keepChant > 0) this.addScore(attacker.id, keepChant, '平局：咏唱保底');
+        this.state.reservoir = 0;
+        if (this.state.bountyPool > 0) {
+          const splitEach = Math.floor(this.state.bountyPool * GAME_CONSTANTS.BOUNTY_TIE_SPLIT_RATIO);
+          if (splitEach > 0) {
+            this.addScore(attacker.id, splitEach, '平局分赃');
+            this.addScore(defender.id, splitEach, '平局分赃');
+          }
+          this.state.bountyPool -= splitEach * 2;
         }
-        this.state.bountyPool = this.state.bountyPool - splitEach * 2;
         this.pushAction({
           type: 'BOUNTY_RETAINED',
           payload: { amount: this.state.bountyPool },
           durationMs: 800,
         });
-        this.addLog(`拼点平局！双方各分 ${splitEach}，血池剩余 ${this.state.bountyPool}`);
-      } else {
-        this.addLog(`拼点平局！血池为空`);
+        this.addLog(`拼点平局！进攻方保底 ${keepChant}，悬赏池剩余 ${this.state.bountyPool}`);
       }
       this.state.discardPile.push(atkCard, defCard);
     } else {
@@ -1062,21 +1122,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       const winnerEff = winner.id === attacker.id ? attackerEff : defenderEff;
       const loserEff = loser.id === attacker.id ? attackerEff : defenderEff;
 
-      // 破法者标记：攻击方赢得拼点 → 自动诅咒防守方下次咏唱
+      // 蓄水池结算：进攻方赢=全拿，防守方赢=进攻方保底+防守方抢悬赏
       if (winner.id === attacker.id) {
+        this.settleReservoirWin(attacker.id);
+        // 破法者标记：攻击方赢得拼点 → 诅咒防守方下次咏唱
         loser.cursedNextChant = true;
         this.addLog(`💀 破法者标记：${loser.name} 下次咏唱将受到 -15 诅咒`);
-        this.pushAction({
-          type: 'SCORE_BURST',
-          payload: { playerId: loser.id, amount: -15, reason: '破法者标记预警' },
-          durationMs: 600,
-        });
-      }
-
-      // 赢家抽1偷1 + 独吞 bountyPool
-      const winBounty = this.state.bountyPool;
-      if (winBounty > 0) {
-        this.addScore(winner.id, winBounty, '拼点胜利 (悬赏)');
+      } else {
+        this.settleReservoirLose(attacker.id, defender.id);
       }
 
       // A赢额外+20，B赢额外+10
@@ -1084,12 +1137,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       if (effectiveScore === 6) this.addScore(winner.id, GAME_CONSTANTS.A_WIN_BONUS, 'A 牌威压');
       else if (effectiveScore === 5) this.addScore(winner.id, GAME_CONSTANTS.B_WIN_BONUS, 'B 牌强袭');
 
-      // 弑神法案 buff: F 击败 A → 额外暴击
+      // 弑神法案
       const fBeatsA = winCard.rank === CardRank.F && loseCard.rank === CardRank.A;
       if (fBeatsA && winnerEff.ambushDeicideCritBonus) {
         this.addScore(winner.id, winnerEff.ambushDeicideCritBonus, '弑神法案：F 弑 A 暴击');
       }
-      // 弑神法案 debuff: 出 F 但没撞到 A
       const winnerPlayedFNoA = winCard.rank === CardRank.F && loseCard.rank !== CardRank.A;
       const loserPlayedFNoA = loseCard.rank === CardRank.F && winCard.rank !== CardRank.A;
       if (winnerPlayedFNoA && winnerEff.ambushFFailedSelfPenalty) {
@@ -1099,26 +1151,18 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         this.addScore(loser.id, -loserEff.ambushFFailedSelfPenalty, '弑神法案：F 失手');
       }
 
-      // 荆棘法案 buff: 防守方迎战获胜，吸取攻击方
+      // 荆棘法案 buff: 防守方迎战获胜吸血
       if (winner.id === defender.id && winnerEff.ambushDefendWinDrain) {
         const drain = winnerEff.ambushDefendWinDrain;
         this.addScore(attacker.id, -drain, '荆棘法案：防胜吸血');
         this.addScore(defender.id, drain, '荆棘法案：防胜吸血');
       }
 
-      this.pushAction({
-        type: 'SCORE_BURST',
-        payload: { playerId: winner.id, amount: this.state.bountyPool, reason: '拼点胜利' },
-        durationMs: 800,
-      });
-
-      this.state.bountyPool = 0;
-
       // 赢家抽1
       const drawn = this.drawFromDeck(1);
       winner.hand.push(...drawn);
 
-      // 赢家偷 N (死斗 debuff 时, 怯战才生效；这里普通拼点用默认1)
+      // 赢家偷1
       if (loser.hand.length > 0) {
         const stealIdx = Math.floor(Math.random() * loser.hand.length);
         const stolen = loser.hand.splice(stealIdx, 1)[0];
@@ -1130,9 +1174,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         });
       }
 
-      // 弃牌处置：默认进弃牌堆
-      // 荆棘法案 debuff (攻击方持有)：攻击方败北时，攻击牌不入弃牌堆 → 给防守方
-      // 弑神法案 debuff: 失手 F 牌粉碎(本来就是入弃牌堆，不变)
+      // 弃牌处置
       const attackerLost = winner.id === defender.id;
       let attackCardHandled = false;
       if (attackerLost && attackerEff.ambushAttackFailGiveCard) {
@@ -1143,7 +1185,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       if (!attackCardHandled) this.state.discardPile.push(atkCard);
       this.state.discardPile.push(defCard);
 
-      // 裸露法案 buff: 胜方额外销毁对手封锁区或黑市的 1 张明牌
+      // 裸露法案 buff
       if (winnerEff.ambushWinExtraDestroy) {
         if (loser.blockadeZone) {
           const destroyed = loser.blockadeZone;
@@ -1169,7 +1211,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       }
 
       winner.ambushWonThisTurn = true;
-      this.addLog(`${winner.name} 拼点获胜！独吞悬赏`);
+      this.addLog(`${winner.name} 拼点获胜！蓄水池结算完成`);
     }
   }
 
@@ -1182,19 +1224,13 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  阶段 3：CHANT_SCORE (咏唱计分)
+  //  阶段 2：CHANT_SCORE (咏唱计分 → 分数进入蓄水池)
   // ═══════════════════════════════════════════════════════════
 
   public submitComboScore(playerId: string, cardIds: string[], score: number): void {
     this.validatePhase(GamePhase.CHANT_SCORE);
     const player = this.getPlayer(playerId);
     const effects = aggregateEffectsFor(this.state, playerId);
-
-    // 傲慢法案 debuff: 必须先在突袭中获胜
-    if (effects.requireAmbushWinForChant && !player.ambushWonThisTurn) {
-      this.addLog(`${player.name} 受傲慢法案锁定：本回合突袭未胜，禁止咏唱`);
-      return;
-    }
 
     // 移除使用的牌
     const usedCards: ICard[] = [];
@@ -1206,49 +1242,49 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       }
     });
 
-    // 虚无法案 debuff: 凑组合用了瞬 → 每张扣 15
+    // 虚无法案 debuff: 凑组合用了瞬 → 每张扣 15（直接扣分，不进蓄水池）
     const flashUsed = usedCards.filter(c => c.rank === CardRank.FLASH).length;
     if (flashUsed > 0 && effects.flashUsePenalty) {
       this.addScore(playerId, -effects.flashUsePenalty * flashUsed, '虚无法案：组合中使用瞬');
     }
 
-    // 破法者标记诅咒：本次咏唱 -15
+    // 破法者标记诅咒：本次咏唱 -15（直接扣分，不影响蓄水池）
     if (player.cursedNextChant) {
       this.addScore(playerId, -15, '💀 破法者标记：咏唱诅咒');
       player.cursedNextChant = false;
       this.addLog(`${player.name} 的破法者诅咒触发，-15 分`);
     }
 
-    // 应用早期得分衰减 (推动更多对撞终局)
+    // 应用早期得分衰减
     const decayed = this.applyChantScoreDecay(score);
-    // 计算封锁罚分（若使用了被对手封锁的 rank — 含 blockadeZone2）
+    // 计算封锁罚分（暗封锁：对手封锁牌此时揭示）
     const opponent = Object.values(this.state.players).find(p => p.id !== playerId);
     const blockedRanks = new Set<number>();
-    if (opponent?.blockadeZone) blockedRanks.add(opponent.blockadeZone.rank);
+    if (opponent?.blockadeZone) {
+      blockedRanks.add(opponent.blockadeZone.rank);
+      opponent.blockadeRevealed = true;
+    }
     if (opponent?.blockadeZone2) blockedRanks.add(opponent.blockadeZone2.rank);
     const blockedPenalty = blockedRanks.size > 0
       ? usedCards
           .filter(c => blockedRanks.has(c.rank))
           .reduce((s, c) => s + c.baseScore * 3, 0)
       : 0;
-    const actualScore = decayed - blockedPenalty;
+    const actualScore = Math.max(0, decayed - blockedPenalty);
 
-    if (actualScore !== 0) {
-      this.addScore(playerId, actualScore,
-        blockedPenalty > 0
-          ? `咏唱得分 (含封锁罚 -${blockedPenalty})`
-          : '咏唱得分');
-    }
+    // 咏唱分进入蓄水池，不直接加到总分
+    this.state.reservoir += actualScore;
+
     this.state.discardPile.push(...usedCards);
 
     this.pushAction({
       type: 'COMBO_HIGHLIGHT',
-      payload: { cards: usedCards, score: actualScore, originalScore: score, blockedPenalty },
+      payload: { cards: usedCards, score: actualScore, originalScore: score, blockedPenalty, toReservoir: true },
       durationMs: 600,
     });
     this.pushAction({
       type: 'SCORE_BURST',
-      payload: { playerId, amount: actualScore, reason: blockedPenalty > 0 ? '咏唱-封锁罚' : '咏唱得分' },
+      payload: { playerId, amount: actualScore, reason: blockedPenalty > 0 ? '咏唱→蓄水池 (含封锁罚)' : '咏唱→蓄水池' },
       durationMs: 800,
     });
 
@@ -1256,13 +1292,12 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const reward = this.drawFromDeck(1);
     player.hand.push(...reward);
 
-    this.addLog(`${player.name} 咏唱得分 +${actualScore}${actualScore < score ? ` (衰减前: ${score})` : ''}`);
-    this.checkWinCondition();
+    this.addLog(`${player.name} 咏唱 +${actualScore} → 蓄水池 (总蓄水: ${this.state.reservoir}, 悬赏池: ${this.state.bountyPool})${actualScore < score ? ` (衰减前: ${score})` : ''}`);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  阶段 4：BLOCKADE_END (明牌封锁)
+  //  阶段 4：BLOCKADE_END (暗封锁)
   // ═══════════════════════════════════════════════════════════
 
   public placeBlockade(playerId: string, cardId: string): void {
@@ -1270,38 +1305,36 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const player = this.getPlayer(playerId);
     const card = player.hand.find(c => c.id === cardId);
     if (!card) return;
-    // 瞬牌不可作封锁牌
     if (card.rank === CardRank.FLASH) {
-      this.addLog('⚡ 瞬牌不可用于封锁');
+      this.addLog('瞬牌不可用于封锁');
       return;
     }
 
     player.hand = player.hand.filter(c => c.id !== cardId);
     player.blockadeZone = card;
+    player.blockadeRevealed = false; // 暗置，对手不可见
 
     this.pushAction({
       type: 'BLOCKADE_CHAIN',
-      payload: { card, playerId },
+      payload: { card, playerId, hidden: true },
       durationMs: 1000,
     });
 
-    // 禁锢法案 buff: 同时封锁相邻 rank — 在 blockadeZone2 上记录虚拟卡
+    // 禁锢法案 buff: 同时封锁相邻 rank
     const effects = aggregateEffectsFor(this.state, playerId);
     if (effects.blockadeExtraRank) {
-      // 优先封锁 rank-1 (更高)，否则 rank+1
       const adjacentRank = card.rank > CardRank.F
         ? (card.rank - 1) as CardRank
         : (card.rank + 1) as CardRank;
-      // 创建虚拟封锁标记 (不消耗实物牌)
       player.blockadeZone2 = {
         id: `${card.id}-adj`,
         rank: adjacentRank,
         baseScore: 0,
       };
-      this.addLog(`${player.name} 禁锢法案：附加封锁 ${CardRank[adjacentRank]} 级`);
+      this.addLog(`${player.name} 禁锢法案：附加暗封锁 ${CardRank[adjacentRank]} 级`);
     }
 
-    this.addLog(`${player.name} 封锁了 ${CardRank[card.rank]} 级牌`);
+    this.addLog(`${player.name} 暗置了一张封锁牌`);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
@@ -1589,7 +1622,14 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     // 规则：封锁持续对手一个回合，之后自动解除
     const nextPlayer = this.getPlayer(nextId);
     nextPlayer.blockadeZone = null;
+    nextPlayer.blockadeRevealed = false;
     nextPlayer.blockadeZone2 = null;
+
+    // 蓄水池安全清零（正常流程中应在突袭阶段已结算）
+    if (this.state.reservoir > 0) {
+      this.addLog(`蓄水池残余 ${this.state.reservoir} 分被清零`);
+      this.state.reservoir = 0;
+    }
 
     // 触发英雄回合开始事件
     const strategy = this.heroStrategies.get(nextId);
@@ -1971,6 +2011,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       score: 0,
       hand,
       blockadeZone: null,
+      blockadeRevealed: false,
       blockadeZone2: null,
       hasUsedUltimate: false,
       ambushesThisTurn: 0,
