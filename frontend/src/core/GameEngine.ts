@@ -87,6 +87,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
       decreeContest: null,
       offeredDecrees: [],
       supremeDecree: null,
+      supremeDecreeReadingEndTime: null,
       decreeRoundsTriggered: [],
       pendingSteal: null,
       collisionGracePeriod: 0,
@@ -184,7 +185,18 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
         this.state.decreeRoundsTriggered.push(round);
         if (round === GAME_CONSTANTS.DECREE_SUPREME_ROUND) {
           this.applySupremeDecree();
-          // fall through 继续进入 BOUNTY_ROLL
+          // 至高法案阅读暂停 15 秒，然后再进入 BOUNTY_ROLL
+          const readingMs = GAME_CONSTANTS.SUPREME_DECREE_READING_MS;
+          this.state.supremeDecreeReadingEndTime = Date.now() + readingMs;
+          this.emit('STATE_UPDATED', this.getStateSnapshot());
+          setTimeout(() => {
+            this.state.supremeDecreeReadingEndTime = null;
+            this.state.phase = GamePhase.BOUNTY_ROLL;
+            this.resetTimer();
+            this.emit('PHASE_CHANGED', GamePhase.BOUNTY_ROLL);
+            this.executeBountyRoll();
+          }, readingMs);
+          return; // 阻断 fall-through
         } else {
           this.startDecreeContest(round);
           return; // 暂停常规流程，等待法案争夺结算

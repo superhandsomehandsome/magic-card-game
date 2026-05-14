@@ -323,35 +323,21 @@ export class AIPlayer {
       return;
     }
 
-    // ── Step 2.5: 排序确认（可选，BETTING 之后 REVEAL 之前） ──
-    if (!collision.orderConfirmed?.[this.aiPlayerId]) {
+    // ── Step 2.5: 排序确认（仅翻牌前执行一次） ──
+    const totalRevealed = Object.values(collision.revealedCards)
+      .reduce((s, arr) => s + arr.length, 0);
+    if (!collision.orderConfirmed?.[this.aiPlayerId] && totalRevealed === 0) {
       const cards = collision.playerCards[this.aiPlayerId] || [];
       if (cards.length > 0) {
         const ordered = [...cards].sort((a, b) => b.baseScore - a.baseScore);
         this.scheduleAction(() => {
           this.engine.setCollisionOrder(this.aiPlayerId, ordered.map(c => c.id));
-          this.scheduleAction(() => this.handleCollision(), 500);
         }, 600);
-        return;
       }
+      return;
     }
 
-    // ── Step 3: REVEAL — 逐对翻牌，RAISE 或 FOLD ──
-    if (collision.step !== 'REVEAL_1' && collision.step !== 'REVEAL_2' && collision.step !== 'REVEAL_3') return;
-
-    const myRevealed = collision.revealedCards[this.aiPlayerId]?.length ?? 0;
-    const expectedRevealed = collision.roundIndex + 1;
-    if (myRevealed >= expectedRevealed) return; // 等对方
-
-    const me = state.players[this.aiPlayerId];
-    const opp = this.getOpponent(state);
-    const losing = me.score < opp.score - 30;
-    const action: 'RAISE' | 'FOLD' = (losing && Math.random() < 0.3) ? 'FOLD' : 'RAISE';
-    this.scheduleAction(() => {
-      if (this.engine.getState().phase !== GamePhase.COLLISION) return;
-      this.engine.collisionAction(this.aiPlayerId, action);
-      this.scheduleAction(() => this.handleCollision(), 700);
-    }, 800);
+    // ── Step 3: REVEAL —— 由人类玩家点击翻牌按钮驱动，AI 无需操作 ──
   }
 
   // ═══════════════════════════════════════════════════════════

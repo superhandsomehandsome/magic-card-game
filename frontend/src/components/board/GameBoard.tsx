@@ -28,6 +28,7 @@ import { DecreeContestModal } from '../decree/DecreeContestModal';
 import { DecreeArchive } from '../decree/DecreeArchive';
 import { BattleLog } from './BattleLog';
 import { DeckLowWarning } from './DeckLowWarning';
+import { ChantUtilityPanel } from './ChantUtilityPanel';
 import type { ICard } from '../../types/game';
 import { CardRank } from '../../types/game';
 import { HeroType } from '../../types/game';
@@ -129,6 +130,14 @@ export function GameBoard() {
 
       {/* 牌库剩 10 张全屏预警 */}
       <DeckLowWarning />
+
+      {/* 至高法案阅读屏幕（降临时给玩家 15s 阅读） */}
+      {gameState.supremeDecreeReadingEndTime !== null && gameState.supremeDecree && (
+        <SupremeDecreeReadingScreen
+          decree={gameState.supremeDecree}
+          endTime={gameState.supremeDecreeReadingEndTime}
+        />
+      )}
 
       {isShortLandscape ? (
         /* ═══════════════════════════════════════════════════════════
@@ -337,7 +346,8 @@ export function GameBoard() {
                   }}
                 />
               </div>
-              <div style={{ flexShrink: 0, padding: '4px 6px' }}>
+              <div style={{ flexShrink: 0, padding: '4px 6px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                <ChantUtilityPanel />
                 <UltimateButton
                   hero={localPlayer.hero}
                   disabled={localPlayer.hasUsedUltimate || !isMyTurn}
@@ -505,7 +515,8 @@ export function GameBoard() {
             heroColor={HERO_COLORS[localPlayer.hero]}
             side="left"
           />
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <ChantUtilityPanel />
             <UltimateButton
               hero={localPlayer.hero}
               disabled={localPlayer.hasUsedUltimate || !isMyTurn}
@@ -1073,6 +1084,107 @@ function ScoringRulesPanel({ onClose }: { onClose: () => void }) {
           关闭
         </button>
       </motion.div>
+    </motion.div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  至高法案阅读屏幕 — 降临后 15s 全屏阅读
+// ═══════════════════════════════════════════════════════════
+
+function SupremeDecreeReadingScreen({
+  decree,
+  endTime,
+}: {
+  decree: import('../../types/game').IDecree;
+  endTime: number;
+}) {
+  const [secs, setSecs] = useState(() => Math.max(0, Math.ceil((endTime - Date.now()) / 1000)));
+
+  useEff(() => {
+    const tick = () => setSecs(Math.max(0, Math.ceil((endTime - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [endTime]);
+
+  const pct = Math.min(1, Math.max(0, secs / 15));
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9500,
+        background: 'radial-gradient(ellipse at center, rgba(60,0,90,0.97), rgba(0,0,0,0.99))',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        gap: 20, padding: 32,
+        overflowY: 'auto',
+      }}
+    >
+      <motion.div
+        animate={{ scale: [1, 1.04, 1], opacity: [0.85, 1, 0.85] }}
+        transition={{ duration: 2, repeat: Infinity }}
+        style={{
+          color: '#ff4444', fontFamily: '"Cinzel", serif',
+          fontSize: 'clamp(20px, 4vw, 32px)', fontWeight: 900,
+          letterSpacing: 6,
+          textShadow: '0 0 30px rgba(255,50,50,0.8), 0 0 60px rgba(200,0,0,0.4)',
+        }}
+      >
+        ⚡ 至高法案降临 ⚡
+      </motion.div>
+
+      <div style={{
+        color: '#ffd700', fontFamily: '"Cinzel", serif',
+        fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: 700,
+        letterSpacing: 4,
+        textShadow: '0 0 20px rgba(255,215,0,0.6)',
+      }}>
+        {decree.name}
+      </div>
+
+      <div style={{ width: 'clamp(200px, 50vw, 480px)', height: 1, background: 'linear-gradient(90deg, transparent, #9b59b6, transparent)' }} />
+
+      <div style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'center' }}>
+        <div style={{
+          padding: '12px 20px', borderRadius: 10,
+          border: '1px solid #2ecc7180',
+          background: 'rgba(46,204,113,0.08)',
+          color: '#2ecc71', fontSize: 13, lineHeight: 1.7,
+        }}>
+          <div style={{ fontWeight: 700, letterSpacing: 2, marginBottom: 6, fontSize: 12, color: '#aaa' }}>⟐ 全局增益</div>
+          {decree.buffText || '（无增益）'}
+        </div>
+        <div style={{
+          padding: '12px 20px', borderRadius: 10,
+          border: '1px solid #e74c3c80',
+          background: 'rgba(231,76,60,0.08)',
+          color: '#e74c3c', fontSize: 13, lineHeight: 1.7,
+        }}>
+          <div style={{ fontWeight: 700, letterSpacing: 2, marginBottom: 6, fontSize: 12, color: '#aaa' }}>⟐ 全局诅咒</div>
+          {decree.debuffText || '（无诅咒）'}
+        </div>
+      </div>
+
+      <div style={{ width: 'clamp(200px, 50vw, 400px)', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+        <div style={{ width: '100%', height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', borderRadius: 4,
+            background: 'linear-gradient(90deg, #9b59b6, #e74c3c)',
+            width: `${pct * 100}%`,
+            transition: 'width 0.5s',
+          }} />
+        </div>
+        <div style={{ color: '#888', fontSize: 12 }}>
+          {secs > 0 ? `${secs} 秒后自动继续` : '即将继续…'}
+        </div>
+      </div>
+
+      <div style={{ color: '#555', fontSize: 11, letterSpacing: 2, textAlign: 'center' }}>
+        — 私欲的尽头是同归于尽 —
+      </div>
     </motion.div>
   );
 }
