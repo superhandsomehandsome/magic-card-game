@@ -522,12 +522,6 @@ export class AIPlayer {
     const blockedRank = getBlockedRank(opponent);
     const effects = aggregateEffectsFor(state, this.aiPlayerId);
 
-    // 傲慢 debuff: 没赢突袭就直接进入封锁
-    if (effects.requireAmbushWinForChant && !me.ambushWonThisTurn) {
-      this.scheduleAction(() => this.engine.nextPhase(), 400);
-      return;
-    }
-
     const combos = detectCombos(me.hand, state.isInverted, blockedRank, effects);
     // 只挑净得分（含封锁罚分）正的组合
     const profitable = combos.filter(c => (c.score - (c.blockedPenalty || 0)) > 0);

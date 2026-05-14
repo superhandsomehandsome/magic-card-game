@@ -802,7 +802,12 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
    * 跳过突袭：保底拿走 manaForge 的 RESERVOIR_SKIP_RATIO，bountyPool 原封滚存
    */
   public settleReservoirSkip(playerId: string): void {
-    const skipKeep = Math.floor(this.state.manaForge * GAME_CONSTANTS.RESERVOIR_SKIP_RATIO);
+    const effects = aggregateEffectsFor(this.state, playerId);
+    // 傲慢法案 debuff: 跳过时保底也减半
+    const skipRatio = effects.requireAmbushWinForChant
+      ? GAME_CONSTANTS.RESERVOIR_SKIP_RATIO * 0.5
+      : GAME_CONSTANTS.RESERVOIR_SKIP_RATIO;
+    const skipKeep = Math.floor(this.state.manaForge * skipRatio);
     if (skipKeep > 0) {
       this.addScore(playerId, skipKeep, '跳过突袭：咏唱保底');
     }

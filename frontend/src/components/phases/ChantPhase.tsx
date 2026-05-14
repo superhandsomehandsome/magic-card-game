@@ -85,12 +85,11 @@ export function ChantPhase() {
     return grouped;
   }, [combos]);
 
-  // 傲慢法案 debuff: 须先在突袭中获胜
-  const prideLocked = effects.requireAmbushWinForChant && !player.ambushWonThisTurn;
+  // 傲慢法案 debuff: 仅减少熔炉保底，不再封锁咏唱（新阶段顺序：先咏唱再突袭）
+  const prideWarning = effects.requireAmbushWinForChant;
 
   const handleComboClick = (combo: IComboResult) => {
     if (!isMyTurn) return;
-    if (prideLocked) return;
 
     const sig = comboSig(combo);
     const now = Date.now();
@@ -202,22 +201,21 @@ export function ChantPhase() {
         </motion.div>
       )}
 
-      {/* 傲慢法案锁定提示 */}
-      {prideLocked && (
+      {/* 傲慢法案警告（不再封锁，仅提醒保底减半风险） */}
+      {prideWarning && (
         <motion.div
           style={{
-            color: '#e74c3c',
+            color: '#ff8c00',
             fontSize: 12, fontWeight: 700,
             padding: '6px 14px', borderRadius: 4,
-            border: '1px solid #e74c3c',
-            background: 'rgba(231,76,60,0.15)',
-            fontFamily: '"Cinzel", serif',
-            letterSpacing: 2,
+            border: '1px solid #ff8c00',
+            background: 'rgba(255,140,0,0.1)',
+            letterSpacing: 1,
           }}
-          animate={{ opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 1.2, repeat: Infinity }}
+          animate={{ opacity: [0.75, 1, 0.75] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
         >
-          👑 傲慢法案：须本回合先在突袭中获胜，否则禁止咏唱
+          👑 傲慢法案：突袭失败或跳过时，熔炉保底减半
         </motion.div>
       )}
 

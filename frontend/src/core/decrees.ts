@@ -97,7 +97,7 @@ export const DECREE_POOL: IDecree[] = [
     emoji: '👑',
     category: 'CHANT',
     buffText: '所有【蓝/绿区】组合（小顺/三条/葫芦/四条）得分额外 +15。',
-    debuffText: '突袭失败时秘力熔炉保底比例减半（35% → 17.5%），不突袭保底也减半。',
+    debuffText: '突袭失败或跳过时，秘力熔炉保底比例减半（35%→17.5% / 55%→27.5%）——先吃饱再说，赌局更险。',
     buff: { blueGreenComboBonus: 15 },
     debuff: { requireAmbushWinForChant: true },
   },
