@@ -524,11 +524,6 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     // 设置对撞保护期：至高法案降临后强制保留 N 个咏唱回合
     this.state.collisionGracePeriod = GAME_CONSTANTS.COLLISION_GRACE_TURNS;
 
-    this.pushAction({
-      type: 'GLOBAL_MUTATION',
-      payload: { decree: supreme },
-      durationMs: 3000,
-    });
     this.addLog(`第 ${GAME_CONSTANTS.DECREE_SUPREME_ROUND} 回合：私欲的尽头是同归于尽。至高法案 [${supreme.name}] 已覆盖全场！`);
     this.addLog(`⏳ 至高法案保护期生效：未来 ${GAME_CONSTANTS.COLLISION_GRACE_TURNS} 个回合内即使牌库枯竭也不会触发对撞`);
     this.emit('SUPREME_DECREE_APPLIED', { decree: supreme });

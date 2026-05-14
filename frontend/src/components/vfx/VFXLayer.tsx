@@ -76,7 +76,7 @@ function VFXEffect({ effect }: { effect: ActiveVFX }) {
     case 'VFX_BID_COMBO':
       return <BidComboBurst payload={effect.payload} />;
     case 'GLOBAL_MUTATION':
-      return <GlobalMutation payload={effect.payload} />;
+      return null; // 已由 SupremeDecreeReadingScreen 替代
     case 'DECREE_AWARDED':
       return <DecreeAwarded payload={effect.payload} />;
     case 'DECREE_VOIDED':
@@ -989,50 +989,6 @@ function BidComboBurst({ payload }: { payload: Record<string, unknown> }) {
   );
 }
 
-function GlobalMutation({ payload }: { payload: Record<string, unknown> }) {
-  const decree = payload.decree as { name?: string };
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: [0, 1, 1, 0.7] }}
-      transition={{ duration: 3 }}
-      style={{
-        position: 'absolute', inset: 0,
-        background: 'radial-gradient(ellipse at center, rgba(139,0,0,0.45), rgba(20,0,0,0.95))',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        pointerEvents: 'none',
-      }}
-    >
-      <motion.div
-        animate={{ x: [0, -8, 8, -6, 6, -3, 3, 0] }}
-        transition={{ duration: 0.6, repeat: 3 }}
-      >
-        <div style={{
-          fontSize: 60, fontFamily: '"Cinzel", serif',
-          fontWeight: 900, color: '#e74c3c',
-          textShadow: '0 0 30px rgba(231,76,60,0.9), 0 0 60px rgba(139,0,0,0.7)',
-          letterSpacing: 8,
-        }}>
-          ⚠ 至 高 法 案 降 临 ⚠
-        </div>
-        <div style={{
-          marginTop: 18, color: '#ffd700', fontSize: 18,
-          fontFamily: '"Cinzel", serif', letterSpacing: 4,
-          textAlign: 'center',
-        }}>
-          [{decree?.name || '至高法案'}]
-        </div>
-        <div style={{
-          marginTop: 24, color: '#ccc', fontSize: 14,
-          textAlign: 'center', maxWidth: 600, lineHeight: 1.6,
-        }}>
-          私欲的尽头是同归于尽。<br />至高法则已覆盖全场！
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
 
 function DecreeAwarded({ payload }: { payload: Record<string, unknown> }) {
   const decree = payload.decree as { name?: string; emoji?: string };
