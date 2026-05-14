@@ -74,6 +74,7 @@ interface Player {
   score: number;
   hand: Card[];
   blockadeRank: number | null;
+  cursedNextChant: boolean;
 }
 
 // Detect best combo from hand (simplified)
@@ -189,8 +190,8 @@ function simulateGame(): GameResult {
   };
 
   const players: [Player, Player] = [
-    { score: 0, hand: draw(5), blockadeRank: null },
-    { score: 0, hand: draw(5), blockadeRank: null },
+    { score: 0, hand: draw(5), blockadeRank: null, cursedNextChant: false },
+    { score: 0, hand: draw(5), blockadeRank: null, cursedNextChant: false },
   ];
   const market = draw(MARKET_SIZE);
 
