@@ -53,6 +53,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   private heroStrategies: Map<string, IHeroStrategy> = new Map();
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private deck: ICard[] = [];
+  private _currentTurnTimedOut = false;
 
   constructor(player1Id: string, player2Id: string, hero1: HeroType, hero2: HeroType) {
     super();
@@ -1596,6 +1597,11 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     current.hasUsedDarkSacrificeThisTurn = false;
     current.freeMarketDrawsThisTurn = 0;
     // hasUsedOracle 不重置（本局只能用一次）
+    // 连续超时计数：本回合没有超时（正常结束），重置为 0
+    if (!this._currentTurnTimedOut) {
+      this.state.consecutiveTimeouts[currentId] = 0;
+    }
+    this._currentTurnTimedOut = false;
 
     // 处理以太歌者反转倒计时
     if (this.state.isInverted) {
@@ -1659,6 +1665,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     // 对撞/游戏结束阶段无回合概念，忽略计时器超时
     if (this.state.phase === GamePhase.COLLISION || this.state.phase === GamePhase.GAME_OVER) return;
     const currentId = this.state.currentTurnPlayerId;
+    this._currentTurnTimedOut = true;
     this.state.consecutiveTimeouts[currentId]++;
 
     // 过载法案 debuff: 超时罚 N 分
