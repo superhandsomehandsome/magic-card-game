@@ -18,15 +18,27 @@ import { aggregateEffectsFor, calcBidPower } from './decrees';
 /** AI 基础行动延迟（毫秒）— 调小可整体提速 */
 const AI_BASE_DELAY_MS = 500;
 
+/** Roguelike 难度参数 — 控制 AI 的攻击性和决策质量 */
+export interface AIConfig {
+  /** 0-1: 突袭发起概率倍率 (1=默认60%, 0=几乎不突袭) */
+  aggression: number;
+  /** 0-1: 选牌/组合时的决策质量 (1=最优, 0=随机) */
+  skill: number;
+}
+
+const DEFAULT_CONFIG: AIConfig = { aggression: 0.6, skill: 0.7 };
+
 export class AIPlayer {
   private engine: GameEngine;
   private aiPlayerId: string;
   private actionTimer: ReturnType<typeof setTimeout> | null = null;
   private collisionTickTimer: ReturnType<typeof setTimeout> | null = null;
+  private config: AIConfig;
 
-  constructor(engine: GameEngine, aiPlayerId: string) {
+  constructor(engine: GameEngine, aiPlayerId: string, config?: Partial<AIConfig>) {
     this.engine = engine;
     this.aiPlayerId = aiPlayerId;
+    this.config = { ...DEFAULT_CONFIG, ...config };
     this.bind();
   }
 
@@ -405,9 +417,9 @@ export class AIPlayer {
 
     const candidates = me.hand.filter(c => c.rank !== CardRank.FLASH);
 
-    // 第一次突袭：决定是否打
+    // 第一次突袭：决定是否打 (aggression 控制基础概率)
     if (me.ambushesThisTurn === 0) {
-      const shouldAmbush = Math.random() < 0.6 && me.hand.length > 1 && candidates.length > 0;
+      const shouldAmbush = Math.random() < this.config.aggression && me.hand.length > 1 && candidates.length > 0;
       if (!shouldAmbush) {
         this.scheduleAction(() => this.engine.nextPhase(), 300);
         return;
@@ -416,9 +428,9 @@ export class AIPlayer {
       return;
     }
 
-    // 第二次突袭：需 ≥ 2 张非瞬牌，且 30% 概率发起
+    // 第二次突袭：需 ≥ 2 张非瞬牌，概率受 aggression 影响
     if (me.ambushesThisTurn === 1) {
-      const wantsSecond = Math.random() < 0.3 && candidates.length >= 2;
+      const wantsSecond = Math.random() < this.config.aggression * 0.5 && candidates.length >= 2;
       if (!wantsSecond) {
         this.scheduleAction(() => this.engine.nextPhase(), 300);
         return;
@@ -492,13 +504,14 @@ export class AIPlayer {
     }
 
     if (r < (hasDeclaration ? 0.8 : 0.85)) {
-      // 迎战: 选最高有效分的牌
+      // 迎战: 高 skill 选最高分牌, 低 skill 可能随机
       const sorted = [...me.hand].sort((a, b) => {
         if (a.rank === CardRank.FLASH) return 1;
         if (b.rank === CardRank.FLASH) return -1;
         return b.rank - a.rank;
       });
-      const defCard = sorted[0];
+      const defIdx = Math.random() < this.config.skill ? 0 : Math.floor(Math.random() * sorted.length);
+      const defCard = sorted[defIdx];
       this.scheduleAction(() => {
         this.engine.resolveAmbushDefend(this.aiPlayerId, 'DEFEND', defCard.id);
       }, 800);
@@ -530,10 +543,14 @@ export class AIPlayer {
       return;
     }
 
-    // 选净得分最高的组合
-    const best = profitable.sort(
+    // 按净得分排序；低 skill AI 可能不会选最优组合
+    profitable.sort(
       (a, b) => (b.score - (b.blockedPenalty || 0)) - (a.score - (a.blockedPenalty || 0)),
-    )[0];
+    );
+    const bestIdx = Math.random() < this.config.skill
+      ? 0
+      : Math.floor(Math.random() * Math.min(profitable.length, 3));
+    const best = profitable[bestIdx];
     this.scheduleAction(() => {
       this.engine.submitComboScore(
         this.aiPlayerId,

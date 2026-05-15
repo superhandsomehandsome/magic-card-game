@@ -1712,9 +1712,10 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   // ═══════════════════════════════════════════════════════════
 
   private checkWinCondition(): void {
+    const winScore = (this.state as any).__roguelikeWinScore ?? GAME_CONSTANTS.WIN_SCORE;
     for (const player of Object.values(this.state.players)) {
-      if (player.score >= GAME_CONSTANTS.WIN_SCORE) {
-        this.declareWinner(player.id, `${GAME_CONSTANTS.WIN_SCORE}分斩杀`);
+      if (player.score >= winScore) {
+        this.declareWinner(player.id, `${winScore}分斩杀`);
         return;
       }
     }

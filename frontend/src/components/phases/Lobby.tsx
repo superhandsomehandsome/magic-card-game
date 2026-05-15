@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GAME_CONSTANTS } from '../../types/game';
 
-export type LobbyMode = 'CREATE_ROOM' | 'JOIN_ROOM' | 'VS_AI';
+export type LobbyMode = 'CREATE_ROOM' | 'JOIN_ROOM' | 'VS_AI' | 'ROGUELIKE';
 
 interface LobbyProps {
   onSelectMode: (mode: LobbyMode, roomCode?: string) => void;
@@ -140,6 +140,14 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         color="#4488ff"
         compact={isShortLandscape}
         onClick={() => onSelectMode('VS_AI')}
+      />
+      <ModeButton
+        icon="🗺️"
+        label="深渊探索"
+        subtitle="Roguelike — 单人探索模式"
+        color="#e67e22"
+        compact={isShortLandscape}
+        onClick={() => onSelectMode('ROGUELIKE')}
       />
       <ModeButton
         icon="📜"

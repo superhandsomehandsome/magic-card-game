@@ -30,8 +30,10 @@ import {
   getSocket, emitHeroSelected, emitLeaveRoom, emitGameAction,
   type OpponentHeroPayload,
 } from './net/socket';
+import { RoguelikeScreen } from './components/roguelike/RoguelikeScreen';
+import { useRoguelikeStore } from './store/roguelikeStore';
 
-type AppStage = 'LOBBY' | 'ROOM' | 'HERO_SELECT' | 'PLAYING';
+type AppStage = 'LOBBY' | 'ROOM' | 'HERO_SELECT' | 'PLAYING' | 'ROGUELIKE_SELECT' | 'ROGUELIKE';
 
 interface NetInitEnvelope {
   kind: 'NET_INIT';
@@ -181,6 +183,10 @@ function App() {
       setMySlot(0);
       setNetworkMode('LOCAL');
       setStage('HERO_SELECT');
+    } else if (m === 'ROGUELIKE') {
+      setMySlot(0);
+      setNetworkMode('LOCAL');
+      setStage('ROGUELIKE_SELECT');
     }
   }, [setNetworkMode, teardownSync]);
 
@@ -334,6 +340,31 @@ function App() {
         onSelect={handleHeroSelected}
         title={title}
       />
+    );
+  }
+
+  // Roguelike: 英雄选择
+  if (stage === 'ROGUELIKE_SELECT') {
+    return wrap(
+      <HeroSelect
+        mode="SOLO"
+        opponentHero={null}
+        onSelect={(hero: HeroType) => {
+          useRoguelikeStore.getState().startRun(hero);
+          setStage('ROGUELIKE');
+        }}
+        title="⛧ 深渊探索 — 选择英雄 ⛧"
+      />
+    );
+  }
+
+  // Roguelike: 主界面
+  if (stage === 'ROGUELIKE') {
+    return wrap(
+      <RoguelikeScreen onExit={() => {
+        setStage('LOBBY');
+        setMode(null);
+      }} />
     );
   }
 

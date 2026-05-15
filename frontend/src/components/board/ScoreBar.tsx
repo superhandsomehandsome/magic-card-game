@@ -9,12 +9,14 @@ interface ScoreBarProps {
   playerName: string;
   heroColor: string;
   side: 'left' | 'right';
+  winScore?: number;
 }
 
-export function ScoreBar({ score, playerName, heroColor, side }: ScoreBarProps) {
-  const percentage = Math.min((score / GAME_CONSTANTS.WIN_SCORE) * 100, 100);
+export function ScoreBar({ score, playerName, heroColor, side, winScore }: ScoreBarProps) {
+  const effectiveWinScore = winScore ?? GAME_CONSTANTS.WIN_SCORE;
+  const percentage = Math.min((score / effectiveWinScore) * 100, 100);
   const isNearWin = percentage >= 85;
-  const isWin = score >= GAME_CONSTANTS.WIN_SCORE;
+  const isWin = score >= effectiveWinScore;
 
   return (
     <div style={{
@@ -90,7 +92,7 @@ export function ScoreBar({ score, playerName, heroColor, side }: ScoreBarProps) 
         fontSize: 10,
         fontFamily: 'monospace',
       }}>
-        / {GAME_CONSTANTS.WIN_SCORE}
+        / {effectiveWinScore}
       </span>
     </div>
   );
