@@ -1036,7 +1036,7 @@ function ScoringRulesPanel({ onClose }: { onClose: () => void }) {
             • 瞬 (FLASH)：任意阶段可换 1-3 张手牌<br/>
             • 封锁：被封锁 rank 入组合每张扣 baseScore×3 分<br/>
             • 前期衰减：前几回合咏唱得分打折<br/>
-            • 胜利条件：{effectiveWinScore}分 或 牌库耗尽→魔力对撞
+            • 胜利条件：{GAME_CONSTANTS.WIN_SCORE}分（快速模式可能更低）或 牌库耗尽→魔力对撞
           </div>
         </div>
         <button
