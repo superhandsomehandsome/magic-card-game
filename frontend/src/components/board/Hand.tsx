@@ -9,12 +9,14 @@ import { useGameStore } from '../../store/gameStore';
 interface HandProps {
   cards: ICard[];
   isOpponent?: boolean;
+  /** 裸露法案：强制明牌，对手手牌也面朝上 */
+  exposeHands?: boolean;
   /** 被对手封锁的 rank — 不再禁用，仅做罚分标记 */
   blockedRank?: number;
   onCardClick?: (card: ICard) => void;
 }
 
-export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: HandProps) {
+export function Hand({ cards, isOpponent = false, exposeHands = false, blockedRank, onCardClick }: HandProps) {
   const selectedCards = useGameStore(s => s.selectedCards);
   const isLandscapeCompact = typeof window !== 'undefined' && window.innerHeight < 520 && window.innerWidth > window.innerHeight;
   const manyCards = cards.length > 6;
@@ -54,11 +56,11 @@ export function Hand({ cards, isOpponent = false, blockedRank, onCardClick }: Ha
             >
               <Card
                 card={card}
-                isFaceDown={isOpponent}
+                isFaceDown={isOpponent && !exposeHands}
                 isSelected={isSelected}
                 isBlocked={isBlocked}
                 isPhantom={card.isPhantom}
-                onClick={isOpponent ? undefined : onCardClick}
+                onClick={(isOpponent && !exposeHands) ? undefined : onCardClick}
                 size="md"
               />
             </motion.div>

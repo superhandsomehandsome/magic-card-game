@@ -1656,6 +1656,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   }
 
   public forceEndTurn(): void {
+    // 对撞/游戏结束阶段无回合概念，忽略计时器超时
+    if (this.state.phase === GamePhase.COLLISION || this.state.phase === GamePhase.GAME_OVER) return;
     const currentId = this.state.currentTurnPlayerId;
     this.state.consecutiveTimeouts[currentId]++;
 
@@ -1742,6 +1744,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
   private initiateCollision(): void {
     if (this.state.phase === GamePhase.COLLISION || this.state.collisionState) return;
+    // 对撞开始：立即停止回合计时器，避免过载法案等 debuff 计时继续触发 forceEndTurn
+    this.stopTimer();
     this.state.phase = GamePhase.COLLISION;
     const playerIds = Object.keys(this.state.players);
 

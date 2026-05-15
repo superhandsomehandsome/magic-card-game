@@ -69,6 +69,19 @@ export function GameBoard() {
 
   const isGameOver = gameState.phase === GamePhase.GAME_OVER;
   const isMyTurn = gameState.currentTurnPlayerId === localPlayerId;
+
+  // 裸露法案：检测是否需要强制双方明牌
+  const exposeHands = (() => {
+    if (gameState.supremeDecree) {
+      return !!(gameState.supremeDecree.debuff.exposeHands || gameState.supremeDecree.buff.exposeHands);
+    }
+    for (const p of Object.values(gameState.players)) {
+      for (const d of (p.activeDecrees || [])) {
+        if (d.debuff.exposeHands || d.buff.exposeHands) return true;
+      }
+    }
+    return false;
+  })();
   // 突袭防守视角下豁免禁交互（防守方需要选牌应对）
   const isAmbushDefender =
     gameState.phase === GamePhase.AMBUSH_DEFEND &&
@@ -343,7 +356,7 @@ export function GameBoard() {
         </div>
       </div>
 
-      <Hand cards={opponent.hand} isOpponent={true} />
+      <Hand cards={opponent.hand} isOpponent={true} exposeHands={exposeHands} />
 
       {/* ═══ 中央：游戏区域 ═══ */}
       <div style={{
