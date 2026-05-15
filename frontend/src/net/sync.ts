@@ -250,6 +250,7 @@ export class HostSync {
             playerId,
             String(p.cardId),
             (p.declaration as never) ?? null,
+            p.discardCardId ? String(p.discardCardId) : undefined,
           );
           break;
         case 'RESOLVE_AMBUSH':

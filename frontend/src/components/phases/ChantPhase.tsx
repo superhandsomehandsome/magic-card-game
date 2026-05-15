@@ -37,6 +37,9 @@ export function ChantPhase() {
   const [showDetail, setShowDetail] = useState(false);
   const lastClickRef = useRef<{ sig: string; time: number }>({ sig: '', time: 0 });
   const fateRolledRef = useRef<string | null>(null);
+  // 防快点：进入咏唱阶段后 600ms 内禁用跳过按钮，避免从上一阶段快点穿透
+  const [skipReady, setSkipReady] = useState(false);
+  const skipReadyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 命运织梦者：进入咏唱阶段自动掷骰（被动）
   useEffect(() => {
@@ -57,6 +60,16 @@ export function ChantPhase() {
     fateRolledRef.current = key;
     rollFateDice();
   }, [gameState?.turnNumber, gameState?.currentTurnPlayerId, gameState?.phase, localPlayerId, rollFateDice]);
+
+  // 每次进入咏唱阶段时重置冷却
+  useEffect(() => {
+    setSkipReady(false);
+    if (skipReadyTimerRef.current) clearTimeout(skipReadyTimerRef.current);
+    skipReadyTimerRef.current = setTimeout(() => setSkipReady(true), 600);
+    return () => {
+      if (skipReadyTimerRef.current) clearTimeout(skipReadyTimerRef.current);
+    };
+  }, [gameState?.turnNumber, gameState?.currentTurnPlayerId]);
 
   if (!gameState) return null;
 
@@ -404,19 +417,23 @@ export function ChantPhase() {
 
         {isMyTurn && (
           <motion.button
-            onClick={() => advancePhase()}
+            onClick={() => { if (skipReady) advancePhase(); }}
+            disabled={!skipReady}
             style={{
               padding: '10px 20px', borderRadius: 8,
-              border: `1px solid ${player.hasChantedThisTurn ? '#ffd700' : '#666'}`,
-              background: player.hasChantedThisTurn
-                ? 'linear-gradient(180deg, rgba(74,58,10,0.6), rgba(42,31,5,0.8))'
-                : 'transparent',
-              color: player.hasChantedThisTurn ? '#ffd700' : '#888',
-              cursor: 'pointer', fontSize: 13,
+              border: `1px solid ${!skipReady ? '#444' : player.hasChantedThisTurn ? '#ffd700' : '#666'}`,
+              background: !skipReady
+                ? 'transparent'
+                : player.hasChantedThisTurn
+                  ? 'linear-gradient(180deg, rgba(74,58,10,0.6), rgba(42,31,5,0.8))'
+                  : 'transparent',
+              color: !skipReady ? '#444' : player.hasChantedThisTurn ? '#ffd700' : '#888',
+              cursor: skipReady ? 'pointer' : 'not-allowed', fontSize: 13,
               fontWeight: player.hasChantedThisTurn ? 700 : 400,
               marginLeft: 'auto',
+              opacity: skipReady ? 1 : 0.4,
             }}
-            whileHover={{ scale: 1.05, boxShadow: player.hasChantedThisTurn ? '0 0 12px rgba(255,215,0,0.4)' : 'none' }}
+            whileHover={skipReady ? { scale: 1.05, boxShadow: player.hasChantedThisTurn ? '0 0 12px rgba(255,215,0,0.4)' : 'none' } : undefined}
           >
             {player.hasChantedThisTurn ? '结束咏唱 → 突袭阶段' : '跳过咏唱 → 突袭阶段'}
           </motion.button>
