@@ -9,6 +9,7 @@ import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   getSocket, emitCreateRoom, emitJoinRoom, emitLeaveRoom, emitRoomPing,
+  setLastRoomCode,
   onSocketStatus, type SocketStatus,
   type RoomCreatedPayload, type RoomJoinedPayload, type RoomErrorPayload,
   type RoomPongPayload,
@@ -70,6 +71,7 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
     const handleCreated = (data: RoomCreatedPayload) => {
       console.log('[Room] ROOM_CREATED', data);
       setRoomCode(data.roomCode);
+      setLastRoomCode(data.roomCode);
       setMySlot(data.slot);
       setStatus('WAITING_OPPONENT');
     };
@@ -77,6 +79,7 @@ export function Room({ mode, initialRoomCode, onReady, onLeave }: RoomProps) {
     const handleJoined = (data: RoomJoinedPayload) => {
       console.log('[Room] ROOM_JOINED', data);
       setRoomCode(data.roomCode);
+      setLastRoomCode(data.roomCode);
       setMySlot(data.slot);
       setStatus(data.opponentReady ? 'BOTH_READY' : 'WAITING_OPPONENT');
     };

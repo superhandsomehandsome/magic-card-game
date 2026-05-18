@@ -1,7 +1,9 @@
 /**
  * Roguelike Store — 管理 run 进度、地图导航、奖励选择
+ * 使用 zustand persist 中间件自动存档到 localStorage
  */
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { v4 as uuid } from 'uuid';
 import type { IRoguelikeRun, RunPhase, IEnemyPreset, IRandomEvent } from '../types/roguelike';
 import { ROGUELIKE_CONSTANTS } from '../types/roguelike';
@@ -61,7 +63,9 @@ interface RoguelikeStore {
   refreshShop: () => void;
 }
 
-export const useRoguelikeStore = create<RoguelikeStore>((set, get) => ({
+export const useRoguelikeStore = create<RoguelikeStore>()(
+  persist(
+    (set, get) => ({
   run: null,
   shopCards: [],
 
@@ -337,7 +341,13 @@ export const useRoguelikeStore = create<RoguelikeStore>((set, get) => ({
     const pool = shuffleDeck(createDeck()).slice(0, 5);
     set({ shopCards: pool });
   },
-}));
+}),
+    {
+      name: 'roguelike-save',
+      partialize: (state) => ({ run: state.run, shopCards: state.shopCards }),
+    },
+  ),
+);
 
 function markCurrentNodeCompleted(run: IRoguelikeRun) {
   if (!run.currentNodeId) return;

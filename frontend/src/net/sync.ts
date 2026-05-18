@@ -107,6 +107,8 @@ export class HostSync {
     this.socket = getSocket();
     this.bindEngine();
     this.socket.on('GAME_ACTION', this.onSocketAction);
+    // Guest 重连后自动推送全量状态恢复
+    this.socket.on('OPPONENT_JOINED', this.onOpponentRejoined);
   }
 
   /** 立刻向对手发送一份当前状态快照 (开局握手用) */
@@ -353,11 +355,18 @@ export class HostSync {
     }
   };
 
+  private onOpponentRejoined = () => {
+    if (this.destroyed) return;
+    console.log('[HostSync] opponent rejoined, pushing full state');
+    this.pushFullState();
+  };
+
   destroy(): void {
     this.destroyed = true;
     this.engineListeners.forEach(({ event, fn }) => this.engine.off(event, fn));
     this.engineListeners = [];
     this.socket.off('GAME_ACTION', this.onSocketAction);
+    this.socket.off('OPPONENT_JOINED', this.onOpponentRejoined);
   }
 }
 

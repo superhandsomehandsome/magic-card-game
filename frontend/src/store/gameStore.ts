@@ -19,6 +19,7 @@ export type HandClickHandler = (card: ICard) => void;
 import { GameEngine } from '../core/GameEngine';
 import { PhantomStrategy, WeaverStrategy, InquisitorStrategy, SingerStrategy } from '../core/heroes';
 import { HostSync, GuestSync, sendPlayerAction } from '../net/sync';
+import { setLastRoomCode } from '../net/socket';
 
 export type NetworkMode = 'LOCAL' | 'HOST' | 'GUEST';
 
@@ -491,6 +492,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (engine) {
       try { engine.removeAllListeners(); } catch { /* noop */ }
     }
+    setLastRoomCode(null);
     set({
       engine: null, gameState: null, actionQueue: [],
       isAnimating: false, selectedCards: [],

@@ -27,7 +27,9 @@ import os
 import string
 import random
 import logging
+import time
 from typing import Dict, Optional
+from collections import defaultdict
 
 import socketio
 from aiohttp import web
@@ -156,6 +158,33 @@ sio = socketio.AsyncServer(
 manager = RoomManager()
 
 
+# ═══════════════════════════════════════════════════════════
+#  速率限制：每个连接每秒最多 30 条消息，超出则丢弃
+# ═══════════════════════════════════════════════════════════
+
+RATE_LIMIT_WINDOW = 1.0  # 秒
+RATE_LIMIT_MAX = 30      # 窗口内最大消息数
+
+class RateLimiter:
+    def __init__(self):
+        self._buckets: Dict[str, list] = defaultdict(list)
+
+    def allow(self, sid: str) -> bool:
+        now = time.time()
+        bucket = self._buckets[sid]
+        # 清理过期时间戳
+        bucket[:] = [t for t in bucket if now - t < RATE_LIMIT_WINDOW]
+        if len(bucket) >= RATE_LIMIT_MAX:
+            return False
+        bucket.append(now)
+        return True
+
+    def remove(self, sid: str):
+        self._buckets.pop(sid, None)
+
+rate_limiter = RateLimiter()
+
+
 async def _emit_to_opponent(event: str, data: dict, room: Room, my_sid: str):
     """双重保险: 既用直接 sid 发送, 也用 room 广播"""
     opp = room.opponent_of(my_sid)
@@ -175,6 +204,7 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     log.info(f'Client disconnected: {sid}')
+    rate_limiter.remove(sid)
     room = manager.find(sid)
     if room:
         opp = room.opponent_of(sid)
@@ -248,6 +278,9 @@ async def handle_hero_selected(sid, data):
 
 @sio.on('GAME_ACTION')
 async def handle_game_action(sid, data):
+    if not rate_limiter.allow(sid):
+        log.warning(f'Rate limit exceeded for {sid}, dropping GAME_ACTION')
+        return
     room = manager.find(sid)
     if not room:
         return

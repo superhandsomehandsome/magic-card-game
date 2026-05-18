@@ -80,14 +80,20 @@ export function getSocket(): Socket {
   socket = io(url, {
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: 10,
     reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
     timeout: 8000,
   });
 
   socket.on('connect', () => {
     console.log('[socket] connected', socket?.id);
     setStatus('CONNECTED');
+    // 重连后自动尝试恢复房间
+    if (lastRoomCode) {
+      socket!.emit('JOIN_ROOM', { roomCode: lastRoomCode });
+      console.log('[socket] attempting room rejoin:', lastRoomCode);
+    }
   });
 
   socket.on('disconnect', (reason) => {
@@ -105,6 +111,17 @@ export function getSocket(): Socket {
   });
 
   return socket;
+}
+
+// 断线重连：记住当前房间号，重连后自动 rejoin
+let lastRoomCode: string | null = null;
+
+export function setLastRoomCode(code: string | null): void {
+  lastRoomCode = code;
+}
+
+export function getLastRoomCode(): string | null {
+  return lastRoomCode;
 }
 
 export function disconnectSocket(): void {
