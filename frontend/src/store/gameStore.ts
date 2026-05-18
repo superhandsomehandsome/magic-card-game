@@ -431,7 +431,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   useOracle: (choice) => {
-    const { engine, localPlayerId } = get();
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('USE_ORACLE', { choice });
+      return { cards: [] };
+    }
     if (!engine) return { cards: [] };
     return engine.useOracle(localPlayerId, choice);
   },
@@ -465,9 +469,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setAnimating: (v) => set({ isAnimating: v }),
 
   surrender: () => {
-    const { engine, localPlayerId } = get();
+    const { engine, localPlayerId, networkMode } = get();
+    if (networkMode === 'GUEST') {
+      sendPlayerAction('SURRENDER');
+      return;
+    }
     if (!engine) return;
-    // 投降：让对手以 999 分数过 155 阈值即可
     const oppId = Object.keys(engine.getState().players).find(id => id !== localPlayerId);
     if (!oppId) return;
     engine.mutateState(s => {

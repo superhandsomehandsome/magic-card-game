@@ -17,6 +17,7 @@
 import type { Socket } from 'socket.io-client';
 import type { GameEngine } from '../core/GameEngine';
 import type { IGameState, IActionCommand, ICard } from '../types/game';
+import { GamePhase } from '../types/game';
 import { getSocket, emitGameAction } from './socket';
 
 // 占位卡: 客机视角下被遮蔽的卡牌 (与 StateSerializer.HIDDEN_CARD 一致)
@@ -51,7 +52,8 @@ export type PlayerActionKind =
   | 'COLLISION_PICK_CARDS'
   | 'COLLISION_PLACE_BET'
   | 'COLLISION_REVEAL'
-  | 'CLAIM_FREE_MARKET';
+  | 'CLAIM_FREE_MARKET'
+  | 'SURRENDER';
 
 interface StateSyncEnv { kind: 'STATE_SYNC'; state: IGameState }
 interface ActionEnqueueEnv { kind: 'ACTION_ENQUEUE'; action: IActionCommand }
@@ -233,7 +235,9 @@ export class HostSync {
           // HOST 已自行 startGame, 不响应
           break;
         case 'ADVANCE_PHASE':
-          this.engine.nextPhase();
+          if (this.engine.getState().currentTurnPlayerId === playerId) {
+            this.engine.nextPhase();
+          }
           break;
         case 'DRAW_CARDS':
           this.engine.drawPhaseCards(playerId);
@@ -319,6 +323,30 @@ export class HostSync {
         case 'CLAIM_FREE_MARKET':
           this.engine.claimFreeMarketCard(playerId, p.cardId as string | undefined);
           break;
+        case 'DARK_SACRIFICE':
+          this.engine.darkSacrifice(playerId, String(p.handCardId), String(p.pileCardId));
+          break;
+        case 'USE_ORACLE':
+          this.engine.useOracle(playerId, p.choice as 'peek_hand' | 'peek_deck' | 'peek_market');
+          break;
+        case 'ROLL_FATE_DICE': {
+          const strategy = (this.engine as any).heroStrategies?.get(playerId);
+          if (strategy && typeof strategy.rollFateDice === 'function') {
+            strategy.rollFateDice(this.engine);
+          }
+          break;
+        }
+        case 'SURRENDER': {
+          const oppId = Object.keys(this.engine.getState().players).find(id => id !== playerId);
+          if (oppId) {
+            this.engine.mutateState(s => {
+              s.players[oppId].score = 999;
+              s.phase = GamePhase.GAME_OVER;
+            });
+            this.engine.emit('GAME_OVER', { winnerId: oppId, reason: 'SURRENDER' });
+          }
+          break;
+        }
       }
     } catch (e) {
       console.error('[HostSync] failed to apply guest action', env, e);

@@ -16,6 +16,7 @@ import {
 } from '../types/game';
 import type { AmbushDeclaration } from '../types/game';
 import { createDeck, shuffleDeck, compareCards, getEffectiveScore } from '../utils/deck';
+import { detectCombos } from '../utils/scoring';
 import {
   rollDecree, calcBidPower, stitchSupremeDecree,
   aggregateEffectsFor,
@@ -593,6 +594,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
   public drawPhaseCards(playerId: string): void {
     this.validatePhase(GamePhase.DRAW_MARKET);
+    if (playerId !== this.state.currentTurnPlayerId) return;
     const player = this.getPlayer(playerId);
     let drawCount = GAME_CONSTANTS.DRAW_PER_TURN;
 
@@ -825,6 +827,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     discardCardId?: string
   ): boolean {
     this.validatePhase(GamePhase.AMBUSH_DECLARE);
+    if (attackerId !== this.state.currentTurnPlayerId) return false;
     const attacker = this.getPlayer(attackerId);
 
     if (attacker.ambushesThisTurn >= GAME_CONSTANTS.MAX_AMBUSH_PER_TURN) return false;
@@ -1240,20 +1243,38 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
   //  阶段 2：CHANT_SCORE (咏唱计分 → 分数进入秘力熔炉)
   // ═══════════════════════════════════════════════════════════
 
-  public submitComboScore(playerId: string, cardIds: string[], score: number): void {
+  public submitComboScore(playerId: string, cardIds: string[], _clientScore: number): void {
     this.validatePhase(GamePhase.CHANT_SCORE);
+    if (playerId !== this.state.currentTurnPlayerId) return;
     const player = this.getPlayer(playerId);
     const effects = aggregateEffectsFor(this.state, playerId);
 
-    // 移除使用的牌
+    // 校验：所有 cardIds 必须在手牌中
     const usedCards: ICard[] = [];
-    cardIds.forEach(id => {
+    for (const id of cardIds) {
       const card = player.hand.find(c => c.id === id);
-      if (card) {
-        usedCards.push(card);
-        player.hand = player.hand.filter(c => c.id !== id);
-      }
+      if (!card) return; // 非法卡牌 ID，拒绝整个请求
+      usedCards.push(card);
+    }
+    if (usedCards.length === 0) return;
+
+    // 服务端重算分数：根据实际卡牌检测合法组合
+    const opponent = Object.values(this.state.players).find(p => p.id !== playerId);
+    const blockedRank = opponent?.blockadeZone?.rank ?? null;
+    const allCombos = detectCombos(usedCards, this.state.isInverted, blockedRank, effects);
+
+    // 找到与提交的 cardIds 完全匹配的组合（卡牌集合相同）
+    const submittedIdSet = new Set(cardIds);
+    const matchedCombo = allCombos.find(combo => {
+      if (combo.cards.length !== usedCards.length) return false;
+      return combo.cards.every(c => submittedIdSet.has(c.id));
     });
+    if (!matchedCombo) return; // 不构成合法组合，拒绝
+
+    const serverScore = matchedCombo.score;
+
+    // 从手牌移除
+    player.hand = player.hand.filter(c => !submittedIdSet.has(c.id));
 
     // 虚无法案 debuff: 凑组合用了瞬 → 每张扣 15（直接扣分，不进秘力熔炉）
     const flashUsed = usedCards.filter(c => c.rank === CardRank.FLASH).length;
@@ -1269,9 +1290,8 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     }
 
     // 应用早期得分衰减
-    const decayed = this.applyChantScoreDecay(score);
+    const decayed = this.applyChantScoreDecay(serverScore);
     // 计算封锁罚分（暗封锁：对手封锁牌此时揭示）
-    const opponent = Object.values(this.state.players).find(p => p.id !== playerId);
     const blockedRanks = new Set<number>();
     if (opponent?.blockadeZone) {
       blockedRanks.add(opponent.blockadeZone.rank);
@@ -1293,7 +1313,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
     this.pushAction({
       type: 'COMBO_HIGHLIGHT',
-      payload: { cards: usedCards, score: actualScore, originalScore: score, blockedPenalty, toManaForge: true },
+      payload: { cards: usedCards, score: actualScore, originalScore: serverScore, blockedPenalty, toManaForge: true },
       durationMs: 600,
     });
     this.pushAction({
@@ -1306,7 +1326,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
     const reward = this.drawFromDeck(1);
     player.hand.push(...reward);
 
-    this.addLog(`${player.name} 咏唱 +${actualScore} → 秘力熔炉 (熔炉: ${this.state.manaForge}, 悬赏池: ${this.state.bountyPool})${actualScore < score ? ` (衰减前: ${score})` : ''}`);
+    this.addLog(`${player.name} 咏唱 +${actualScore} → 秘力熔炉 (熔炉: ${this.state.manaForge}, 悬赏池: ${this.state.bountyPool})${actualScore < serverScore ? ` (衰减前: ${serverScore})` : ''}`);
     this.emit('STATE_UPDATED', this.getStateSnapshot());
   }
 
@@ -1316,6 +1336,7 @@ export class GameEngine extends EventEmitter implements IGameEngineAPI {
 
   public placeBlockade(playerId: string, cardId: string): void {
     this.validatePhase(GamePhase.BLOCKADE_END);
+    if (playerId !== this.state.currentTurnPlayerId) return;
     const player = this.getPlayer(playerId);
     const card = player.hand.find(c => c.id === cardId);
     if (!card) return;
