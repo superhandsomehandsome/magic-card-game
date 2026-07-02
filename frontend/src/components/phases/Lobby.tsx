@@ -142,9 +142,9 @@ export function Lobby({ onSelectMode }: LobbyProps) {
         onClick={() => onSelectMode('VS_AI')}
       />
       <ModeButton
-        icon="🗺️"
-        label="深渊探索"
-        subtitle="Roguelike — 单人探索模式"
+        icon="📖"
+        label="故事模式 · 坠典"
+        subtitle="单人 Roguelike — 坠入深渊，改写魔典"
         color="#e67e22"
         compact={isShortLandscape}
         onClick={() => onSelectMode('ROGUELIKE')}

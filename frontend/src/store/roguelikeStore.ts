@@ -1,17 +1,20 @@
 /**
- * Roguelike Store — 管理 run 进度、地图导航、奖励选择
+ * 《坠典》Roguelike Store — 故事模式：固定地图导航、残页收集、契约抉择、三结局
  * 使用 zustand persist 中间件自动存档到 localStorage
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuid } from 'uuid';
-import type { IRoguelikeRun, RunPhase, IEnemyPreset, IRandomEvent } from '../types/roguelike';
+import type { IRoguelikeRun, RunPhase, PactChoice, EndingId } from '../types/roguelike';
 import { ROGUELIKE_CONSTANTS } from '../types/roguelike';
 import type { ICard } from '../types/game';
 import { HeroType, CardRank } from '../types/game';
-import { generateAllMaps, findNode, getReachableNodeIds } from '../core/roguelike/mapGenerator';
-import { getEnemyForFloorAndNode } from '../core/roguelike/enemyPresets';
-import { pickEvent } from '../core/roguelike/events';
+import { createStoryNodes, findStoryNode, getReachableStoryNodes } from '../core/roguelike/storyMap';
+import { getEnemyById } from '../core/roguelike/enemyPresets';
+import { getEventById } from '../core/roguelike/events';
+import {
+  getPrologue, getChapterIntro, getBossPreDialogue, getBossPostDialogue, getEnding,
+} from '../core/roguelike/story';
 import { createDeck, shuffleDeck } from '../utils/deck';
 
 function buildStartingDeck(): ICard[] {
@@ -32,13 +35,24 @@ function generateRewardCards(seed: number): ICard[] {
   return picks;
 }
 
+/** 章节引言 key：进入某章第一个节点时触发 */
+function chapterIntroKey(node: { chapter: number; route?: 'A' | 'B' }): 'c1' | 'c2a' | 'c2b' | 'c3' {
+  if (node.chapter === 1) return 'c1';
+  if (node.chapter === 2) return node.route === 'B' ? 'c2b' : 'c2a';
+  return 'c3';
+}
+
 interface RoguelikeStore {
   run: IRoguelikeRun | null;
-  /** 开始新的 roguelike run */
+  /** 开始新的故事 run */
   startRun: (hero: HeroType) => void;
   /** 选择地图节点 */
   selectNode: (nodeId: string) => void;
-  /** 战斗结束回调 (从 GameBoard 调用) */
+  /** 叙事对话播放完毕 */
+  completeStory: () => void;
+  /** 契约之门抉择 */
+  choosePact: (choice: PactChoice) => void;
+  /** 战斗结束回调 (从 RoguelikeScreen 调用) */
   onBattleEnd: (won: boolean, scoreDiff: number) => void;
   /** 选择奖励牌 */
   pickRewardCard: (cardId: string) => void;
@@ -63,294 +77,375 @@ interface RoguelikeStore {
   refreshShop: () => void;
 }
 
+function markNodeCompleted(run: IRoguelikeRun, nodeId: string | null): IRoguelikeRun['nodes'] {
+  if (!nodeId) return run.nodes;
+  return run.nodes.map(n => n.id === nodeId ? { ...n, completed: true } : n);
+}
+
 export const useRoguelikeStore = create<RoguelikeStore>()(
   persist(
     (set, get) => ({
-  run: null,
-  shopCards: [],
+      run: null,
+      shopCards: [],
 
-  startRun: (hero: HeroType) => {
-    const seed = Date.now();
-    const maps = generateAllMaps(seed);
-    const run: IRoguelikeRun = {
-      seed,
-      heroType: hero,
-      currentFloor: 0,
-      currentNodeId: null,
-      maps,
-      deck: buildStartingDeck(),
-      gold: ROGUELIKE_CONSTANTS.STARTING_GOLD,
-      hp: ROGUELIKE_CONSTANTS.STARTING_HP,
-      maxHp: ROGUELIKE_CONSTANTS.STARTING_HP,
-      activeDecrees: [],
-      phase: 'MAP',
-      rewardCards: null,
-      currentEvent: null,
-      battlesWon: 0,
-      currentEnemy: null,
-    };
-    set({ run });
-  },
-
-  selectNode: (nodeId: string) => {
-    const { run } = get();
-    if (!run) return;
-
-    const reachable = getReachableNodeIds(run.maps, run.currentNodeId, run.currentFloor);
-    if (!reachable.includes(nodeId)) return;
-
-    const node = findNode(run.maps, nodeId);
-    if (!node || node.completed) return;
-
-    const updatedRun = { ...run, currentNodeId: nodeId };
-
-    switch (node.type) {
-      case 'BATTLE':
-      case 'ELITE':
-      case 'BOSS': {
-        const enemy = getEnemyForFloorAndNode(
-          run.currentFloor,
-          node.type,
-          run.seed + nodeId.charCodeAt(0),
-        );
-        set({ run: { ...updatedRun, phase: 'BATTLE', currentEnemy: enemy } });
-        break;
-      }
-      case 'SHOP':
-        get().refreshShop();
-        set({ run: { ...updatedRun, phase: 'SHOP' } });
-        break;
-      case 'EVENT': {
-        const event = pickEvent(run.seed + nodeId.charCodeAt(0) + run.battlesWon);
-        set({ run: { ...updatedRun, phase: 'EVENT', currentEvent: event } });
-        break;
-      }
-      case 'REST':
-        set({ run: { ...updatedRun, phase: 'REST' } });
-        break;
-    }
-  },
-
-  onBattleEnd: (won: boolean, scoreDiff: number) => {
-    const { run } = get();
-    if (!run) return;
-
-    if (!won) {
-      const hpLoss = Math.ceil(Math.abs(scoreDiff) * ROGUELIKE_CONSTANTS.DEFEAT_HP_LOSS_PER_POINT);
-      const newHp = Math.max(0, run.hp - hpLoss);
-      if (newHp <= 0) {
-        set({ run: { ...run, hp: 0, phase: 'DEFEAT', currentEnemy: null } });
-      } else {
-        // Lost the battle but survived — mark node and return to map
-        markCurrentNodeCompleted(run);
-        set({ run: { ...run, hp: newHp, phase: 'MAP', currentEnemy: null } });
-      }
-      return;
-    }
-
-    const heal = Math.ceil(scoreDiff * ROGUELIKE_CONSTANTS.VICTORY_HEAL_RATIO);
-    const newHp = Math.min(run.maxHp, run.hp + heal);
-    const goldReward = run.currentEnemy?.goldReward ?? 20;
-    const rewardCards = generateRewardCards(run.seed + run.battlesWon);
-
-    markCurrentNodeCompleted(run);
-
-    set({
-      run: {
-        ...run,
-        hp: newHp,
-        gold: run.gold + goldReward,
-        battlesWon: run.battlesWon + 1,
-        phase: 'REWARD',
-        rewardCards,
-        currentEnemy: null,
+      startRun: (hero: HeroType) => {
+        const run: IRoguelikeRun = {
+          seed: Date.now(),
+          heroType: hero,
+          nodes: createStoryNodes(),
+          currentNodeId: 'start',
+          prevNodeId: null,
+          // 从 0 开始：进入第一章首个节点时触发章节引言
+          chapter: 0,
+          routeChosen: null,
+          pactChoice: null,
+          decreePages: 0,
+          endingId: null,
+          pendingStory: getPrologue(hero),
+          deck: buildStartingDeck(),
+          gold: ROGUELIKE_CONSTANTS.STARTING_GOLD,
+          hp: ROGUELIKE_CONSTANTS.STARTING_HP,
+          maxHp: ROGUELIKE_CONSTANTS.STARTING_HP,
+          activeDecrees: [],
+          phase: 'STORY',
+          rewardCards: null,
+          currentEvent: null,
+          battlesWon: 0,
+          currentEnemy: null,
+        };
+        set({ run });
       },
-    });
-  },
 
-  pickRewardCard: (cardId: string) => {
-    const { run } = get();
-    if (!run || !run.rewardCards) return;
-    const card = run.rewardCards.find(c => c.id === cardId);
-    if (!card) return;
+      selectNode: (nodeId: string) => {
+        const { run } = get();
+        if (!run || run.phase !== 'MAP') return;
 
-    const isBoss = run.currentNodeId
-      ? findNode(run.maps, run.currentNodeId)?.type === 'BOSS'
-      : false;
+        const reachable = getReachableStoryNodes(run.nodes, run.currentNodeId, run.routeChosen);
+        if (!reachable.includes(nodeId)) return;
 
-    let nextFloor = run.currentFloor;
-    let nextNodeId = run.currentNodeId;
-    let nextPhase: RunPhase = 'MAP';
+        const node = findStoryNode(run.nodes, nodeId);
+        if (!node || node.completed) return;
 
-    if (isBoss) {
-      if (run.currentFloor >= ROGUELIKE_CONSTANTS.TOTAL_FLOORS - 1) {
-        nextPhase = 'VICTORY';
-      } else {
-        nextFloor = run.currentFloor + 1;
-        nextNodeId = null;
-      }
-    }
+        const prevNodeId = run.currentNodeId;
+        let updated: IRoguelikeRun = { ...run, currentNodeId: nodeId, prevNodeId };
 
-    set({
-      run: {
-        ...run,
-        deck: [...run.deck, card],
-        rewardCards: null,
-        phase: nextPhase,
-        currentFloor: nextFloor,
-        currentNodeId: nextNodeId,
-      },
-    });
-  },
-
-  skipReward: () => {
-    const { run } = get();
-    if (!run) return;
-
-    const isBoss = run.currentNodeId
-      ? findNode(run.maps, run.currentNodeId)?.type === 'BOSS'
-      : false;
-
-    let nextFloor = run.currentFloor;
-    let nextNodeId = run.currentNodeId;
-    let nextPhase: RunPhase = 'MAP';
-
-    if (isBoss) {
-      if (run.currentFloor >= ROGUELIKE_CONSTANTS.TOTAL_FLOORS - 1) {
-        nextPhase = 'VICTORY';
-      } else {
-        nextFloor = run.currentFloor + 1;
-        nextNodeId = null;
-      }
-    }
-
-    set({
-      run: {
-        ...run,
-        rewardCards: null,
-        phase: nextPhase,
-        currentFloor: nextFloor,
-        currentNodeId: nextNodeId,
-      },
-    });
-  },
-
-  resolveEvent: (choiceIndex: number) => {
-    const { run } = get();
-    if (!run || !run.currentEvent) return;
-
-    const choice = run.currentEvent.choices[choiceIndex];
-    if (!choice) return;
-
-    const updated = { ...run, currentEvent: null };
-
-    switch (choice.effect.type) {
-      case 'GAIN_GOLD':
-        updated.gold += choice.effect.amount;
-        break;
-      case 'LOSE_GOLD':
-        updated.gold = Math.max(0, updated.gold - choice.effect.amount);
-        break;
-      case 'GAIN_HP':
-        updated.hp = Math.min(updated.maxHp, updated.hp + choice.effect.amount);
-        break;
-      case 'LOSE_HP':
-        // Also give the gold reward from abandoned_shrine / blood_pact
-        updated.hp = Math.max(1, updated.hp - choice.effect.amount);
-        if (choice.label.includes('金币')) {
-          const goldMatch = choice.label.match(/\+(\d+)\s*金币/);
-          if (goldMatch) updated.gold += parseInt(goldMatch[1], 10);
+        // 第二章路线锁定
+        if (node.route && !run.routeChosen) {
+          updated = { ...updated, routeChosen: node.route };
         }
-        break;
-      case 'GAIN_CARD':
-        updated.deck = [...updated.deck, choice.effect.card];
-        break;
-      case 'REMOVE_CARD':
-        // Will be handled via separate UI — for now just proceed
-        break;
-      case 'NOTHING':
-        break;
-    }
 
-    markCurrentNodeCompleted(run);
-    set({ run: { ...updated, phase: 'MAP' } });
-  },
+        // 章节引言（进入新章节的第一个节点时播放）
+        const enteringNewChapter = node.chapter > run.chapter;
+        if (enteringNewChapter) {
+          updated = { ...updated, chapter: node.chapter };
+        }
 
-  restHeal: () => {
-    const { run } = get();
-    if (!run) return;
-    markCurrentNodeCompleted(run);
-    set({
-      run: {
-        ...run,
-        hp: Math.min(run.maxHp, run.hp + ROGUELIKE_CONSTANTS.REST_HEAL),
-        phase: 'MAP',
+        switch (node.type) {
+          case 'BATTLE':
+          case 'ELITE': {
+            const enemy = node.enemyPresetId ? getEnemyById(node.enemyPresetId) : null;
+            if (!enemy) return;
+            if (enteringNewChapter) {
+              updated = {
+                ...updated,
+                currentEnemy: enemy,
+                pendingStory: getChapterIntro(chapterIntroKey(node), run.heroType, 'BATTLE'),
+                phase: 'STORY',
+              };
+            } else {
+              updated = { ...updated, currentEnemy: enemy, phase: 'BATTLE' };
+            }
+            break;
+          }
+          case 'BOSS':
+          case 'FINAL_BOSS': {
+            const enemy = node.enemyPresetId ? getEnemyById(node.enemyPresetId) : null;
+            if (!enemy) return;
+            const pre = getBossPreDialogue(node.enemyPresetId!, run.heroType);
+            updated = {
+              ...updated,
+              currentEnemy: enemy,
+              pendingStory: pre,
+              phase: pre ? 'STORY' : 'BATTLE',
+            };
+            break;
+          }
+          case 'SHOP':
+            get().refreshShop();
+            updated = { ...updated, phase: 'SHOP' };
+            break;
+          case 'EVENT': {
+            const event = node.eventId ? getEventById(node.eventId) : null;
+            if (!event) return;
+            updated = { ...updated, currentEvent: event, phase: 'EVENT' };
+            break;
+          }
+          case 'REST':
+            updated = { ...updated, phase: 'REST' };
+            break;
+          case 'PACT':
+            updated = { ...updated, phase: 'PACT' };
+            break;
+          default:
+            return;
+        }
+
+        set({ run: updated });
       },
-    });
-  },
 
-  shopBuyCard: (card: ICard) => {
-    const { run, shopCards } = get();
-    if (!run) return;
-    const cost = card.baseScore * 5;
-    if (run.gold < cost) return;
-
-    set({
-      run: {
-        ...run,
-        deck: [...run.deck, { ...card, id: uuid() }],
-        gold: run.gold - cost,
+      completeStory: () => {
+        const { run } = get();
+        if (!run || !run.pendingStory) return;
+        const next: RunPhase = run.pendingStory.next;
+        set({ run: { ...run, pendingStory: null, phase: next } });
       },
-      shopCards: shopCards.filter(c => c.id !== card.id),
-    });
-  },
 
-  shopRemoveCard: (cardId: string) => {
-    const { run } = get();
-    if (!run) return;
-    if (run.gold < ROGUELIKE_CONSTANTS.SHOP_REMOVE_COST) return;
-    if (run.deck.length <= 5) return;
-
-    set({
-      run: {
-        ...run,
-        deck: run.deck.filter(c => c.id !== cardId),
-        gold: run.gold - ROGUELIKE_CONSTANTS.SHOP_REMOVE_COST,
+      choosePact: (choice: PactChoice) => {
+        const { run } = get();
+        if (!run || run.phase !== 'PACT') return;
+        // 隐藏结局需要集齐残页
+        if (choice === 'REWRITE' && run.decreePages < ROGUELIKE_CONSTANTS.PAGES_REQUIRED) return;
+        set({
+          run: {
+            ...run,
+            pactChoice: choice,
+            nodes: markNodeCompleted(run, run.currentNodeId),
+            phase: 'MAP',
+          },
+        });
       },
-    });
-  },
 
-  returnToMap: () => {
-    const { run } = get();
-    if (!run) return;
-    markCurrentNodeCompleted(run);
-    set({ run: { ...run, phase: 'MAP' } });
-  },
+      onBattleEnd: (won: boolean, scoreDiff: number) => {
+        const { run } = get();
+        if (!run) return;
 
-  abandonRun: () => {
-    set({ run: null, shopCards: [] });
-  },
+        const node = findStoryNode(run.nodes, run.currentNodeId);
 
-  getReachableNodes: () => {
-    const { run } = get();
-    if (!run) return [];
-    return getReachableNodeIds(run.maps, run.currentNodeId, run.currentFloor);
-  },
+        if (!won) {
+          const hpLoss = Math.ceil(Math.abs(scoreDiff) * ROGUELIKE_CONSTANTS.DEFEAT_HP_LOSS_PER_POINT);
+          const newHp = Math.max(0, run.hp - hpLoss);
+          if (newHp <= 0) {
+            set({ run: { ...run, hp: 0, phase: 'DEFEAT', currentEnemy: null } });
+          } else {
+            // 战败存活：退回上一个节点，本节点保持未完成可重试
+            set({
+              run: {
+                ...run,
+                hp: newHp,
+                currentNodeId: run.prevNodeId ?? run.currentNodeId,
+                phase: 'MAP',
+                currentEnemy: null,
+              },
+            });
+          }
+          return;
+        }
 
-  refreshShop: () => {
-    const pool = shuffleDeck(createDeck()).slice(0, 5);
-    set({ shopCards: pool });
-  },
-}),
+        // ——— 胜利 ———
+        const heal = Math.ceil(scoreDiff * ROGUELIKE_CONSTANTS.VICTORY_HEAL_RATIO);
+        const newHp = Math.min(run.maxHp, run.hp + heal);
+        const goldReward = run.currentEnemy?.goldReward ?? 20;
+        const pagesGained = node?.pageDrop ? 1 : 0;
+
+        let updated: IRoguelikeRun = {
+          ...run,
+          hp: newHp,
+          gold: run.gold + goldReward,
+          battlesWon: run.battlesWon + 1,
+          decreePages: run.decreePages + pagesGained,
+          nodes: markNodeCompleted(run, run.currentNodeId),
+        };
+
+        if (node?.type === 'FINAL_BOSS') {
+          // 最终 Boss：按契约抉择进入对应结局
+          const endingId: EndingId =
+            run.pactChoice === 'SIGN' ? 'NEW_MASTER'
+            : run.pactChoice === 'REWRITE' ? 'STITCHER'
+            : 'BURNER';
+          updated = {
+            ...updated,
+            endingId,
+            pendingStory: getEnding(endingId, run.heroType),
+            phase: 'STORY',
+          };
+        } else if (node?.type === 'BOSS' && node.enemyPresetId) {
+          // 普通 Boss：战后对话 → 奖励
+          const post = getBossPostDialogue(node.enemyPresetId, run.heroType, 'REWARD');
+          updated = {
+            ...updated,
+            rewardCards: generateRewardCards(run.seed + run.battlesWon),
+            pendingStory: post,
+            phase: post ? 'STORY' : 'REWARD',
+          };
+        } else {
+          updated = {
+            ...updated,
+            rewardCards: generateRewardCards(run.seed + run.battlesWon),
+            phase: 'REWARD',
+          };
+        }
+
+        set({ run: updated });
+      },
+
+      pickRewardCard: (cardId: string) => {
+        const { run } = get();
+        if (!run || !run.rewardCards) return;
+        const card = run.rewardCards.find(c => c.id === cardId);
+        if (!card) return;
+        set({
+          run: {
+            ...run,
+            deck: [...run.deck, card],
+            rewardCards: null,
+            phase: 'MAP',
+          },
+        });
+      },
+
+      skipReward: () => {
+        const { run } = get();
+        if (!run) return;
+        set({ run: { ...run, rewardCards: null, phase: 'MAP' } });
+      },
+
+      resolveEvent: (choiceIndex: number) => {
+        const { run } = get();
+        if (!run || !run.currentEvent) return;
+
+        const choice = run.currentEvent.choices[choiceIndex];
+        if (!choice) return;
+
+        let updated: IRoguelikeRun = { ...run, currentEvent: null };
+
+        switch (choice.effect.type) {
+          case 'GAIN_GOLD':
+            updated = { ...updated, gold: updated.gold + choice.effect.amount };
+            break;
+          case 'LOSE_GOLD': {
+            let hp = updated.hp;
+            // 花钱换补给类事件：从标签解析 HP 奖励
+            const hpMatch = choice.label.match(/\+(\d+)\s*HP/);
+            if (hpMatch) hp = Math.min(updated.maxHp, hp + parseInt(hpMatch[1], 10));
+            updated = { ...updated, gold: Math.max(0, updated.gold - choice.effect.amount), hp };
+            break;
+          }
+          case 'GAIN_HP':
+            updated = { ...updated, hp: Math.min(updated.maxHp, updated.hp + choice.effect.amount) };
+            break;
+          case 'LOSE_HP': {
+            let hp = Math.max(1, updated.hp - choice.effect.amount);
+            let gold = updated.gold;
+            // 血祭类事件：从标签解析金币奖励
+            const goldMatch = choice.label.match(/\+(\d+)\s*金币/);
+            if (goldMatch) gold += parseInt(goldMatch[1], 10);
+            updated = { ...updated, hp, gold };
+            break;
+          }
+          case 'GAIN_CARD':
+            updated = {
+              ...updated,
+              deck: [...updated.deck, { ...choice.effect.card, id: uuid() }],
+            };
+            break;
+          case 'GAIN_PAGE': {
+            const hpCost = choice.effect.hpCost ?? 0;
+            updated = {
+              ...updated,
+              hp: Math.max(1, updated.hp - hpCost),
+              decreePages: updated.decreePages + 1,
+            };
+            break;
+          }
+          case 'REMOVE_CARD':
+            // 由独立 UI 处理，这里直接跳过
+            break;
+          case 'NOTHING':
+          default:
+            break;
+        }
+
+        set({
+          run: {
+            ...updated,
+            nodes: markNodeCompleted(run, run.currentNodeId),
+            phase: 'MAP',
+          },
+        });
+      },
+
+      restHeal: () => {
+        const { run } = get();
+        if (!run) return;
+        set({
+          run: {
+            ...run,
+            hp: Math.min(run.maxHp, run.hp + ROGUELIKE_CONSTANTS.REST_HEAL),
+            nodes: markNodeCompleted(run, run.currentNodeId),
+            phase: 'MAP',
+          },
+        });
+      },
+
+      shopBuyCard: (card: ICard) => {
+        const { run, shopCards } = get();
+        if (!run) return;
+        const cost = card.baseScore * 5;
+        if (run.gold < cost) return;
+        set({
+          run: {
+            ...run,
+            deck: [...run.deck, { ...card, id: uuid() }],
+            gold: run.gold - cost,
+          },
+          shopCards: shopCards.filter(c => c.id !== card.id),
+        });
+      },
+
+      shopRemoveCard: (cardId: string) => {
+        const { run } = get();
+        if (!run) return;
+        if (run.gold < ROGUELIKE_CONSTANTS.SHOP_REMOVE_COST) return;
+        if (run.deck.length <= 5) return;
+        set({
+          run: {
+            ...run,
+            deck: run.deck.filter(c => c.id !== cardId),
+            gold: run.gold - ROGUELIKE_CONSTANTS.SHOP_REMOVE_COST,
+          },
+        });
+      },
+
+      returnToMap: () => {
+        const { run } = get();
+        if (!run) return;
+        set({
+          run: {
+            ...run,
+            nodes: markNodeCompleted(run, run.currentNodeId),
+            phase: 'MAP',
+          },
+        });
+      },
+
+      abandonRun: () => {
+        set({ run: null, shopCards: [] });
+      },
+
+      getReachableNodes: () => {
+        const { run } = get();
+        if (!run) return [];
+        return getReachableStoryNodes(run.nodes, run.currentNodeId, run.routeChosen);
+      },
+
+      refreshShop: () => {
+        const pool = shuffleDeck(createDeck()).slice(0, 5);
+        set({ shopCards: pool });
+      },
+    }),
     {
-      name: 'roguelike-save',
+      name: 'roguelike-save-v2',
       partialize: (state) => ({ run: state.run, shopCards: state.shopCards }),
     },
   ),
 );
-
-function markCurrentNodeCompleted(run: IRoguelikeRun) {
-  if (!run.currentNodeId) return;
-  const node = findNode(run.maps, run.currentNodeId);
-  if (node) node.completed = true;
-}

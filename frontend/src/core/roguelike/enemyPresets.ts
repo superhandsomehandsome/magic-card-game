@@ -2,8 +2,14 @@
  * Roguelike 敌人预设 — 不同难度梯度的 AI 对手
  */
 import { HeroType } from '../../types/game';
+import type { IDecree } from '../../types/game';
 import type { IEnemyPreset, EnemyTier } from '../../types/roguelike';
 import { ROGUELIKE_CONSTANTS } from '../../types/roguelike';
+import { DECREE_POOL } from '../decrees';
+
+function decreeById(id: string): IDecree | undefined {
+  return DECREE_POOL.find(d => d.id === id);
+}
 
 const WEAK_ENEMIES: IEnemyPreset[] = [
   {
@@ -106,14 +112,16 @@ const ELITE_ENEMIES: IEnemyPreset[] = [
 
 const BOSS_ENEMIES: IEnemyPreset[] = [
   {
-    id: 'boss_tyrant',
-    name: '深渊暴君',
+    id: 'boss_mirage',
+    name: '黑市之主 · 蜃',
     tier: 'BOSS',
-    hero: HeroType.INQUISITOR,
-    aggression: 0.85,
-    skill: 0.8,
-    winScore: ROGUELIKE_CONSTANTS.BOSS_WIN_SCORE,
-    goldReward: 80,
+    hero: HeroType.PHANTOM,
+    aggression: 0.7,
+    skill: 0.65,
+    winScore: 90,
+    startingDecree: decreeById('MIDNIGHT_BAZAAR'),
+    goldReward: 60,
+    flavor: '万物皆可成交，价格是你的真实。',
   },
   {
     id: 'boss_dream',
@@ -122,8 +130,10 @@ const BOSS_ENEMIES: IEnemyPreset[] = [
     hero: HeroType.WEAVER,
     aggression: 0.8,
     skill: 0.85,
-    winScore: ROGUELIKE_CONSTANTS.BOSS_WIN_SCORE,
+    winScore: 110,
+    startingDecree: decreeById('PARANOIA'),
     goldReward: 80,
+    flavor: '何必醒来呢？梦里，规则还活着。',
   },
   {
     id: 'boss_echo',
@@ -132,8 +142,33 @@ const BOSS_ENEMIES: IEnemyPreset[] = [
     hero: HeroType.SINGER,
     aggression: 0.9,
     skill: 0.8,
-    winScore: ROGUELIKE_CONSTANTS.BOSS_WIN_SCORE,
+    winScore: 110,
+    startsInverted: true,
     goldReward: 80,
+    flavor: '强者跪下，弱者加冕。',
+  },
+  {
+    id: 'boss_tyrant',
+    name: '深渊暴君',
+    tier: 'BOSS',
+    hero: HeroType.INQUISITOR,
+    aggression: 0.85,
+    skill: 0.85,
+    winScore: ROGUELIKE_CONSTANTS.BOSS_WIN_SCORE,
+    startingDecree: decreeById('IMPRISONMENT'),
+    goldReward: 80,
+    flavor: '碰过魔典的手，没有一只是干净的。',
+  },
+  {
+    id: 'boss_codex',
+    name: '缚典者 · 空白之主',
+    tier: 'BOSS',
+    hero: HeroType.INQUISITOR,
+    aggression: 0.9,
+    skill: 0.9,
+    winScore: ROGUELIKE_CONSTANTS.FINAL_WIN_SCORE,
+    goldReward: 150,
+    flavor: '由你，来写下结论。',
   },
 ];
 
@@ -148,6 +183,12 @@ export function pickEnemy(tier: EnemyTier, seed: number): IEnemyPreset {
   const pool = TIER_MAP[tier];
   const idx = Math.abs(seed) % pool.length;
   return pool[idx];
+}
+
+/** 故事模式：按预设 id 精确取敌人 */
+export function getEnemyById(id: string): IEnemyPreset | null {
+  const all = [...WEAK_ENEMIES, ...NORMAL_ENEMIES, ...ELITE_ENEMIES, ...BOSS_ENEMIES];
+  return all.find(e => e.id === id) ?? null;
 }
 
 export function getEnemyForFloorAndNode(

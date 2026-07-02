@@ -186,7 +186,13 @@ function App() {
     } else if (m === 'ROGUELIKE') {
       setMySlot(0);
       setNetworkMode('LOCAL');
-      setStage('ROGUELIKE_SELECT');
+      // 有未完成的存档 → 直接继续；否则选英雄开新档
+      const savedRun = useRoguelikeStore.getState().run;
+      if (savedRun && savedRun.phase !== 'DEFEAT' && savedRun.phase !== 'VICTORY') {
+        setStage('ROGUELIKE');
+      } else {
+        setStage('ROGUELIKE_SELECT');
+      }
     }
   }, [setNetworkMode, teardownSync]);
 
@@ -353,7 +359,7 @@ function App() {
           useRoguelikeStore.getState().startRun(hero);
           setStage('ROGUELIKE');
         }}
-        title="⛧ 深渊探索 — 选择英雄 ⛧"
+        title="⛧ 坠典 — 选择你的秘术师 ⛧"
       />
     );
   }
